@@ -1,16 +1,18 @@
 {
   "expo": {
-    "name": "jalsarabose-expo-app",
-    "slug": "jalsarabose-expo-app",
+    "name": "잘살아보세",
+    "slug": "jalsarabose",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "jalsaraboseexpoapp",
+    "scheme": "jalsarabose",
     "userInterfaceStyle": "automatic",
     "ios": {
+      "bundleIdentifier": "com.minding97.jalsarabose",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.minding97.jalsarabose",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -28,7 +30,7 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#167C5A",
           "android": {
             "image": "./assets/images/splash-icon.png",
             "imageWidth": 76

@@ -1,56 +1,62 @@
-# Welcome to your Expo app 👋
+# 잘살아보세
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+함께 사는 사람들이 지출, 집안일, 냉장고 재고, 날짜 기반 생활 이벤트를 한 곳에서 관리하는 공동생활 관리 앱입니다.
 
-## Get started
+## 기술 스택
 
-1. Install dependencies
+- Expo + React Native: iOS, Android, Web 프리뷰를 같은 코드베이스로 개발
+- TypeScript: 도메인 모델과 화면 상태를 명확하게 관리
+- Expo Router: 파일 기반 라우팅과 하단 탭 구조
+- Zustand: MVP 단계의 가벼운 클라이언트 상태 관리
+- date-fns: 캘린더, 납부일, 유통기한 계산
+- lucide-react-native: 공통 아이콘 시스템
 
-   ```bash
-   npm install
-   ```
+## MVP 범위
 
-2. Start the app
+- 홈: 오늘의 집안일, 다가오는 지출, 유통기한 임박 항목, 월간 요약
+- 캘린더: 지출, 집안일, 냉장고 유통기한 이벤트 통합 표시
+- 지출: 공과금/생활비 등록 모델, 납부 상태, 월간/유형별 요약
+- 집안일: 담당자, 반복 주기, 점수, 완료 상태, 수행 비율
+- 냉장고: 재고, 보관 위치, 유통기한, 소진/폐기 상태
+- 가구: 가구/가구원/초대 코드 데이터 모델
 
-   ```bash
-   npx expo start
-   ```
+인증, 실시간 공유, 실제 푸시 발송은 다음 단계에서 백엔드 연결과 함께 구현합니다.
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## 실행
 
 ```bash
-npm run reset-project
+npm install
+npm run start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+웹 프리뷰:
 
-### Other setup steps
+```bash
+npm run web
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+정적 웹 빌드:
 
-## Learn more
+```bash
+npx expo export --platform web
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+## 프로젝트 구조
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```text
+src/app/                 Expo Router 화면
+src/components/app/      앱 공통 UI 컴포넌트
+src/data/                MVP 샘플 데이터
+src/domain/              PRD 기반 타입과 라벨
+src/store/               클라이언트 상태 저장소
+src/utils/               날짜/대시보드 계산 유틸
+docs/                    제품/아키텍처 문서
+```
 
-## Join the community
+## 다음 개발 순서
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+1. 디자인 확정 후 `src/components/app`의 토큰과 컴포넌트 스타일 반영
+2. Firebase 또는 Supabase 중 백엔드 선택
+3. 회원가입/로그인, 가구 생성, 초대 코드 플로우 구현
+4. 지출/집안일/냉장고 등록 및 수정 폼 구현
+5. Expo Notifications 기반 로컬/푸시 알림 연결
