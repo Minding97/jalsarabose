@@ -6,7 +6,7 @@ Expo + React Native + TypeScript를 기준으로 시작한다. 모바일 앱, �
 
 ## 현재 단계
 
-현재 코드는 백엔드 연결 전의 MVP 앱 골격이다. 도메인 타입, 샘플 데이터, 화면별 요약 계산, 하단 탭 구조를 먼저 고정했다.
+현재 코드는 Firebase 연결이 가능한 MVP 앱 골격이다. Firebase 설정이 있으면 Auth/Firestore를 사용하고, `EXPO_PUBLIC_USE_MOCKS=true`이면 샘플 데이터로 화면을 확인한다.
 
 ## 화면 구조
 
@@ -16,18 +16,23 @@ Expo + React Native + TypeScript를 기준으로 시작한다. 모바일 앱, �
 - `src/app/chores.tsx`: 집안일 목록과 완료 처리
 - `src/app/fridge.tsx`: 냉장고 재고와 소진/폐기 처리
 
-## 백엔드 연결 후보
+## 백엔드
 
-### Firebase
+Firebase Auth + Firestore를 MVP 백엔드로 사용한다.
 
 - Auth, Firestore, Cloud Messaging 레퍼런스가 넓다.
 - 가구 단위 실시간 공유와 푸시 알림까지 한 제품군에서 처리하기 쉽다.
 - Expo와 함께 쓰는 사례가 많다.
 
-### Supabase
+## 데이터 계층
 
-- Postgres 기반 관계형 모델이 명확하다.
-- SQL, Row Level Security, Realtime을 이용한 데이터 권한 설계가 좋다.
-- 푸시 알림은 별도 서비스 또는 Edge Function 설계가 필요하다.
+- 화면은 Firebase SDK를 직접 호출하지 않는다.
+- `src/services`가 Auth/Firestore 접근을 담당한다.
+- `src/store/household-store.ts`가 인증 상태, 가구 상태, 실시간 구독, mock 모드를 관리한다.
+- `src/utils/dashboard.ts`는 Firestore에서 온 데이터와 mock 데이터를 같은 방식으로 계산한다.
 
-초기 MVP는 푸시 알림 요구가 강하므로 Firebase를 1순위 후보로 둔다.
+## 배포 전 필수 작업
+
+- `firestore.rules`를 실제 Firebase 프로젝트에 배포한다.
+- `EXPO_PUBLIC_USE_MOCKS=false` 상태에서 회원가입, 가구 생성, 초대 코드 참여를 검증한다.
+- Firestore Security Rules 테스트를 Firebase Emulator 또는 Console Rules Playground에서 수행한다.

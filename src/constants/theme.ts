@@ -1,48 +1,49 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
 import '@/global.css';
 
 import { Platform } from 'react-native';
 
 export const Colors = {
   light: {
-    text: '#17211B',
-    background: '#F7F9F6',
+    text: '#1E1C1A',
+    background: '#FAF9F5',
     backgroundElement: '#FFFFFF',
-    backgroundSelected: '#E6F4ED',
-    textSecondary: '#617067',
-    border: '#DCE5DD',
-    primary: '#167C5A',
-    primarySoft: '#DDF5EA',
-    accent: '#EC6F5E',
-    accentSoft: '#FFE6E0',
-    warning: '#A66A10',
-    warningSoft: '#FFF2C9',
-    danger: '#C94747',
-    dangerSoft: '#FFE0E0',
-    info: '#2C6EBD',
-    infoSoft: '#E3F0FF',
+    backgroundSelected: '#E3F8EC',
+    frameOutside: '#EDEAE4',
+    chip: '#F1EFEA',
+    textSecondary: '#8C877F',
+    textTertiary: '#B5B0A8',
+    border: '#ECE8E1',
+    primary: '#17B854',
+    primarySoft: '#E3F8EC',
+    accent: '#17B854',
+    accentSoft: '#E3F8EC',
+    warning: '#C67B28',
+    warningSoft: '#FFF1DC',
+    danger: '#C85C52',
+    dangerSoft: '#FCE9E7',
+    info: '#5D7970',
+    infoSoft: '#EAF1EE',
   },
   dark: {
-    text: '#F3F7F4',
-    background: '#101713',
-    backgroundElement: '#18231D',
-    backgroundSelected: '#203A2D',
-    textSecondary: '#B4C2B9',
-    border: '#2B3A31',
-    primary: '#72D7AA',
-    primarySoft: '#123D2C',
-    accent: '#FF9B8D',
-    accentSoft: '#4B211C',
-    warning: '#F2C166',
-    warningSoft: '#3B2B10',
-    danger: '#FF8D8D',
-    dangerSoft: '#461D1D',
-    info: '#8DBDFF',
-    infoSoft: '#182E4C',
+    text: '#1E1C1A',
+    background: '#FAF9F5',
+    backgroundElement: '#FFFFFF',
+    backgroundSelected: '#E3F8EC',
+    frameOutside: '#EDEAE4',
+    chip: '#F1EFEA',
+    textSecondary: '#8C877F',
+    textTertiary: '#B5B0A8',
+    border: '#ECE8E1',
+    primary: '#17B854',
+    primarySoft: '#E3F8EC',
+    accent: '#17B854',
+    accentSoft: '#E3F8EC',
+    warning: '#C67B28',
+    warningSoft: '#FFF1DC',
+    danger: '#C85C52',
+    dangerSoft: '#FCE9E7',
+    info: '#5D7970',
+    infoSoft: '#EAF1EE',
   },
 } as const;
 
@@ -77,11 +78,11 @@ export const Spacing = {
   half: 2,
   one: 4,
   two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
+  three: 12,
+  four: 16,
+  five: 20,
+  six: 24,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+export const BottomTabInset = Platform.select({ ios: 20, android: 24 }) ?? 0;
+export const MaxContentWidth = 402;

@@ -76,6 +76,7 @@ export type FridgeItem = {
   memo?: string;
   createdBy: ID;
   createdAt: ISODate;
+  notificationEnabled: boolean;
 };
 
 export type HouseholdSnapshot = {
@@ -96,3 +97,51 @@ export type HouseholdEvent = {
   status: string;
   tone: 'primary' | 'accent' | 'warning' | 'danger' | 'info';
 };
+
+export type UserProfile = {
+  uid: ID;
+  email: string;
+  displayName: string;
+  activeHouseholdId?: ID | null;
+  createdAt: ISODate;
+  updatedAt: ISODate;
+};
+
+export type ExpenseInput = Pick<
+  Expense,
+  | 'title'
+  | 'category'
+  | 'amount'
+  | 'dueDate'
+  | 'paymentMethod'
+  | 'payerId'
+  | 'splitRatio'
+  | 'isRecurring'
+  | 'status'
+  | 'memo'
+  | 'notificationEnabled'
+>;
+
+export type ChoreInput = Pick<
+  Chore,
+  | 'title'
+  | 'assigneeId'
+  | 'dueDate'
+  | 'repeatCycle'
+  | 'score'
+  | 'status'
+  | 'memo'
+  | 'notificationEnabled'
+>;
+
+export type FridgeItemInput = Pick<
+  FridgeItem,
+  | 'name'
+  | 'category'
+  | 'quantity'
+  | 'storageType'
+  | 'expiryDate'
+  | 'status'
+  | 'memo'
+  | 'notificationEnabled'
+>;

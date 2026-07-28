@@ -12,9 +12,16 @@ import {
   ISODate,
 } from '@/domain/types';
 import { daysUntil, formatKoreanDate, fromIsoDate } from '@/utils/dates';
+import { getReminderCandidates } from '@/utils/reminder-policy';
 
 export function getMemberName(members: HouseholdMember[], memberId?: string): string {
-  return members.find((member) => member.id === memberId)?.name ?? '미지정';
+  const memberIndex = members.findIndex((member) => member.id === memberId);
+  return memberIndex >= 0 ? getMemberDisplayName(members[memberIndex], memberIndex) : '미지정';
+}
+
+export function getMemberDisplayName(member: HouseholdMember, index: number): string {
+  const name = member.name.trim();
+  return !name || name.includes('@') ? `가구원 ${index + 1}` : name;
 }
 
 export function getCalendarEvents(snapshot: HouseholdSnapshot): HouseholdEvent[] {
@@ -59,6 +66,21 @@ export function getHomeSummary(snapshot: HouseholdSnapshot, today: ISODate) {
     expiringFridgeItems,
     monthlyExpenseTotal: getExpenseSummary(snapshot, today).total,
     choreContribution: getChoreSummary(snapshot, today).contribution,
+    notificationSummary: getNotificationSummary(snapshot, today),
+  };
+}
+
+export function getNotificationSummary(snapshot: HouseholdSnapshot, today: ISODate) {
+  const candidates = getReminderCandidates(snapshot, today);
+  const expenseCount = candidates.filter((candidate) => candidate.type === 'expense').length;
+  const choreCount = candidates.filter((candidate) => candidate.type === 'chore').length;
+  const fridgeCount = candidates.filter((candidate) => candidate.type === 'fridge').length;
+
+  return {
+    expenseCount,
+    choreCount,
+    fridgeCount,
+    totalCount: expenseCount + choreCount + fridgeCount,
   };
 }
 
@@ -152,14 +174,14 @@ function getChoreContribution(members: HouseholdMember[], chores: Chore[]) {
   const completedChores = chores.filter((chore) => chore.status === 'done');
   const totalScore = completedChores.reduce((sum, chore) => sum + chore.score, 0);
 
-  return members.map((member) => {
+  return members.map((member, index) => {
     const completedScore = completedChores
       .filter((chore) => chore.assigneeId === member.id)
       .reduce((sum, chore) => sum + chore.score, 0);
 
     return {
       memberId: member.id,
-      name: member.name,
+      name: getMemberDisplayName(member, index),
       completedScore,
       ratio: totalScore === 0 ? 0 : Math.round((completedScore / totalScore) * 100),
     };

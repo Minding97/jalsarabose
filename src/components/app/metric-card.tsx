@@ -1,7 +1,7 @@
 import { ComponentType } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Spacing, ThemeColor } from '@/constants/theme';
+import { ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type MetricTone = 'primary' | 'accent' | 'warning' | 'info';
@@ -46,17 +46,19 @@ export function MetricCard({ label, value, tone, icon: Icon }: MetricCardProps) 
           borderColor: theme.border,
         },
       ]}>
-      <View style={[styles.iconCircle, { backgroundColor: theme[toneBackground[tone]] }]}>
-        {Icon ? (
-          <Icon color={color} size={18} strokeWidth={2.4} />
-        ) : (
-          <View style={[styles.dot, { backgroundColor: color }]} />
-        )}
-      </View>
-      <Text style={[styles.value, { color: theme.text }]}>{value}</Text>
       <Text style={[styles.label, { color: theme.textSecondary }]} numberOfLines={1}>
         {label}
       </Text>
+      <View style={styles.valueRow}>
+        <Text style={[styles.value, { color: tone === 'accent' ? theme.primary : theme.text }]}>
+          {value}
+        </Text>
+        {Icon ? (
+          <View style={[styles.iconCircle, { backgroundColor: theme[toneBackground[tone]] }]}>
+            <Icon color={color} size={16} strokeWidth={2.2} />
+          </View>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -64,32 +66,34 @@ export function MetricCard({ label, value, tone, icon: Icon }: MetricCardProps) 
 const styles = StyleSheet.create({
   card: {
     width: '48.5%',
-    minHeight: 118,
+    minHeight: 98,
     borderWidth: 1,
-    borderRadius: 8,
-    padding: Spacing.three,
-    justifyContent: 'space-between',
+    borderRadius: 18,
+    padding: 16,
+    gap: 8,
   },
   iconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  valueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 6,
   },
   value: {
     fontSize: 22,
     lineHeight: 28,
-    fontWeight: '900',
+    fontWeight: '800',
+    flexShrink: 1,
   },
   label: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: '700',
+    fontWeight: '500',
   },
 });

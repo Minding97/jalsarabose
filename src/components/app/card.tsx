@@ -1,11 +1,10 @@
 import { PropsWithChildren } from 'react';
 import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 
-import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type CardProps = PropsWithChildren<{
-  title: string;
+  title?: string;
   style?: ViewStyle;
 }>;
 
@@ -19,7 +18,7 @@ export function Card({ title, children, style }: CardProps) {
         { backgroundColor: theme.backgroundElement, borderColor: theme.border },
         style,
       ]}>
-      <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
+      {title ? <Text style={[styles.title, { color: theme.text }]}>{title}</Text> : null}
       <View style={styles.content}>{children}</View>
     </View>
   );
@@ -28,16 +27,16 @@ export function Card({ title, children, style }: CardProps) {
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderRadius: 8,
-    padding: Spacing.three,
-    gap: Spacing.three,
+    borderRadius: 18,
+    padding: 16,
+    gap: 12,
   },
   title: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '800',
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '700',
   },
   content: {
-    gap: Spacing.two,
+    gap: 8,
   },
 });

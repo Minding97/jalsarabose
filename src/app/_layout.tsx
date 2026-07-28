@@ -1,15 +1,21 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
+import { DefaultTheme, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from 'react-native';
+import { useEffect } from 'react';
+import { Platform } from 'react-native';
 
-import AppTabs from '@/components/app-tabs';
+import { AppShell } from '@/components/app-shell';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      void import('@/services/notification-service');
+    }
+  }, []);
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
-      <AppTabs />
+    <ThemeProvider value={DefaultTheme}>
+      <StatusBar style="dark" />
+      <AppShell />
     </ThemeProvider>
   );
 }

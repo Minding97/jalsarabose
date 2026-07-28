@@ -32,10 +32,11 @@ export function ListRow({ title, description, right }: ListRowProps) {
 
 const styles = StyleSheet.create({
   row: {
-    minHeight: 58,
+    minHeight: 60,
     borderWidth: 1,
-    borderRadius: 8,
-    padding: Spacing.two,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
@@ -46,9 +47,9 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   title: {
-    fontSize: 15,
+    fontSize: 14,
     lineHeight: 20,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   description: {
     fontSize: 13,

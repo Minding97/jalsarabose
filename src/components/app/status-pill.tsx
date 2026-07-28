@@ -38,15 +38,15 @@ export function StatusPill({ label, tone }: StatusPillProps) {
 
 const styles = StyleSheet.create({
   pill: {
-    minHeight: 30,
-    borderRadius: 8,
-    paddingHorizontal: 9,
+    minHeight: 26,
+    borderRadius: 100,
+    paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   label: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: '900',
+    fontWeight: '700',
   },
 });

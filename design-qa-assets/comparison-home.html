@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>잘살아보세 디자인 비교</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 24px;
+        background: #edeae4;
+        color: #1e1c1a;
+        font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', sans-serif;
+      }
+
+      main {
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 24px;
+      }
+
+      figure {
+        width: 402px;
+        margin: 0;
+      }
+
+      figcaption {
+        height: 32px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      img {
+        display: block;
+        width: 402px;
+        height: 874px;
+        border: 1px solid #d8d3cb;
+        background: #faf9f5;
+        object-fit: cover;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <figure>
+        <figcaption>원본 handoff HTML 캡처</figcaption>
+        <img src="./reference-home-402x874.png" alt="원본 디자인 캡처" />
+      </figure>
+      <figure>
+        <figcaption>Expo 구현 캡처</figcaption>
+        <img src="./implementation-home-final.png" alt="구현 화면 캡처" />
+      </figure>
+    </main>
+  </body>
+</html>

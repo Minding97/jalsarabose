@@ -159,6 +159,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         memo: '개봉함',
         createdBy: minseoId,
         createdAt: today,
+        notificationEnabled: true,
       },
       {
         id: 'fridge-eggs',
@@ -171,6 +172,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         status: 'stocked',
         createdBy: jihoonId,
         createdAt: today,
+        notificationEnabled: true,
       },
       {
         id: 'fridge-kimchi',
@@ -182,6 +184,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         status: 'stocked',
         createdBy: minseoId,
         createdAt: yesterday,
+        notificationEnabled: false,
       },
       {
         id: 'fridge-frozen-meat',
@@ -194,6 +197,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         status: 'stocked',
         createdBy: jihoonId,
         createdAt: today,
+        notificationEnabled: true,
       },
     ],
   };

@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; box-sizing: border-box; }
+    * { box-sizing: border-box; font-family: 'Noto Sans KR', -apple-system, system-ui, sans-serif; }
+    ::-webkit-scrollbar { display: none; }
+  </style>
+</helmet>
+<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#EDEAE4;padding:40px 0;">
+  <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" hint-size="402,874">
+    <div style="position:relative;height:100%;display:flex;flex-direction:column;background:#FAF9F5;overflow:hidden;">
+
+      <div style="flex:1;overflow:auto;-ms-overflow-style:none;">
+
+        <!-- ===================== HOME ===================== -->
+        <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:72px 20px 24px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div>
+                <div style="font-size:13px;color:#8C877F;margin-bottom:4px;">{{ todayDateLabel }}</div>
+                <div style="font-size:24px;font-weight:800;color:#1E1C1A;">{{ greetingName }}님, 안녕하세요</div>
+              </div>
+              <div onClick="{{ onOpenMypage }}" style="width:40px;height:40px;border-radius:20px;background:#2B2A28;color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;cursor:pointer;flex-shrink:0;">{{ greetingInitial }}</div>
+            </div>
+
+            <div style="display:flex;gap:8px;margin-top:16px;">
+              <sc-for list="{{ homeMembers }}" as="m" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #ECE8E1;border-radius:100px;padding:6px 12px 6px 6px;">
+                  <div style="width:22px;height:22px;border-radius:11px;background:{{ m.bg }};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;">{{ m.initial }}</div>
+                  <span style="font-size:13px;color:#1E1C1A;font-weight:500;">{{ m.name }}</span>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="margin-top:22px;background:#fff;border-radius:20px;padding:18px;border:1px solid #ECE8E1;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                <span style="font-size:15px;font-weight:700;color:#1E1C1A;">오늘 일정</span>
+                <span onClick="{{ onGoCalendar }}" style="font-size:12px;color:#8C877F;cursor:pointer;">캘린더 보기</span>
+              </div>
+              <sc-if value="{{ homeTodayHasEvents }}" hint-placeholder-val="{{ true }}">
+                <sc-for list="{{ homeTodayEvents }}" as="ev" hint-placeholder-count="1">
+                  <div style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+                    <div style="width:6px;height:6px;border-radius:3px;background:#17B854;flex-shrink:0;"></div>
+                    <span style="font-size:14px;color:#1E1C1A;flex:1;">{{ ev.title }}</span>
+                    <span style="font-size:13px;color:#8C877F;">{{ ev.time }}</span>
+                  </div>
+                </sc-for>
+              </sc-if>
+              <sc-if value="{{ homeTodayEmpty }}">
+                <div style="font-size:13px;color:#8C877F;padding:6px 0;">오늘 등록된 일정이 없어요</div>
+              </sc-if>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+              <div onClick="{{ onGoExpense }}" style="background:#fff;border-radius:20px;padding:16px;border:1px solid #ECE8E1;cursor:pointer;">
+                <div style="font-size:12px;color:#8C877F;margin-bottom:6px;">이번 달 지출</div>
+                <div style="font-size:19px;font-weight:800;color:#1E1C1A;">{{ homeExpenseTotalLabel }}</div>
+                <div style="font-size:12px;color:#8C877F;margin-top:4px;">1인당 {{ homeExpensePerPersonLabel }}</div>
+              </div>
+              <div onClick="{{ onGoFridge }}" style="background:#fff;border-radius:20px;padding:16px;border:1px solid #ECE8E1;cursor:pointer;">
+                <div style="font-size:12px;color:#8C877F;margin-bottom:6px;">유통기한 임박</div>
+                <div style="font-size:19px;font-weight:800;color:#17B854;">{{ homeFridgeAlertCount }}건</div>
+                <div style="font-size:12px;color:#8C877F;margin-top:4px;">{{ homeFridgeAlertNames }}</div>
+              </div>
+            </div>
+
+            <div onClick="{{ onGoChores }}" style="margin-top:12px;background:#fff;border-radius:20px;padding:16px;border:1px solid #ECE8E1;cursor:pointer;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <span style="font-size:15px;font-weight:700;color:#1E1C1A;">오늘의 집안일</span>
+                <span style="font-size:12px;color:#8C877F;">{{ homeChoresDoneLabel }}</span>
+              </div>
+              <sc-for list="{{ homeChoresToday }}" as="c" hint-placeholder-count="2">
+                <div style="display:flex;align-items:center;gap:10px;padding:6px 0;">
+                  <div style="width:20px;height:20px;border-radius:10px;background:{{ c.avatarBg }};color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ c.initial }}</div>
+                  <span style="font-size:14px;color:#1E1C1A;flex:1;">{{ c.title }}</span>
+                  <span style="font-size:13px;color:{{ c.statusColor }};font-weight:600;">{{ c.statusLabel }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ===================== CALENDAR ===================== -->
+        <sc-if value="{{ isCalendar }}">
+          <div style="padding:72px 20px 24px;">
+            <div style="font-size:24px;font-weight:800;color:#1E1C1A;margin-bottom:16px;">캘린더</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+              <div onClick="{{ onPrevMonth }}" style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#8C877F;font-size:18px;">‹</div>
+              <div style="font-size:16px;font-weight:700;color:#1E1C1A;">{{ calMonthLabel }}</div>
+              <div onClick="{{ onNextMonth }}" style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#8C877F;font-size:18px;">›</div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:12px;color:#8C877F;margin-bottom:6px;">
+              <div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);row-gap:4px;">
+              <sc-for list="{{ calDays }}" as="d" hint-placeholder-count="42">
+                <div onClick="{{ d.onClick }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;cursor:pointer;opacity:{{ d.opacity }};">
+                  <div style="width:30px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ d.weight }};background:{{ d.bg }};color:{{ d.color }};">{{ d.dayNum }}</div>
+                  <div style="width:4px;height:4px;border-radius:2px;background:#17B854;opacity:{{ d.dotOpacity }};"></div>
+                </div>
+              </sc-for>
+            </div>
+
+            <div style="margin-top:20px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <span style="font-size:15px;font-weight:700;color:#1E1C1A;">{{ selectedDateLabel }}</span>
+                <div onClick="{{ onOpenAddEvent }}" style="width:28px;height:28px;border-radius:14px;background:#E3F8EC;color:#17B854;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;cursor:pointer;">+</div>
+              </div>
+
+              <sc-if value="{{ calAdding }}">
+                <div style="background:#fff;border:1px solid #ECE8E1;border-radius:16px;padding:14px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;">
+                  <input value="{{ newEventTitle }}" onChange="{{ onChangeNewEventTitle }}" placeholder="일정 제목" style="border:1px solid #ECE8E1;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" />
+                  <input value="{{ newEventTime }}" onChange="{{ onChangeNewEventTime }}" placeholder="시간 (예: 19:00)" style="border:1px solid #ECE8E1;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" />
+                  <div style="display:flex;gap:8px;margin-top:4px;">
+                    <div onClick="{{ onCancelAddEvent }}" style="flex:1;text-align:center;padding:10px;border-radius:10px;background:#F1EFEA;color:#8C877F;font-size:14px;font-weight:600;cursor:pointer;">취소</div>
+                    <div onClick="{{ onSaveEvent }}" style="flex:1;text-align:center;padding:10px;border-radius:10px;background:#17B854;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">추가</div>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ selectedEventsEmpty }}">
+                <div style="text-align:center;padding:30px 0;color:#8C877F;font-size:13px;">일정이 없어요</div>
+              </sc-if>
+              <sc-for list="{{ selectedEvents }}" as="ev" hint-placeholder-count="1">
+                <div style="display:flex;align-items:center;gap:10px;background:#fff;border:1px solid #ECE8E1;border-radius:14px;padding:12px 14px;margin-bottom:8px;">
+                  <div style="width:6px;height:6px;border-radius:3px;background:#17B854;flex-shrink:0;"></div>
+                  <div style="flex:1;">
+                    <div style="font-size:14px;color:#1E1C1A;font-weight:500;">{{ ev.title }}</div>
+                    <div style="font-size:12px;color:#8C877F;">{{ ev.time }}</div>
+                  </div>
+                  <div onClick="{{ ev.onDelete }}" style="font-size:12px;color:#B5B0A8;cursor:pointer;">삭제</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ===================== EXPENSE ===================== -->
+        <sc-if value="{{ isExpense }}">
+          <sc-if value="{{ expenseFormOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:72px 20px 100px;">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+                <div onClick="{{ onCancelExpenseForm }}" style="font-size:20px;color:#8C877F;cursor:pointer;">‹</div>
+                <div style="font-size:20px;font-weight:800;color:#1E1C1A;">{{ expenseFormTitle }}</div>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:6px;">금액</div>
+              <input value="{{ expenseDraftAmount }}" onChange="{{ onChangeExpenseAmount }}" placeholder="0" inputmode="numeric" style="width:100%;border:1px solid #ECE8E1;border-radius:12px;padding:14px;font-size:20px;font-weight:700;outline:none;margin-bottom:16px;" />
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:6px;">항목명</div>
+              <input value="{{ expenseDraftTitle }}" onChange="{{ onChangeExpenseTitle }}" placeholder="예: 주간 장보기" style="width:100%;border:1px solid #ECE8E1;border-radius:12px;padding:12px 14px;font-size:15px;outline:none;margin-bottom:16px;" />
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">카테고리</div>
+              <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                <sc-for list="{{ expenseCategoryChips }}" as="c" hint-placeholder-count="4">
+                  <div onClick="{{ c.onClick }}" style="padding:9px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ c.bg }};color:{{ c.color }};">{{ c.label }}</div>
+                </sc-for>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">결제자</div>
+              <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <sc-for list="{{ expensePayerChips }}" as="p" hint-placeholder-count="2">
+                  <div onClick="{{ p.onClick }}" style="padding:9px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ p.bg }};color:{{ p.color }};">{{ p.label }}</div>
+                </sc-for>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">분배 방식</div>
+              <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <sc-for list="{{ expenseSplitChips }}" as="s" hint-placeholder-count="2">
+                  <div onClick="{{ s.onClick }}" style="padding:9px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ s.bg }};color:{{ s.color }};">{{ s.label }}</div>
+                </sc-for>
+              </div>
+
+              <sc-if value="{{ expenseIsCustomSplit }}">
+                <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+                  <sc-for list="{{ expenseShareRows }}" as="r" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <span style="font-size:13px;color:#1E1C1A;width:40px;">{{ r.name }}</span>
+                      <input value="{{ r.value }}" onChange="{{ r.onChange }}" placeholder="0" inputmode="numeric" style="flex:1;border:1px solid #ECE8E1;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" />
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+
+              <div style="display:flex;gap:10px;margin-top:8px;">
+                <sc-if value="{{ expenseIsEditing }}">
+                  <div onClick="{{ onDeleteExpense }}" style="flex:1;text-align:center;padding:14px;border-radius:12px;background:#F1EFEA;color:#8C877F;font-size:15px;font-weight:700;cursor:pointer;">삭제</div>
+                </sc-if>
+                <div onClick="{{ onSaveExpense }}" style="flex:2;text-align:center;padding:14px;border-radius:12px;background:#17B854;color:#fff;font-size:15px;font-weight:700;cursor:pointer;">저장</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ expenseListOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="padding:72px 20px 100px;">
+              <div style="font-size:24px;font-weight:800;color:#1E1C1A;margin-bottom:14px;">지출</div>
+              <div style="display:flex;gap:8px;margin-bottom:18px;">
+                <div onClick="{{ onSetExpenseListView }}" style="flex:1;text-align:center;padding:10px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;background:{{ expenseListTabBg }};color:{{ expenseListTabColor }};">목록</div>
+                <div onClick="{{ onSetExpenseDashView }}" style="flex:1;text-align:center;padding:10px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;background:{{ expenseDashTabBg }};color:{{ expenseDashTabColor }};">대시보드</div>
+              </div>
+
+              <sc-if value="{{ expenseViewIsList }}" hint-placeholder-val="{{ true }}">
+                <sc-for list="{{ expenseGroups }}" as="g" hint-placeholder-count="2">
+                  <div style="margin-bottom:16px;">
+                    <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">{{ g.dateLabel }}</div>
+                    <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="1">
+                      <div onClick="{{ it.onClick }}" style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #ECE8E1;border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;">
+                        <div style="width:36px;height:36px;border-radius:12px;background:#F1EFEA;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#8C877F;flex-shrink:0;">{{ it.categoryShort }}</div>
+                        <div style="flex:1;">
+                          <div style="font-size:14px;color:#1E1C1A;font-weight:600;">{{ it.title }}</div>
+                          <div style="font-size:12px;color:#8C877F;">{{ it.payerName }} 결제 · {{ it.splitLabel }}</div>
+                        </div>
+                        <div style="font-size:15px;font-weight:700;color:#1E1C1A;">{{ it.amountLabel }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </sc-if>
+
+              <sc-if value="{{ expenseViewIsDash }}">
+                <div style="background:#fff;border:1px solid #ECE8E1;border-radius:18px;padding:18px;margin-bottom:14px;">
+                  <div style="font-size:13px;color:#8C877F;margin-bottom:4px;">이번 달 총 지출</div>
+                  <div style="font-size:26px;font-weight:800;color:#1E1C1A;">{{ expenseMonthTotalLabel }}</div>
+                  <div style="font-size:13px;color:#8C877F;margin-top:2px;">1인당 {{ expensePerPersonLabel }}</div>
+                </div>
+
+                <div style="font-size:14px;font-weight:700;color:#1E1C1A;margin-bottom:10px;">카테고리별 지출</div>
+                <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+                  <sc-for list="{{ expenseCategoryBars }}" as="b" hint-placeholder-count="4">
+                    <div>
+                      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                        <span style="color:#1E1C1A;font-weight:500;">{{ b.label }}</span>
+                        <span style="color:#8C877F;">{{ b.amountLabel }}</span>
+                      </div>
+                      <div style="height:8px;background:#F1EFEA;border-radius:4px;overflow:hidden;">
+                        <div style="height:100%;width:{{ b.pct }}%;background:#17B854;border-radius:4px;"></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="font-size:14px;font-weight:700;color:#1E1C1A;margin-bottom:10px;">정산</div>
+                <div style="background:#fff;border:1px solid #ECE8E1;border-radius:16px;padding:14px;">
+                  <sc-if value="{{ settlementSettled }}">
+                    <div style="font-size:13px;color:#8C877F;">정산할 금액이 없어요</div>
+                  </sc-if>
+                  <sc-if value="{{ settlementNeeded }}">
+                    <div style="font-size:14px;color:#1E1C1A;">
+                      <span style="font-weight:700;">{{ settlementFrom }}</span>님이
+                      <span style="font-weight:700;">{{ settlementTo }}</span>님에게
+                      <span style="font-weight:700;color:#17B854;">{{ settlementAmountLabel }}</span> 보내면 정산 완료
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <!-- ===================== CHORES ===================== -->
+        <sc-if value="{{ isChores }}">
+          <sc-if value="{{ choreFormOpen }}">
+            <div style="padding:72px 20px 100px;">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+                <div onClick="{{ onCancelChoreForm }}" style="font-size:20px;color:#8C877F;cursor:pointer;">‹</div>
+                <div style="font-size:20px;font-weight:800;color:#1E1C1A;">{{ choreFormTitle }}</div>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:6px;">집안일 이름</div>
+              <input value="{{ choreDraftTitle }}" onChange="{{ onChangeChoreTitle }}" placeholder="예: 설거지" style="width:100%;border:1px solid #ECE8E1;border-radius:12px;padding:12px 14px;font-size:15px;outline:none;margin-bottom:16px;" />
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">반복 주기</div>
+              <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <sc-for list="{{ choreCycleChips }}" as="c" hint-placeholder-count="3">
+                  <div onClick="{{ c.onClick }}" style="padding:9px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ c.bg }};color:{{ c.color }};">{{ c.label }}</div>
+                </sc-for>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">이번 차례 담당자</div>
+              <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <sc-for list="{{ choreFirstChips }}" as="f" hint-placeholder-count="2">
+                  <div onClick="{{ f.onClick }}" style="padding:9px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ f.bg }};color:{{ f.color }};">{{ f.label }}</div>
+                </sc-for>
+              </div>
+              <div style="font-size:12px;color:#8C877F;margin-bottom:16px;">다음 차례부터 {{ choreRotationPreview }} 순서로 자동 순환돼요</div>
+
+              <div style="display:flex;gap:10px;margin-top:8px;">
+                <sc-if value="{{ choreIsEditing }}">
+                  <div onClick="{{ onDeleteChore }}" style="flex:1;text-align:center;padding:14px;border-radius:12px;background:#F1EFEA;color:#8C877F;font-size:15px;font-weight:700;cursor:pointer;">삭제</div>
+                </sc-if>
+                <div onClick="{{ onSaveChore }}" style="flex:2;text-align:center;padding:14px;border-radius:12px;background:#17B854;color:#fff;font-size:15px;font-weight:700;cursor:pointer;">저장</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ choreListOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="padding:72px 20px 100px;">
+              <div style="font-size:24px;font-weight:800;color:#1E1C1A;margin-bottom:14px;">집안일</div>
+              <div style="display:flex;gap:8px;margin-bottom:18px;">
+                <div onClick="{{ onSetChoreListView }}" style="flex:1;text-align:center;padding:10px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;background:{{ choreListTabBg }};color:{{ choreListTabColor }};">목록</div>
+                <div onClick="{{ onSetChoreDashView }}" style="flex:1;text-align:center;padding:10px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;background:{{ choreDashTabBg }};color:{{ choreDashTabColor }};">대시보드</div>
+              </div>
+
+              <sc-if value="{{ choreViewIsList }}" hint-placeholder-val="{{ true }}">
+                <sc-for list="{{ choreItems }}" as="c" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #ECE8E1;border-radius:14px;padding:12px 14px;margin-bottom:8px;">
+                    <div onClick="{{ c.onToggle }}" style="width:26px;height:26px;border-radius:13px;border:2px solid {{ c.checkBorder }};background:{{ c.checkBg }};display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;color:#fff;font-size:14px;font-weight:700;">{{ c.checkMark }}</div>
+                    <div onClick="{{ c.onEdit }}" style="flex:1;cursor:pointer;">
+                      <div style="font-size:14px;color:#1E1C1A;font-weight:600;">{{ c.title }}</div>
+                      <div style="font-size:12px;color:#8C877F;">{{ c.cycleLabel }} · {{ c.assigneeName }} 담당</div>
+                    </div>
+                    <div style="width:26px;height:26px;border-radius:13px;background:{{ c.avatarBg }};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ c.avatarInitial }}</div>
+                  </div>
+                </sc-for>
+              </sc-if>
+
+              <sc-if value="{{ choreViewIsDash }}">
+                <div style="background:#fff;border:1px solid #ECE8E1;border-radius:18px;padding:18px;margin-bottom:16px;">
+                  <div style="font-size:13px;color:#8C877F;margin-bottom:4px;">오늘 수행률</div>
+                  <div style="font-size:26px;font-weight:800;color:#1E1C1A;">{{ choreCompletionPct }}%</div>
+                  <div style="height:8px;background:#F1EFEA;border-radius:4px;overflow:hidden;margin-top:10px;">
+                    <div style="height:100%;width:{{ choreCompletionPct }}%;background:#17B854;border-radius:4px;"></div>
+                  </div>
+                </div>
+
+                <div style="font-size:14px;font-weight:700;color:#1E1C1A;margin-bottom:10px;">이번 주 수행 현황</div>
+                <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;">
+                  <sc-for list="{{ choreMemberBars }}" as="m" hint-placeholder-count="2">
+                    <div>
+                      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                        <span style="color:#1E1C1A;font-weight:500;">{{ m.name }}</span>
+                        <span style="color:#8C877F;">{{ m.count }}건</span>
+                      </div>
+                      <div style="height:8px;background:#F1EFEA;border-radius:4px;overflow:hidden;">
+                        <div style="height:100%;width:{{ m.pct }}%;background:{{ m.bg }};border-radius:4px;"></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="font-size:14px;font-weight:700;color:#1E1C1A;margin-bottom:10px;">로테이션 순서</div>
+                <sc-for list="{{ choreRotationList }}" as="r" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid #ECE8E1;border-radius:12px;padding:10px 14px;margin-bottom:8px;font-size:13px;">
+                    <span style="color:#1E1C1A;font-weight:600;">{{ r.title }}</span>
+                    <span style="color:#8C877F;">{{ r.orderLabel }}</span>
+                  </div>
+                </sc-for>
+              </sc-if>
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <!-- ===================== FRIDGE ===================== -->
+        <sc-if value="{{ isFridge }}">
+          <sc-if value="{{ fridgeFormOpen }}">
+            <div style="padding:72px 20px 100px;">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px;">
+                <div onClick="{{ onCancelFridgeForm }}" style="font-size:20px;color:#8C877F;cursor:pointer;">‹</div>
+                <div style="font-size:20px;font-weight:800;color:#1E1C1A;">{{ fridgeFormTitle }}</div>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:6px;">품목명</div>
+              <input value="{{ fridgeDraftName }}" onChange="{{ onChangeFridgeName }}" placeholder="예: 우유" style="width:100%;border:1px solid #ECE8E1;border-radius:12px;padding:12px 14px;font-size:15px;outline:none;margin-bottom:16px;" />
+
+              <div style="display:flex;gap:12px;margin-bottom:16px;">
+                <div style="flex:1;">
+                  <div style="font-size:13px;color:#8C877F;margin-bottom:6px;">수량</div>
+                  <input value="{{ fridgeDraftQty }}" onChange="{{ onChangeFridgeQty }}" placeholder="예: 1개" style="width:100%;border:1px solid #ECE8E1;border-radius:12px;padding:12px 14px;font-size:14px;outline:none;" />
+                </div>
+                <div style="flex:1;">
+                  <div style="font-size:13px;color:#8C877F;margin-bottom:6px;">유통기한</div>
+                  <input value="{{ fridgeDraftExpiry }}" onChange="{{ onChangeFridgeExpiry }}" placeholder="YYYY-MM-DD" style="width:100%;border:1px solid #ECE8E1;border-radius:12px;padding:12px 14px;font-size:14px;outline:none;" />
+                </div>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">분류</div>
+              <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                <sc-for list="{{ fridgeCategoryChips }}" as="c" hint-placeholder-count="4">
+                  <div onClick="{{ c.onClick }}" style="padding:9px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ c.bg }};color:{{ c.color }};">{{ c.label }}</div>
+                </sc-for>
+              </div>
+
+              <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">보관 위치</div>
+              <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <sc-for list="{{ fridgeStorageChips }}" as="s" hint-placeholder-count="3">
+                  <div onClick="{{ s.onClick }}" style="padding:9px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ s.bg }};color:{{ s.color }};">{{ s.label }}</div>
+                </sc-for>
+              </div>
+
+              <div style="display:flex;gap:10px;margin-top:8px;">
+                <sc-if value="{{ fridgeIsEditing }}">
+                  <div onClick="{{ onDeleteFridge }}" style="flex:1;text-align:center;padding:14px;border-radius:12px;background:#F1EFEA;color:#8C877F;font-size:15px;font-weight:700;cursor:pointer;">삭제</div>
+                </sc-if>
+                <div onClick="{{ onSaveFridge }}" style="flex:2;text-align:center;padding:14px;border-radius:12px;background:#17B854;color:#fff;font-size:15px;font-weight:700;cursor:pointer;">저장</div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ fridgeListOpen }}" hint-placeholder-val="{{ true }}">
+            <div style="padding:72px 20px 100px;">
+              <div style="font-size:24px;font-weight:800;color:#1E1C1A;margin-bottom:14px;">냉장고</div>
+              <div style="display:flex;gap:8px;margin-bottom:18px;">
+                <div onClick="{{ onSetFridgeListView }}" style="flex:1;text-align:center;padding:10px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;background:{{ fridgeListTabBg }};color:{{ fridgeListTabColor }};">목록</div>
+                <div onClick="{{ onSetFridgeDashView }}" style="flex:1;text-align:center;padding:10px;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;background:{{ fridgeDashTabBg }};color:{{ fridgeDashTabColor }};">대시보드</div>
+              </div>
+
+              <sc-if value="{{ fridgeViewIsList }}" hint-placeholder-val="{{ true }}">
+                <sc-for list="{{ fridgeGroups }}" as="g" hint-placeholder-count="3">
+                  <div style="margin-bottom:16px;">
+                    <div style="font-size:13px;color:{{ g.labelColor }};font-weight:700;margin-bottom:8px;">{{ g.label }}</div>
+                    <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="1">
+                      <div onClick="{{ it.onClick }}" style="display:flex;align-items:center;gap:12px;background:#fff;border:1px solid #ECE8E1;border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;">
+                        <div style="flex:1;">
+                          <div style="font-size:14px;color:#1E1C1A;font-weight:600;">{{ it.name }}</div>
+                          <div style="font-size:12px;color:#8C877F;">{{ it.qty }} · {{ it.storage }}</div>
+                        </div>
+                        <div style="padding:5px 10px;border-radius:100px;font-size:12px;font-weight:700;background:{{ it.ddayBg }};color:{{ it.ddayColor }};">{{ it.ddayLabel }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-for>
+              </sc-if>
+
+              <sc-if value="{{ fridgeViewIsDash }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                  <div style="background:#fff;border:1px solid #ECE8E1;border-radius:16px;padding:16px;">
+                    <div style="font-size:12px;color:#8C877F;margin-bottom:6px;">전체 재고</div>
+                    <div style="font-size:22px;font-weight:800;color:#1E1C1A;">{{ fridgeTotalCount }}개</div>
+                  </div>
+                  <div style="background:#fff;border:1px solid #ECE8E1;border-radius:16px;padding:16px;">
+                    <div style="font-size:12px;color:#8C877F;margin-bottom:6px;">유통기한 임박</div>
+                    <div style="font-size:22px;font-weight:800;color:#17B854;">{{ fridgeSoonCount }}개</div>
+                  </div>
+                </div>
+                <div style="font-size:14px;font-weight:700;color:#1E1C1A;margin-bottom:10px;">분류별 재고</div>
+                <div style="display:flex;flex-direction:column;gap:10px;">
+                  <sc-for list="{{ fridgeCategoryBars }}" as="b" hint-placeholder-count="4">
+                    <div>
+                      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+                        <span style="color:#1E1C1A;font-weight:500;">{{ b.label }}</span>
+                        <span style="color:#8C877F;">{{ b.count }}개</span>
+                      </div>
+                      <div style="height:8px;background:#F1EFEA;border-radius:4px;overflow:hidden;">
+                        <div style="height:100%;width:{{ b.pct }}%;background:#17B854;border-radius:4px;"></div>
+                      </div>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </sc-if>
+
+      </div>
+
+      <!-- FAB -->
+      <sc-if value="{{ showFab }}">
+        <div onClick="{{ onFabClick }}" style="position:absolute;right:20px;bottom:96px;width:52px;height:52px;border-radius:26px;background:#17B854;color:#fff;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:400;box-shadow:0 8px 20px rgba(23,184,84,0.4);cursor:pointer;z-index:30;">+</div>
+      </sc-if>
+
+      <!-- TAB BAR -->
+      <div style="flex-shrink:0;display:flex;background:#fff;border-top:1px solid #ECE8E1;padding:8px 6px 22px;">
+        <div onClick="{{ onGoHome }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ homeTabColor }};">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 11.5L12 4l8 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 10v9a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span style="font-size:11px;font-weight:600;">홈</span>
+        </div>
+        <div onClick="{{ onGoCalendarTab }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ calTabColor }};">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="4" y="5.5" width="16" height="15" rx="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M4 10h16M8 3.5v3M16 3.5v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span style="font-size:11px;font-weight:600;">캘린더</span>
+        </div>
+        <div onClick="{{ onGoExpenseTab }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ expTabColor }};">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="7" width="17" height="13" rx="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 10.5h17" stroke="currentColor" stroke-width="1.8"/><circle cx="16" cy="14.5" r="1.3" fill="currentColor"/></svg>
+          <span style="font-size:11px;font-weight:600;">지출</span>
+        </div>
+        <div onClick="{{ onGoChoresTab }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ choresTabColor }};">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="4.5" y="4" width="15" height="17" rx="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M8 9.5l1.6 1.6L13 7.5M8 15.5h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span style="font-size:11px;font-weight:600;">집안일</span>
+        </div>
+        <div onClick="{{ onGoFridgeTab }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:{{ fridgeTabColor }};">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><rect x="5.5" y="3" width="13" height="18" rx="2.5" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 10h13" stroke="currentColor" stroke-width="1.8"/><path d="M8 5.5v2M8 12v2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <span style="font-size:11px;font-weight:600;">냉장고</span>
+        </div>
+      </div>
+
+      <!-- MYPAGE SHEET -->
+      <sc-if value="{{ mypageOpen }}">
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,0.35);z-index:90;" onClick="{{ onCloseMypage }}"></div>
+        <div style="position:absolute;left:0;right:0;bottom:0;background:#FAF9F5;border-radius:24px 24px 0 0;z-index:91;padding:16px 20px 34px;max-height:80%;overflow:auto;">
+          <div style="display:flex;justify-content:center;margin-bottom:14px;"><div style="width:36px;height:5px;border-radius:3px;background:#ECE8E1;"></div></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+            <span style="font-size:19px;font-weight:800;color:#1E1C1A;">마이페이지</span>
+            <div onClick="{{ onCloseMypage }}" style="font-size:18px;color:#8C877F;cursor:pointer;">✕</div>
+          </div>
+
+          <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">우리 집</div>
+          <div style="background:#fff;border:1px solid #ECE8E1;border-radius:16px;padding:6px;margin-bottom:20px;">
+            <sc-for list="{{ householdMembers }}" as="m" hint-placeholder-count="2">
+              <div style="display:flex;align-items:center;gap:12px;padding:10px 10px;">
+                <div style="width:36px;height:36px;border-radius:18px;background:{{ m.bg }};color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;">{{ m.initial }}</div>
+                <span style="font-size:14px;color:#1E1C1A;font-weight:500;flex:1;">{{ m.name }}</span>
+                <span style="font-size:12px;color:#8C877F;">{{ m.roleLabel }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">알림 설정</div>
+          <div style="background:#fff;border:1px solid #ECE8E1;border-radius:16px;padding:4px 14px;margin-bottom:20px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #ECE8E1;">
+              <span style="font-size:14px;color:#1E1C1A;">유통기한 알림</span>
+              <div onClick="{{ onToggleNotifExpiry }}" style="width:44px;height:26px;border-radius:13px;background:{{ notifExpiryBg }};position:relative;cursor:pointer;">
+                <div style="width:22px;height:22px;border-radius:11px;background:#fff;position:absolute;top:2px;left:{{ notifExpiryPos }}px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;">
+              <span style="font-size:14px;color:#1E1C1A;">집안일 리마인드</span>
+              <div onClick="{{ onToggleNotifChore }}" style="width:44px;height:26px;border-radius:13px;background:{{ notifChoreBg }};position:relative;cursor:pointer;">
+                <div style="width:22px;height:22px;border-radius:11px;background:#fff;position:absolute;top:2px;left:{{ notifChorePos }}px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:13px;color:#8C877F;margin-bottom:8px;">가구원 관리</div>
+          <div style="background:#fff;border:1px solid #ECE8E1;border-radius:16px;padding:14px;margin-bottom:20px;font-size:13px;color:#8C877F;">초대 코드: <span style="color:#17B854;font-weight:700;">HOME27</span> 공유해서 가구원을 추가해요</div>
+
+          <div style="text-align:center;padding:12px;font-size:14px;color:#B5B0A8;">로그아웃</div>
+        </div>
+      </sc-if>
+
+    </div>
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const CATS_EXPENSE = ['식비','생활용품','공과금','기타'];
+const CATS_FOOD = ['채소','육류','유제품','기타'];
+const STORAGE = ['냉장','냉동','실온'];
+const CYCLES = ['매일','매주','매월'];
+const GREEN = '#17B854';
+const GREEN_SOFT = '#E3F8EC';
+const RED = GREEN;
+const RED_SOFT = GREEN_SOFT;
+const CHIP_BG = '#F1EFEA';
+const CHIP_TEXT = '#8C877F';
+const TODAY = new Date(2026, 6, 27);
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+function dkey(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function fmtWon(n) { return n.toLocaleString('ko-KR') + '원'; }
+function daysBetween(a, b) { return Math.round((a - b) / 86400000); }
+
+class Component extends DCLogic {
+  state = {
+    tab: 'home',
+    mypageOpen: false,
+    notifExpiry: true,
+    notifChore: false,
+
+    calMonth: new Date(2026, 6, 1),
+    calSelected: dkey(TODAY),
+    calAdding: false,
+    newEventTitle: '',
+    newEventTime: '',
+
+    expenseView: 'list',
+    expenseForm: null,
+    expenseDraft: null,
+
+    choreView: 'list',
+    choreForm: null,
+    choreDraft: null,
+
+    fridgeView: 'list',
+    fridgeForm: null,
+    fridgeDraft: null,
+
+    members: [
+      { id: 'm1', name: '민혁', initial: '민', bg: '#14140F' },
+      { id: 'm2', name: '호경', initial: '호', bg: '#2B2A28' },
+    ],
+
+    events: {
+      '2026-07-27': [{ id: 'ev1', title: '집들이 준비', time: '19:00' }],
+      '2026-07-30': [{ id: 'ev2', title: '민혁 생일', time: '종일' }],
+      '2026-07-22': [{ id: 'ev3', title: '가전 AS 방문', time: '14:00' }],
+      '2026-07-05': [{ id: 'ev4', title: '월세 이체', time: '09:00' }],
+    },
+
+    expenses: [
+      { id: 'e1', title: '주간 장보기', category: '식비', amount: 68000, payerId: 'm1', date: '2026-07-25', split: 'equal', shares: {} },
+      { id: 'e2', title: '전기요금', category: '공과금', amount: 42000, payerId: 'm2', date: '2026-07-20', split: 'equal', shares: {} },
+      { id: 'e3', title: '주방세제 등', category: '생활용품', amount: 15000, payerId: 'm2', date: '2026-07-18', split: 'equal', shares: {} },
+      { id: 'e4', title: '배달음식', category: '식비', amount: 32000, payerId: 'm1', date: '2026-07-15', split: 'custom', shares: { m1: 20000, m2: 12000 } },
+      { id: 'e5', title: '인터넷 요금', category: '공과금', amount: 38000, payerId: 'm1', date: '2026-07-05', split: 'equal', shares: {} },
+    ],
+
+    chores: [
+      { id: 'c1', title: '설거지', cycle: '매일', rotation: ['m1', 'm2'], currentIdx: 0, doneToday: false, weekDone: { m1: 4, m2: 3 } },
+      { id: 'c2', title: '분리수거', cycle: '매주', rotation: ['m2', 'm1'], currentIdx: 0, doneToday: true, weekDone: { m1: 1, m2: 1 } },
+      { id: 'c3', title: '화장실 청소', cycle: '매주', rotation: ['m1', 'm2'], currentIdx: 1, doneToday: false, weekDone: { m1: 1, m2: 1 } },
+      { id: 'c4', title: '빨래', cycle: '매일', rotation: ['m1', 'm2'], currentIdx: 1, doneToday: false, weekDone: { m1: 3, m2: 4 } },
+    ],
+
+    foodItems: [
+      { id: 'f1', name: '우유', category: '유제품', qty: '1개', storage: '냉장', expiryDate: '2026-07-29' },
+      { id: 'f2', name: '계란', category: '유제품', qty: '10개', storage: '냉장', expiryDate: '2026-08-10' },
+      { id: 'f3', name: '삼겹살', category: '육류', qty: '400g', storage: '냉동', expiryDate: '2026-09-01' },
+      { id: 'f4', name: '양파', category: '채소', qty: '3개', storage: '실온', expiryDate: '2026-07-30' },
+      { id: 'f5', name: '요거트', category: '유제품', qty: '2개', storage: '냉장', expiryDate: '2026-07-26' },
+      { id: 'f6', name: '두부', category: '기타', qty: '1모', storage: '냉장', expiryDate: '2026-07-28' },
+    ],
+  };
+
+  member(id) { return this.state.members.find(m => m.id === id); }
+
+  setDraftField = (formKey, field, value) => () => {
+    this.setState(s => ({ [formKey]: { ...s[formKey], [field]: value } }));
+  };
+  setDraftText = (formKey, field) => (e) => {
+    const v = e.target.value;
+    this.setState(s => ({ [formKey]: { ...s[formKey], [field]: v } }));
+  };
+  setShareField = (memberId) => (e) => {
+    const v = e.target.value;
+    this.setState(s => ({ expenseDraft: { ...s.expenseDraft, shares: { ...s.expenseDraft.shares, [memberId]: v } } }));
+  };
+
+  goTab = (t) => () => this.setState({ tab: t, mypageOpen: false });
+  openMypage = () => this.setState({ mypageOpen: true });
+  closeMypage = () => this.setState({ mypageOpen: false });
+  toggleNotifExpiry = () => this.setState(s => ({ notifExpiry: !s.notifExpiry }));
+  toggleNotifChore = () => this.setState(s => ({ notifChore: !s.notifChore }));
+
+  prevMonth = () => this.setState(s => { const d = new Date(s.calMonth); d.setMonth(d.getMonth() - 1); return { calMonth: d }; });
+  nextMonth = () => this.setState(s => { const d = new Date(s.calMonth); d.setMonth(d.getMonth() + 1); return { calMonth: d }; });
+  selectDate = (key) => () => this.setState({ calSelected: key, calAdding: false });
+  openAddEvent = () => this.setState({ calAdding: true, newEventTitle: '', newEventTime: '' });
+  cancelAddEvent = () => this.setState({ calAdding: false });
+  saveEvent = () => {
+    const { calSelected, newEventTitle, newEventTime, events } = this.state;
+    if (!newEventTitle.trim()) return;
+    const list = events[calSelected] ? events[calSelected].slice() : [];
+    list.push({ id: 'ev' + Date.now(), title: newEventTitle, time: newEventTime || '시간 미정' });
+    this.setState({ events: { ...events, [calSelected]: list }, calAdding: false });
+  };
+  deleteEvent = (dateKey, id) => () => {
+    const list = this.state.events[dateKey].filter(e => e.id !== id);
+    this.setState({ events: { ...this.state.events, [dateKey]: list } });
+  };
+
+  setExpenseView = (v) => () => this.setState({ expenseView: v });
+  openExpenseForm = (item) => () => this.setState({
+    expenseForm: item ? item.id : 'new',
+    expenseDraft: item ? { ...item, amount: String(item.amount), shares: { ...item.shares } } : { title: '', amount: '', category: CATS_EXPENSE[0], payerId: this.state.members[0].id, date: dkey(TODAY), split: 'equal', shares: {} },
+  });
+  cancelExpenseForm = () => this.setState({ expenseForm: null, expenseDraft: null });
+  saveExpense = () => {
+    const d = this.state.expenseDraft;
+    const amt = parseInt(d.amount, 10) || 0;
+    const record = { id: this.state.expenseForm === 'new' ? 'e' + Date.now() : this.state.expenseForm, title: d.title || '무제 지출', category: d.category, amount: amt, payerId: d.payerId, date: d.date, split: d.split, shares: d.shares };
+    this.setState(s => {
+      const list = s.expenses.filter(e => e.id !== record.id);
+      list.push(record);
+      return { expenses: list, expenseForm: null, expenseDraft: null };
+    });
+  };
+  deleteExpense = () => {
+    const id = this.state.expenseForm;
+    this.setState(s => ({ expenses: s.expenses.filter(e => e.id !== id), expenseForm: null, expenseDraft: null }));
+  };
+
+  setChoreView = (v) => () => this.setState({ choreView: v });
+  toggleChoreDone = (id) => () => this.setState(s => ({ chores: s.chores.map(c => c.id === id ? { ...c, doneToday: !c.doneToday } : c) }));
+  openChoreForm = (item) => () => this.setState({
+    choreForm: item ? item.id : 'new',
+    choreDraft: item ? { title: item.title, cycle: item.cycle, rotation: item.rotation.slice(), currentIdx: item.currentIdx } : { title: '', cycle: CYCLES[0], rotation: this.state.members.map(m => m.id), currentIdx: 0 },
+  });
+  cancelChoreForm = () => this.setState({ choreForm: null, choreDraft: null });
+  setChoreFirst = (memberId) => () => this.setState(s => {
+    const others = s.members.map(m => m.id).filter(id => id !== memberId);
+    return { choreDraft: { ...s.choreDraft, rotation: [memberId, ...others], currentIdx: 0 } };
+  });
+  saveChore = () => {
+    const d = this.state.choreDraft;
+    const record = { id: this.state.choreForm === 'new' ? 'c' + Date.now() : this.state.choreForm, title: d.title || '무제 집안일', cycle: d.cycle, rotation: d.rotation, currentIdx: d.currentIdx, doneToday: false, weekDone: { m1: 0, m2: 0 } };
+    this.setState(s => {
+      const existing = s.chores.find(c => c.id === record.id);
+      if (existing) record.doneToday = existing.doneToday, record.weekDone = existing.weekDone;
+      const list = s.chores.filter(c => c.id !== record.id);
+      list.push(record);
+      return { chores: list, choreForm: null, choreDraft: null };
+    });
+  };
+  deleteChore = () => {
+    const id = this.state.choreForm;
+    this.setState(s => ({ chores: s.chores.filter(c => c.id !== id), choreForm: null, choreDraft: null }));
+  };
+
+  setFridgeView = (v) => () => this.setState({ fridgeView: v });
+  openFridgeForm = (item) => () => this.setState({
+    fridgeForm: item ? item.id : 'new',
+    fridgeDraft: item ? { ...item } : { name: '', qty: '', category: CATS_FOOD[0], storage: STORAGE[0], expiryDate: '' },
+  });
+  cancelFridgeForm = () => this.setState({ fridgeForm: null, fridgeDraft: null });
+  saveFridge = () => {
+    const d = this.state.fridgeDraft;
+    const record = { id: this.state.fridgeForm === 'new' ? 'f' + Date.now() : this.state.fridgeForm, name: d.name || '무제 품목', qty: d.qty || '1개', category: d.category, storage: d.storage, expiryDate: d.expiryDate || dkey(TODAY) };
+    this.setState(s => {
+      const list = s.foodItems.filter(f => f.id !== record.id);
+      list.push(record);
+      return { foodItems: list, fridgeForm: null, fridgeDraft: null };
+    });
+  };
+  deleteFridge = () => {
+    const id = this.state.fridgeForm;
+    this.setState(s => ({ foodItems: s.foodItems.filter(f => f.id !== id), fridgeForm: null, fridgeDraft: null }));
+  };
+
+  fabClick = () => {
+    const { tab } = this.state;
+    if (tab === 'expense') return this.openExpenseForm(null)();
+    if (tab === 'chores') return this.openChoreForm(null)();
+    if (tab === 'fridge') return this.openFridgeForm(null)();
+  };
+
+  buildCalendarDays() {
+    const { calMonth, calSelected, events } = this.state;
+    const year = calMonth.getFullYear(), month = calMonth.getMonth();
+    const first = new Date(year, month, 1);
+    const startOffset = first.getDay();
+    const start = new Date(year, month, 1 - startOffset);
+    const days = [];
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const key = dkey(d);
+      const inMonth = d.getMonth() === month;
+      const isToday = key === dkey(TODAY);
+      const isSelected = key === calSelected;
+      days.push({
+        key, dayNum: d.getDate(),
+        opacity: inMonth ? '1' : '0.32',
+        weight: isSelected ? '700' : '500',
+        bg: isSelected ? GREEN : (isToday ? GREEN_SOFT : 'transparent'),
+        color: isSelected ? '#fff' : (isToday ? GREEN : '#1E1C1A'),
+        dotOpacity: events[key] && events[key].length ? '1' : '0',
+        onClick: this.selectDate(key),
+      });
+    }
+    return days;
+  }
+
+  renderVals() {
+    const s = this.state;
+    const members = s.members;
+    const m1 = members[0], m2 = members[1];
+    const memberName = (id) => (this.member(id) || {}).name || '';
+    const memberBg = (id) => (this.member(id) || {}).bg || '#999';
+    const memberInitial = (id) => (this.member(id) || {}).initial || '?';
+
+    const chip = (active) => ({ bg: active ? GREEN : CHIP_BG, color: active ? '#fff' : CHIP_TEXT });
+
+    // ---------- HOME ----------
+    const todayKey = dkey(TODAY);
+    const todayEvents = s.events[todayKey] || [];
+    const monthExpenses = s.expenses.filter(e => e.date.startsWith('2026-07'));
+    const monthTotal = monthExpenses.reduce((a, e) => a + e.amount, 0);
+    const perPerson = members.length ? Math.round(monthTotal / members.length) : 0;
+
+    const foodWithDday = s.foodItems.map(f => ({ ...f, dday: daysBetween(new Date(f.expiryDate), TODAY) }));
+    const soonItems = foodWithDday.filter(f => f.dday <= 3).sort((a, b) => a.dday - b.dday);
+
+    const choresToday = s.chores.map(c => {
+      const assigneeId = c.rotation[c.currentIdx % c.rotation.length];
+      return {
+        title: c.title,
+        initial: memberInitial(assigneeId),
+        avatarBg: memberBg(assigneeId),
+        statusLabel: c.doneToday ? '완료' : '대기',
+        statusColor: c.doneToday ? GREEN : '#B5B0A8',
+      };
+    });
+    const doneCount = s.chores.filter(c => c.doneToday).length;
+
+    // ---------- CALENDAR ----------
+    const monthLabel = s.calMonth.getFullYear() + '년 ' + (s.calMonth.getMonth() + 1) + '월';
+    const selDate = new Date(s.calSelected + 'T00:00:00');
+    const selectedDateLabel = (selDate.getMonth() + 1) + '월 ' + selDate.getDate() + '일 일정';
+    const selEvents = (s.events[s.calSelected] || []).map(ev => ({ ...ev, onDelete: this.deleteEvent(s.calSelected, ev.id) }));
+
+    // ---------- EXPENSE ----------
+    const catShort = { 식비: '식비', 생활용품: '생활', 공과금: '공과', 기타: '기타' };
+    const sortedExpenses = s.expenses.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const groupsMap = {};
+    sortedExpenses.forEach(e => {
+      const label = e.date.slice(5).replace('-', '월 ') + '일';
+      if (!groupsMap[label]) groupsMap[label] = [];
+      groupsMap[label].push(e);
+    });
+    const expenseGroups = Object.keys(groupsMap).map(label => ({
+      dateLabel: label,
+      items: groupsMap[label].map(e => ({
+        id: e.id,
+        title: e.title,
+        categoryShort: catShort[e.category] || e.category,
+        payerName: memberName(e.payerId),
+        splitLabel: e.split === 'equal' ? '균등분배' : '직접분배',
+        amountLabel: fmtWon(e.amount),
+        onClick: this.openExpenseForm(e),
+      })),
+    }));
+
+    const catTotals = CATS_EXPENSE.map(cat => {
+      const amt = monthExpenses.filter(e => e.category === cat).reduce((a, e) => a + e.amount, 0);
+      return { label: cat, amountLabel: fmtWon(amt), pct: monthTotal ? Math.round((amt / monthTotal) * 100) : 0 };
+    });
+
+    const balances = {};
+    members.forEach(m => balances[m.id] = 0);
+    monthExpenses.forEach(e => {
+      if (e.split === 'custom' && e.shares) {
+        members.forEach(m => { balances[m.id] -= (e.shares[m.id] || 0); });
+      } else {
+        const share = e.amount / members.length;
+        members.forEach(m => { balances[m.id] -= share; });
+      }
+      balances[e.payerId] += e.amount;
+    });
+    let settlementFrom = '', settlementTo = '', settlementAmount = 0;
+    if (members.length === 2) {
+      const diff = balances[m1.id] - balances[m2.id];
+      settlementAmount = Math.round(Math.abs(diff) / 2);
+      settlementFrom = diff > 0 ? m2.name : m1.name;
+      settlementTo = diff > 0 ? m1.name : m2.name;
+    }
+    const settlementSettled = settlementAmount < 100;
+
+    const expenseFormOpen = !!s.expenseForm;
+    const draft = s.expenseDraft || {};
+    const shareRows = members.map(m => ({ name: m.name, value: draft.shares ? (draft.shares[m.id] ?? '') : '', onChange: this.setShareField(m.id) }));
+
+    // ---------- CHORES ----------
+    const choreItems = s.chores.map(c => {
+      const assigneeId = c.rotation[c.currentIdx % c.rotation.length];
+      return {
+        id: c.id, title: c.title, cycleLabel: c.cycle,
+        assigneeName: memberName(assigneeId),
+        avatarBg: memberBg(assigneeId), avatarInitial: memberInitial(assigneeId),
+        checkBorder: c.doneToday ? GREEN : '#ECE8E1',
+        checkBg: c.doneToday ? GREEN : 'transparent',
+        checkMark: c.doneToday ? '✓' : '',
+        onToggle: this.toggleChoreDone(c.id),
+        onEdit: this.openChoreForm(c),
+      };
+    });
+    const choreCompletionPct = s.chores.length ? Math.round((doneCount / s.chores.length) * 100) : 0;
+    const maxWeek = Math.max(1, ...members.map(m => s.chores.reduce((a, c) => a + (c.weekDone[m.id] || 0), 0)));
+    const choreMemberBars = members.map(m => {
+      const count = s.chores.reduce((a, c) => a + (c.weekDone[m.id] || 0), 0);
+      return { name: m.name, count, pct: Math.round((count / maxWeek) * 100), bg: m.bg };
+    });
+    const choreRotationList = s.chores.map(c => ({ title: c.title, orderLabel: c.rotation.map(memberName).join(' → ') }));
+
+    const choreDraft = s.choreDraft || {};
+    const choreFirstChips = members.map(m => ({ label: m.name, ...chip(choreDraft.rotation && choreDraft.rotation[0] === m.id), onClick: this.setChoreFirst(m.id) }));
+    const choreRotationPreview = choreDraft.rotation ? choreDraft.rotation.map(memberName).join(' → ') : '';
+
+    // ---------- FRIDGE ----------
+    const ddayInfo = (dday) => {
+      if (dday < 0) return { label: '지남', bg: RED_SOFT, color: RED };
+      if (dday <= 3) return { label: 'D-' + dday, bg: RED_SOFT, color: RED };
+      return { label: 'D-' + dday, bg: CHIP_BG, color: '#8C877F' };
+    };
+    const withDday = s.foodItems.map(f => ({ ...f, dday: daysBetween(new Date(f.expiryDate), TODAY) })).sort((a, b) => a.dday - b.dday);
+    const expired = withDday.filter(f => f.dday < 0);
+    const soon = withDday.filter(f => f.dday >= 0 && f.dday <= 3);
+    const fresh = withDday.filter(f => f.dday > 3);
+    const mkGroup = (label, items, labelColor) => items.length ? [{
+      label, labelColor,
+      items: items.map(f => { const info = ddayInfo(f.dday); return { id: f.id, name: f.name, qty: f.qty, storage: f.storage, ddayLabel: info.label, ddayBg: info.bg, ddayColor: info.color, onClick: this.openFridgeForm(f) }; }),
+    }] : [];
+    const fridgeGroups = [...mkGroup('유통기한 지남', expired, RED), ...mkGroup('임박 (3일 이내)', soon, RED), ...mkGroup('신선 보관 중', fresh, '#8C877F')];
+    const maxCat = Math.max(1, ...CATS_FOOD.map(cat => s.foodItems.filter(f => f.category === cat).length));
+    const fridgeCategoryBars = CATS_FOOD.map(cat => {
+      const count = s.foodItems.filter(f => f.category === cat).length;
+      return { label: cat, count, pct: Math.round((count / maxCat) * 100) };
+    });
+    const fridgeDraftRec = s.fridgeDraft || {};
+
+    return {
+      isHome: s.tab === 'home', isCalendar: s.tab === 'calendar', isExpense: s.tab === 'expense', isChores: s.tab === 'chores', isFridge: s.tab === 'fridge',
+      onGoHome: this.goTab('home'), onGoCalendarTab: this.goTab('calendar'), onGoExpenseTab: this.goTab('expense'), onGoChoresTab: this.goTab('chores'), onGoFridgeTab: this.goTab('fridge'),
+      onGoCalendar: this.goTab('calendar'), onGoExpense: this.goTab('expense'), onGoChores: this.goTab('chores'), onGoFridge: this.goTab('fridge'),
+      homeTabColor: s.tab === 'home' ? GREEN : '#B5B0A8', calTabColor: s.tab === 'calendar' ? GREEN : '#B5B0A8', expTabColor: s.tab === 'expense' ? GREEN : '#B5B0A8', choresTabColor: s.tab === 'chores' ? GREEN : '#B5B0A8', fridgeTabColor: s.tab === 'fridge' ? GREEN : '#B5B0A8',
+
+      greetingName: m1.name, greetingInitial: m1.initial,
+      todayDateLabel: '2026년 7월 27일 월요일',
+      homeMembers: members,
+      homeTodayHasEvents: todayEvents.length > 0, homeTodayEmpty: todayEvents.length === 0, homeTodayEvents: todayEvents,
+      homeExpenseTotalLabel: fmtWon(monthTotal), homeExpensePerPersonLabel: fmtWon(perPerson),
+      homeFridgeAlertCount: soonItems.length, homeFridgeAlertNames: soonItems.slice(0, 2).map(f => f.name).join(', ') || '없음',
+      homeChoresToday: choresToday, homeChoresDoneLabel: doneCount + '/' + s.chores.length + ' 완료',
+
+      onOpenMypage: this.openMypage, onCloseMypage: this.closeMypage,
+      mypageOpen: s.mypageOpen,
+      householdMembers: members.map((m, i) => ({ name: m.name, initial: m.initial, bg: m.bg, roleLabel: i === 0 ? '나' : '가구원' })),
+      notifExpiryBg: s.notifExpiry ? GREEN : '#ECE8E1', notifExpiryPos: s.notifExpiry ? 20 : 2,
+      notifChoreBg: s.notifChore ? GREEN : '#ECE8E1', notifChorePos: s.notifChore ? 20 : 2,
+      onToggleNotifExpiry: this.toggleNotifExpiry, onToggleNotifChore: this.toggleNotifChore,
+
+      calMonthLabel: monthLabel, calDays: this.buildCalendarDays(),
+      onPrevMonth: this.prevMonth, onNextMonth: this.nextMonth,
+      selectedDateLabel, selectedEvents: selEvents, selectedEventsEmpty: selEvents.length === 0,
+      calAdding: s.calAdding, newEventTitle: s.newEventTitle, newEventTime: s.newEventTime,
+      onChangeNewEventTitle: (e) => this.setState({ newEventTitle: e.target.value }),
+      onChangeNewEventTime: (e) => this.setState({ newEventTime: e.target.value }),
+      onOpenAddEvent: this.openAddEvent, onCancelAddEvent: this.cancelAddEvent, onSaveEvent: this.saveEvent,
+
+      expenseListOpen: !expenseFormOpen, expenseFormOpen,
+      expenseViewIsList: s.expenseView === 'list', expenseViewIsDash: s.expenseView === 'dashboard',
+      onSetExpenseListView: this.setExpenseView('list'), onSetExpenseDashView: this.setExpenseView('dashboard'),
+      expenseListTabBg: s.expenseView === 'list' ? GREEN : CHIP_BG, expenseListTabColor: s.expenseView === 'list' ? '#fff' : '#8C877F',
+      expenseDashTabBg: s.expenseView === 'dashboard' ? GREEN : CHIP_BG, expenseDashTabColor: s.expenseView === 'dashboard' ? '#fff' : '#8C877F',
+      expenseGroups,
+      expenseMonthTotalLabel: fmtWon(monthTotal), expensePerPersonLabel: fmtWon(perPerson),
+      expenseCategoryBars: catTotals,
+      settlementSettled, settlementNeeded: !settlementSettled, settlementFrom, settlementTo, settlementAmountLabel: fmtWon(settlementAmount),
+
+      expenseFormTitle: s.expenseForm === 'new' ? '지출 등록' : '지출 수정', expenseIsEditing: s.expenseForm && s.expenseForm !== 'new',
+      expenseDraftAmount: draft.amount ?? '', expenseDraftTitle: draft.title ?? '',
+      onChangeExpenseAmount: this.setDraftText('expenseDraft', 'amount'), onChangeExpenseTitle: this.setDraftText('expenseDraft', 'title'),
+      expenseCategoryChips: CATS_EXPENSE.map(c => ({ label: c, ...chip(draft.category === c), onClick: this.setDraftField('expenseDraft', 'category', c) })),
+      expensePayerChips: members.map(m => ({ label: m.name, ...chip(draft.payerId === m.id), onClick: this.setDraftField('expenseDraft', 'payerId', m.id) })),
+      expenseSplitChips: [{ label: '균등분배', ...chip(draft.split === 'equal'), onClick: this.setDraftField('expenseDraft', 'split', 'equal') }, { label: '직접입력', ...chip(draft.split === 'custom'), onClick: this.setDraftField('expenseDraft', 'split', 'custom') }],
+      expenseIsCustomSplit: draft.split === 'custom', expenseShareRows: shareRows,
+      onCancelExpenseForm: this.cancelExpenseForm, onSaveExpense: this.saveExpense, onDeleteExpense: this.deleteExpense,
+
+      choreListOpen: !s.choreForm, choreFormOpen: !!s.choreForm,
+      choreViewIsList: s.choreView === 'list', choreViewIsDash: s.choreView === 'dashboard',
+      onSetChoreListView: this.setChoreView('list'), onSetChoreDashView: this.setChoreView('dashboard'),
+      choreListTabBg: s.choreView === 'list' ? GREEN : CHIP_BG, choreListTabColor: s.choreView === 'list' ? '#fff' : '#8C877F',
+      choreDashTabBg: s.choreView === 'dashboard' ? GREEN : CHIP_BG, choreDashTabColor: s.choreView === 'dashboard' ? '#fff' : '#8C877F',
+      choreItems, choreCompletionPct, choreMemberBars, choreRotationList,
+      choreFormTitle: s.choreForm === 'new' ? '집안일 등록' : '집안일 수정', choreIsEditing: s.choreForm && s.choreForm !== 'new',
+      choreDraftTitle: choreDraft.title ?? '', onChangeChoreTitle: this.setDraftText('choreDraft', 'title'),
+      choreCycleChips: CYCLES.map(c => ({ label: c, ...chip(choreDraft.cycle === c), onClick: this.setDraftField('choreDraft', 'cycle', c) })),
+      choreFirstChips, choreRotationPreview,
+      onCancelChoreForm: this.cancelChoreForm, onSaveChore: this.saveChore, onDeleteChore: this.deleteChore,
+
+      fridgeListOpen: !s.fridgeForm, fridgeFormOpen: !!s.fridgeForm,
+      fridgeViewIsList: s.fridgeView === 'list', fridgeViewIsDash: s.fridgeView === 'dashboard',
+      onSetFridgeListView: this.setFridgeView('list'), onSetFridgeDashView: this.setFridgeView('dashboard'),
+      fridgeListTabBg: s.fridgeView === 'list' ? GREEN : CHIP_BG, fridgeListTabColor: s.fridgeView === 'list' ? '#fff' : '#8C877F',
+      fridgeDashTabBg: s.fridgeView === 'dashboard' ? GREEN : CHIP_BG, fridgeDashTabColor: s.fridgeView === 'dashboard' ? '#fff' : '#8C877F',
+      fridgeGroups, fridgeTotalCount: s.foodItems.length, fridgeSoonCount: soon.length + expired.length, fridgeCategoryBars,
+      fridgeFormTitle: s.fridgeForm === 'new' ? '식재료 등록' : '식재료 수정', fridgeIsEditing: s.fridgeForm && s.fridgeForm !== 'new',
+      fridgeDraftName: fridgeDraftRec.name ?? '', fridgeDraftQty: fridgeDraftRec.qty ?? '', fridgeDraftExpiry: fridgeDraftRec.expiryDate ?? '',
+      onChangeFridgeName: this.setDraftText('fridgeDraft', 'name'), onChangeFridgeQty: this.setDraftText('fridgeDraft', 'qty'), onChangeFridgeExpiry: this.setDraftText('fridgeDraft', 'expiryDate'),
+      fridgeCategoryChips: CATS_FOOD.map(c => ({ label: c, ...chip(fridgeDraftRec.category === c), onClick: this.setDraftField('fridgeDraft', 'category', c) })),
+      fridgeStorageChips: STORAGE.map(c => ({ label: c, ...chip(fridgeDraftRec.storage === c), onClick: this.setDraftField('fridgeDraft', 'storage', c) })),
+      onCancelFridgeForm: this.cancelFridgeForm, onSaveFridge: this.saveFridge, onDeleteFridge: this.deleteFridge,
+
+      showFab: (s.tab === 'expense' && !expenseFormOpen) || (s.tab === 'chores' && !s.choreForm) || (s.tab === 'fridge' && !s.fridgeForm),
+      onFabClick: this.fabClick,
+    };
+  }
+}
+</script>
+</body>
+</html>
