@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getFirestore, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getFirestore, setDoc } from 'firebase/firestore';
 
 const localEnv = readLocalEnv();
 for (const [key, value] of Object.entries(localEnv)) {
@@ -15,6 +15,7 @@ for (const [key, value] of Object.entries(localEnv)) {
 const email = process.env.TEST_ACCOUNT_EMAIL;
 const password = process.env.TEST_ACCOUNT_PASSWORD;
 const activeHouseholdId = process.env.ACTIVE_HOUSEHOLD_ID?.trim() || null;
+const inspectOnly = process.env.INSPECT_ONLY === 'true';
 
 if (!email || !password) {
   fail('TEST_ACCOUNT_EMAIL and TEST_ACCOUNT_PASSWORD are required.');
@@ -34,8 +35,27 @@ const db = getFirestore(app);
 
 try {
   const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+  const userRef = doc(db, 'users', credential.user.uid);
+  const userSnapshot = await getDoc(userRef);
+  const previousHouseholdId = userSnapshot.data()?.activeHouseholdId ?? null;
+  let previousHouseholdName = null;
+
+  if (previousHouseholdId) {
+    const householdSnapshot = await getDoc(doc(db, 'households', previousHouseholdId));
+    previousHouseholdName = householdSnapshot.data()?.name ?? null;
+  }
+
+  console.log(
+    `Current household: ${previousHouseholdName ?? 'none'} (${previousHouseholdId ?? 'none'})`,
+  );
+
+  if (inspectOnly) {
+    await signOut(auth);
+    process.exit(0);
+  }
+
   await setDoc(
-    doc(db, 'users', credential.user.uid),
+    userRef,
     {
       activeHouseholdId,
       updatedAt: todayIso(),

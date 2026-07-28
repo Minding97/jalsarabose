@@ -1,7 +1,9 @@
 import { X } from 'lucide-react-native';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
+import { ActionButton } from '@/components/app/action-button';
+import { FormField } from '@/components/app/form-field';
 import { MaxContentWidth } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
@@ -16,12 +18,17 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const theme = useTheme();
   const members = useHouseholdStore((state) => state.members);
   const household = useHouseholdStore((state) => state.household);
+  const joinHousehold = useHouseholdStore((state) => state.joinHousehold);
   const signOut = useHouseholdStore((state) => state.signOut);
   const scheduleNotifications = useHouseholdStore((state) => state.scheduleNotifications);
   const cancelNotifications = useHouseholdStore((state) => state.cancelNotifications);
   const notificationMessage = useHouseholdStore((state) => state.notificationMessage);
   const [expiryEnabled, setExpiryEnabled] = useState(true);
   const [choreEnabled, setChoreEnabled] = useState(false);
+  const [switchingHousehold, setSwitchingHousehold] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [submittingSwitch, setSubmittingSwitch] = useState(false);
 
   const updateReminder = (kind: 'expiry' | 'chore', enabled: boolean) => {
     const nextExpiry = kind === 'expiry' ? enabled : expiryEnabled;
@@ -37,6 +44,28 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
       void scheduleNotifications();
     } else {
       void cancelNotifications();
+    }
+  };
+
+  const switchHousehold = async () => {
+    const normalizedCode = inviteCode.trim().toUpperCase();
+
+    if (!/^[A-Z0-9]{6,8}$/.test(normalizedCode)) {
+      setSwitchError('초대 코드는 6~8자리 대문자와 숫자로 입력해주세요.');
+      return;
+    }
+
+    setSubmittingSwitch(true);
+    setSwitchError(null);
+    try {
+      await joinHousehold(normalizedCode);
+      setInviteCode('');
+      setSwitchingHousehold(false);
+      onClose();
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : '가구를 변경하지 못했어요.');
+    } finally {
+      setSubmittingSwitch(false);
     }
   };
 
@@ -64,81 +93,132 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
             </Pressable>
           </View>
 
-          <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>우리 집</Text>
-          <View
-            style={[
-              styles.panel,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-            ]}>
-            {members.map((member, index) => {
-              const memberName = getMemberDisplayName(member, index);
-              return (
-                <View key={member.id} style={styles.memberRow}>
-                  <View style={[styles.memberAvatar, { backgroundColor: '#2B2A28' }]}>
-                    <Text style={styles.memberInitial}>{memberName.slice(0, 1)}</Text>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>우리 집</Text>
+            <View
+              style={[
+                styles.panel,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+              ]}>
+              {members.map((member, index) => {
+                const memberName = getMemberDisplayName(member, index);
+                return (
+                  <View key={member.id} style={styles.memberRow}>
+                    <View style={[styles.memberAvatar, { backgroundColor: '#2B2A28' }]}>
+                      <Text style={styles.memberInitial}>{memberName.slice(0, 1)}</Text>
+                    </View>
+                    <Text style={[styles.memberName, { color: theme.text }]}>{memberName}</Text>
+                    <Text style={[styles.memberRole, { color: theme.textSecondary }]}>
+                      {member.role === 'admin' ? '관리자' : '가구원'}
+                    </Text>
                   </View>
-                  <Text style={[styles.memberName, { color: theme.text }]}>{memberName}</Text>
-                  <Text style={[styles.memberRole, { color: theme.textSecondary }]}>
-                    {member.role === 'admin' ? '관리자' : '가구원'}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-
-          <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>알림 설정</Text>
-          <View
-            style={[
-              styles.panel,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-            ]}>
-            <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
-              <Text style={[styles.settingText, { color: theme.text }]}>유통기한 알림</Text>
-              <Switch
-                value={expiryEnabled}
-                onValueChange={(value) => updateReminder('expiry', value)}
-                trackColor={{ false: theme.border, true: theme.primary }}
-                thumbColor="#FFFFFF"
-              />
+                );
+              })}
             </View>
-            <View style={[styles.settingRow, styles.settingRowLast]}>
-              <Text style={[styles.settingText, { color: theme.text }]}>집안일 리마인드</Text>
-              <Switch
-                value={choreEnabled}
-                onValueChange={(value) => updateReminder('chore', value)}
-                trackColor={{ false: theme.border, true: theme.primary }}
-                thumbColor="#FFFFFF"
-              />
-            </View>
-          </View>
-          {notificationMessage ? (
-            <Text style={[styles.helperText, { color: theme.textSecondary }]}>
-              {notificationMessage}
-            </Text>
-          ) : null}
 
-          <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>가구원 관리</Text>
-          <View
-            style={[
-              styles.inviteCard,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-            ]}>
-            <Text style={[styles.inviteText, { color: theme.textSecondary }]}>
-              초대 코드{' '}
-              <Text style={[styles.inviteCode, { color: theme.primary }]}>
-                {household.inviteCode || '없음'}
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>알림 설정</Text>
+            <View
+              style={[
+                styles.panel,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+              ]}>
+              <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.settingText, { color: theme.text }]}>유통기한 알림</Text>
+                <Switch
+                  value={expiryEnabled}
+                  onValueChange={(value) => updateReminder('expiry', value)}
+                  trackColor={{ false: theme.border, true: theme.primary }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+              <View style={[styles.settingRow, styles.settingRowLast]}>
+                <Text style={[styles.settingText, { color: theme.text }]}>집안일 리마인드</Text>
+                <Switch
+                  value={choreEnabled}
+                  onValueChange={(value) => updateReminder('chore', value)}
+                  trackColor={{ false: theme.border, true: theme.primary }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+            </View>
+            {notificationMessage ? (
+              <Text style={[styles.helperText, { color: theme.textSecondary }]}>
+                {notificationMessage}
               </Text>
-              을 공유해서 가구원을 추가해요
-            </Text>
-          </View>
+            ) : null}
 
-          <Pressable
-            testID="profile-sign-out-button"
-            accessibilityRole="button"
-            onPress={signOut}
-            style={styles.signOutButton}>
-            <Text style={[styles.signOutText, { color: theme.textTertiary }]}>로그아웃</Text>
-          </Pressable>
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>가구원 관리</Text>
+            <View
+              style={[
+                styles.inviteCard,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+              ]}>
+              <Text style={[styles.inviteText, { color: theme.textSecondary }]}>
+                초대 코드{' '}
+                <Text style={[styles.inviteCode, { color: theme.primary }]}>
+                  {household.inviteCode || '없음'}
+                </Text>
+                을 공유해서 가구원을 추가해요
+              </Text>
+            </View>
+
+            {switchingHousehold ? (
+              <View style={styles.switchForm}>
+                <FormField
+                  label="다른 가구 초대 코드"
+                  value={inviteCode}
+                  onChangeText={(value) => {
+                    setInviteCode(value.toUpperCase());
+                    setSwitchError(null);
+                  }}
+                  placeholder="예: JALSAL"
+                  autoCapitalize="characters"
+                  testID="profile-household-code-input"
+                />
+                {switchError ? (
+                  <Text style={[styles.switchError, { color: theme.danger }]}>{switchError}</Text>
+                ) : null}
+                <View style={styles.switchActions}>
+                  <ActionButton
+                    variant="secondary"
+                    onPress={() => {
+                      setSwitchingHousehold(false);
+                      setInviteCode('');
+                      setSwitchError(null);
+                    }}
+                    style={styles.switchAction}>
+                    취소
+                  </ActionButton>
+                  <ActionButton
+                    testID="profile-household-join-button"
+                    onPress={() => void switchHousehold()}
+                    disabled={submittingSwitch || !inviteCode.trim()}
+                    style={styles.switchAction}>
+                    {submittingSwitch ? '이동 중' : '가구 이동'}
+                  </ActionButton>
+                </View>
+              </View>
+            ) : (
+              <ActionButton
+                testID="profile-household-switch-button"
+                variant="secondary"
+                onPress={() => setSwitchingHousehold(true)}>
+                다른 가구로 이동
+              </ActionButton>
+            )}
+
+            <Pressable
+              testID="profile-sign-out-button"
+              accessibilityRole="button"
+              onPress={signOut}
+              style={styles.signOutButton}>
+              <Text style={[styles.signOutText, { color: theme.textTertiary }]}>로그아웃</Text>
+            </Pressable>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -178,6 +258,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 18,
+  },
+  scroll: {
+    flexShrink: 1,
+  },
+  scrollContent: {
+    paddingBottom: 4,
   },
   sheetTitle: {
     fontSize: 19,
@@ -265,10 +351,26 @@ const styles = StyleSheet.create({
   inviteCode: {
     fontWeight: '700',
   },
+  switchForm: {
+    gap: 10,
+  },
+  switchError: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  switchActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  switchAction: {
+    flex: 1,
+  },
   signOutButton: {
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 8,
   },
   signOutText: {
     fontSize: 14,

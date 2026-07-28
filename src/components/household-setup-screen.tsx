@@ -20,13 +20,19 @@ export function HouseholdSetupScreen() {
   const [inviteCode, setInviteCode] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [confirmingCreate, setConfirmingCreate] = useState(false);
 
-  const create = async () => {
+  const requestCreate = () => {
     if (householdName.trim().length < 2) {
       setFormError('가구 이름은 2자 이상 입력해주세요.');
       return;
     }
 
+    setFormError(null);
+    setConfirmingCreate(true);
+  };
+
+  const create = async () => {
     setFormError(null);
     setSubmitting(true);
     try {
@@ -70,16 +76,42 @@ export function HouseholdSetupScreen() {
             onChangeText={(value) => {
               setHouseholdName(value);
               setFormError(null);
+              setConfirmingCreate(false);
             }}
             placeholder="예: 우리집"
             testID="household-name-input"
           />
-          <ActionButton
-            testID="household-create-button"
-            onPress={create}
-            disabled={submitting || !householdName.trim()}>
-            {submitting ? '처리 중' : '가구 만들기'}
-          </ActionButton>
+          {confirmingCreate ? (
+            <View style={styles.confirmation}>
+              <Text style={[styles.confirmationText, { color: theme.textSecondary }]}>
+                ‘{householdName.trim()}’ 가구를 새로 만들까요?
+              </Text>
+              <View style={styles.confirmationActions}>
+                <ActionButton
+                  testID="household-create-cancel-button"
+                  variant="secondary"
+                  onPress={() => setConfirmingCreate(false)}
+                  disabled={submitting}
+                  style={styles.confirmationAction}>
+                  취소
+                </ActionButton>
+                <ActionButton
+                  testID="household-create-confirm-button"
+                  onPress={() => void create()}
+                  disabled={submitting}
+                  style={styles.confirmationAction}>
+                  {submitting ? '처리 중' : '새로 만들기'}
+                </ActionButton>
+              </View>
+            </View>
+          ) : (
+            <ActionButton
+              testID="household-create-button"
+              onPress={requestCreate}
+              disabled={submitting || !householdName.trim()}>
+              가구 만들기
+            </ActionButton>
+          )}
         </View>
       </Card>
 
@@ -119,6 +151,21 @@ export function HouseholdSetupScreen() {
 const styles = StyleSheet.create({
   form: {
     gap: Spacing.two,
+  },
+  confirmation: {
+    gap: Spacing.one,
+  },
+  confirmationText: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600',
+  },
+  confirmationActions: {
+    flexDirection: 'row',
+    gap: Spacing.one,
+  },
+  confirmationAction: {
+    flex: 1,
   },
   error: {
     fontSize: 13,
