@@ -18,7 +18,7 @@ export async function runCommand(command, args, options = {}) {
     cwd: options.cwd,
     detached: process.platform !== 'win32',
     env: { ...process.env, ...options.env },
-    stdio: options.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'],
+    stdio: options.inherit ? 'inherit' : [options.input ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   });
   let timedOut = false;
   const timeout = options.timeoutMs
@@ -33,6 +33,9 @@ export async function runCommand(command, args, options = {}) {
     : null;
 
   if (!options.inherit) {
+    if (options.input) {
+      child.stdin.end(options.input);
+    }
     child.stdout.on('data', (chunk) => appendBounded(output, chunk));
     child.stderr.on('data', (chunk) => appendBounded(errors, chunk));
   }

@@ -27,3 +27,13 @@ test('terminates commands after their timeout', async () => {
 
   assert.equal(result.timedOut, true);
 });
+
+test('passes structured input to child commands', async () => {
+  const result = await runCommand(
+    process.execPath,
+    ['-e', "process.stdin.on('data', (chunk) => process.stdout.write(chunk))"],
+    { input: '{"ok":true}' },
+  );
+
+  assert.equal(result.stdout, '{"ok":true}');
+});

@@ -98,6 +98,13 @@ npm run qa:install-schedule
 
 ## 6. GitHub 설정
 
+GitHub CLI 로그인 후 설정을 한 번 적용한다.
+
+```bash
+gh auth login
+npm run qa:configure-github
+```
+
 `main`에는 다음 규칙을 사용한다.
 
 - Pull Request 필수

@@ -51,6 +51,7 @@
     "qa:review": "node qa/automation/claude-review.mjs",
     "qa:nightly": "node qa/automation/nightly-runner.mjs",
     "qa:nightly:dry": "node qa/automation/nightly-runner.mjs --dry-run --once --force",
+    "qa:configure-github": "node qa/automation/configure-github.mjs",
     "qa:install-schedule": "node qa/automation/install-schedule.mjs",
     "qa:test": "node --test qa/**/*.test.mjs",
     "export:web": "expo export --platform web && node scripts/prepare-sites-build.mjs",
