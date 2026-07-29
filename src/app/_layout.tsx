@@ -1,9 +1,10 @@
 import { DefaultTheme, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 
 import { AppShell } from '@/components/app-shell';
+import { QaOverlay } from '@/components/qa-overlay';
 
 export default function TabLayout() {
   useEffect(() => {
@@ -15,7 +16,16 @@ export default function TabLayout() {
   return (
     <ThemeProvider value={DefaultTheme}>
       <StatusBar style="dark" />
-      <AppShell />
+      <View style={styles.root}>
+        <AppShell />
+        <QaOverlay />
+      </View>
     </ThemeProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});

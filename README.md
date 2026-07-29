@@ -36,6 +36,15 @@ npm run start
 npm run web
 ```
 
+내부망 QA 환경:
+
+```bash
+npm run qa:setup
+npm run qa:lan
+```
+
+QA 모드는 앱 로그인과 독립된 제보 버튼, 화면 Recording, Jira 티켓 생성을 제공합니다. Jira와 야간 자동수정 설정은 [docs/qa-automation.md](docs/qa-automation.md)를 따릅니다.
+
 Firebase 키 없이 샘플 데이터로 확인:
 
 ```bash

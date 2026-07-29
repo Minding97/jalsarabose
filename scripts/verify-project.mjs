@@ -4,6 +4,7 @@ const requiredSmokeEnv = ['SMOKE_TEST_EMAIL', 'SMOKE_TEST_PASSWORD'];
 
 const checks = [
   ['verify:env', ['npm', ['run', 'verify:env']]],
+  ['qa:test', ['npm', ['run', 'qa:test']]],
   ['typecheck', ['npm', ['run', 'typecheck']]],
   ['lint', ['npm', ['run', 'lint']]],
   ['export:web', ['npm', ['run', 'export:web']]],
