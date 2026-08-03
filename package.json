@@ -54,6 +54,7 @@
     "qa:configure-github": "node qa/automation/configure-github.mjs",
     "qa:install-schedule": "node qa/automation/install-schedule.mjs",
     "qa:test": "node --test qa/**/*.test.mjs",
+    "qa:chore-smoke": "node qa/automation/chore-smoke.mjs",
     "export:web": "expo export --platform web && node scripts/prepare-sites-build.mjs",
     "export:web:mock": "EXPO_PUBLIC_USE_MOCKS=true expo export --platform web --output-dir dist-mock",
     "verify:env": "node scripts/verify-env.mjs",

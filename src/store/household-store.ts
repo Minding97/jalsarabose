@@ -21,6 +21,7 @@ import {
   addExpense,
   addFridgeItem,
   createHousehold,
+  completeChoreAndScheduleNext,
   deleteChore,
   deleteExpense,
   deleteFridgeItem,
@@ -38,6 +39,7 @@ import {
 } from '@/services/household-repository';
 import { firebaseConfigIssues, isFirebaseConfigured, useMocks } from '@/services/firebase';
 import { todayIso } from '@/utils/dates';
+import { createNextChoreOccurrence } from '@/utils/chore-recurrence';
 
 type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'mock' | 'missing-config';
 type DataStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
@@ -372,14 +374,12 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
     if (useMocks) {
       set((current) => ({
-        chores: current.chores.map((chore) =>
-          chore.id === choreId ? { ...chore, status: 'done' } : chore,
-        ),
+        chores: completeMockChore(current, choreId),
       }));
       return;
     }
 
-    await updateChore(requireHouseholdId(state), choreId, { status: 'done' });
+    await completeChoreAndScheduleNext(requireHouseholdId(state), choreId, state.members);
   },
 
   addFridgeItemEntry: async (input) => {
@@ -560,6 +560,21 @@ function requireHouseholdId(state: StoreState) {
 
 function createLocalId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function completeMockChore(state: StoreState, choreId: string): Chore[] {
+  const chore = state.chores.find((item) => item.id === choreId);
+  if (!chore || chore.status === 'done') {
+    return state.chores;
+  }
+
+  const completed = state.chores.map((item) =>
+    item.id === choreId ? { ...item, status: 'done' as const } : item,
+  );
+  const nextChore = createNextChoreOccurrence(chore, state.members, todayIso());
+  return nextChore
+    ? [...completed, { ...nextChore, id: createLocalId('chore') }]
+    : completed;
 }
 
 function getErrorMessage(error: unknown) {

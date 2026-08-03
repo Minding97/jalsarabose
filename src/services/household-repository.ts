@@ -40,6 +40,7 @@ import {
   UserProfile,
 } from '@/domain/types';
 import { todayIso } from '@/utils/dates';
+import { createNextChoreOccurrence } from '@/utils/chore-recurrence';
 
 type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
 type CreateHouseholdInput = {
@@ -288,6 +289,38 @@ export function updateChore(householdId: string, choreId: string, patch: Partial
     doc(requireDb(), 'households', householdId, 'chores', choreId),
     replaceUndefinedWithDelete(patch),
   );
+}
+
+export async function completeChoreAndScheduleNext(
+  householdId: string,
+  choreId: string,
+  members: HouseholdMember[],
+) {
+  const db = requireDb();
+  const choreRef = doc(db, 'households', householdId, 'chores', choreId);
+
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(choreRef);
+    if (!snapshot.exists()) {
+      throw new Error('완료할 집안일을 찾을 수 없어요.');
+    }
+
+    const chore = choreFromDoc(snapshot);
+    if (chore.status === 'done') {
+      return { nextScheduled: false };
+    }
+
+    transaction.update(choreRef, { status: 'done' });
+
+    const nextChore = createNextChoreOccurrence(chore, members, todayIso());
+    if (!nextChore) {
+      return { nextScheduled: false };
+    }
+
+    const nextChoreRef = doc(collection(db, 'households', householdId, 'chores'));
+    transaction.set(nextChoreRef, omitUndefined(nextChore));
+    return { nextScheduled: true, nextChoreId: nextChoreRef.id };
+  });
 }
 
 export function deleteChore(householdId: string, choreId: string) {
