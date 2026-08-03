@@ -26,6 +26,8 @@ export function loadQaConfig() {
     jiraReviewStatus: process.env.JIRA_REVIEW_STATUS ?? '리뷰 중',
     jiraDoneStatus: process.env.JIRA_DONE_STATUS ?? '완료',
     jiraNeedsHumanStatus: process.env.JIRA_NEEDS_HUMAN_STATUS ?? '사람 확인 필요',
+    jiraBugType: process.env.JIRA_BUG_TYPE ?? 'Bug',
+    jiraTaskType: process.env.JIRA_TASK_TYPE ?? 'Task',
     jiraSubtaskType: process.env.JIRA_SUBTASK_TYPE ?? 'Sub-task',
     recordingKey: process.env.QA_RECORDING_KEY ?? '',
     githubRepository: process.env.GITHUB_REPOSITORY ?? 'Minding97/jalsarabose',

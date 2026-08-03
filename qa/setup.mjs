@@ -16,6 +16,8 @@ const defaults = [
   'JIRA_REVIEW_STATUS=리뷰 중',
   'JIRA_DONE_STATUS=완료',
   'JIRA_NEEDS_HUMAN_STATUS=사람 확인 필요',
+  'JIRA_BUG_TYPE=Bug',
+  'JIRA_TASK_TYPE=Task',
   'JIRA_SUBTASK_TYPE=Sub-task',
   `QA_RECORDING_KEY=${randomBytes(32).toString('base64')}`,
   'QA_GATEWAY_PORT=8787',
@@ -40,6 +42,12 @@ if (!existsSync(qaConfigPath)) {
   const additions = [];
   if (!current.includes('QA_RECORDING_KEY=')) {
     additions.push(`QA_RECORDING_KEY=${randomBytes(32).toString('base64')}`);
+  }
+  if (!current.includes('JIRA_BUG_TYPE=')) {
+    additions.push('JIRA_BUG_TYPE=Bug');
+  }
+  if (!current.includes('JIRA_TASK_TYPE=')) {
+    additions.push('JIRA_TASK_TYPE=Task');
   }
   if (!current.includes('QA_REPLAY_PORT=')) {
     additions.push('QA_REPLAY_PORT=8091');

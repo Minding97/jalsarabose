@@ -58,6 +58,10 @@ export class JiraClient {
   }
 
   async createReport(metadata) {
+    const issueType =
+      metadata.kind === 'bug'
+        ? (this.config.jiraBugType ?? 'Bug')
+        : (this.config.jiraTaskType ?? 'Task');
     const summary = `[${metadata.kind === 'bug' ? 'Bug' : 'Task'}] ${metadata.memo}`
       .replace(/\s+/g, ' ')
       .slice(0, 120);
@@ -67,7 +71,7 @@ export class JiraClient {
       body: JSON.stringify({
         fields: {
           project: { key: this.config.jiraProjectKey },
-          issuetype: { name: metadata.kind === 'bug' ? 'Bug' : 'Task' },
+          issuetype: { name: issueType },
           summary,
           description: buildDescription(metadata),
           labels: [
@@ -275,9 +279,9 @@ export class JiraClient {
   }
 
   async downloadAttachment(attachment) {
-    const payload = await this.request(`/rest/api/3/attachment/content/${attachment.id}`, {
-      headers: { Accept: 'application/octet-stream' },
-    });
+    const payload = await this.request(
+      `/rest/api/3/attachment/content/${attachment.id}?redirect=false`,
+    );
     return Buffer.from(payload);
   }
 

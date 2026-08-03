@@ -41,9 +41,14 @@ JIRA_BASE_URL=https://YOUR-SITE.atlassian.net
 JIRA_EMAIL=Atlassian 계정 이메일
 JIRA_API_TOKEN=Atlassian API 토큰
 JIRA_PROJECT_KEY=JAL
+JIRA_BUG_TYPE=Bug
+JIRA_TASK_TYPE=Task
+JIRA_SUBTASK_TYPE=Sub-task
 QA_TEST_EMAIL=QA 전용 앱 이메일
 QA_TEST_PASSWORD=QA 전용 앱 비밀번호
 ```
+
+이슈 유형과 상태 이름은 Jira 프로젝트에 표시되는 언어와 정확히 같아야 한다.
 
 `QA_RECORDING_KEY`는 setup 명령이 자동 생성한다. 이 파일과 키를 git, Notion, Jira에 올리지 않는다.
 테스트 계정은 로그인 화면에서 시작하지 않은 Recording을 자동 재현할 때만 사용한다.

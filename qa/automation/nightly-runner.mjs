@@ -623,8 +623,10 @@ async function main() {
 
   try {
     await github.ensureAuthenticated();
-    await reconcileMergedPullRequests(jira, github, config);
-    await cleanupExpiredRecordings(jira, config);
+    if (!dryRun) {
+      await reconcileMergedPullRequests(jira, github, config);
+      await cleanupExpiredRecordings(jira, config);
+    }
 
     do {
       const queue = await jira.searchReadyIssues();
