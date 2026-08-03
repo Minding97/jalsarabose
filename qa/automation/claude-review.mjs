@@ -1,5 +1,6 @@
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { z } from 'zod';
 
@@ -79,7 +80,7 @@ export async function reviewWithClaude({
   return review;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = parseArguments(process.argv.slice(2));
 
   if (!args.worktree || !args.issue || !args.pr) {

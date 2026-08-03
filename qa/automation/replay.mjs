@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { chromium } from 'playwright-core';
 
@@ -131,7 +132,7 @@ export async function replayRecording({
   return result;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = parseArguments(process.argv.slice(2));
   if (!args.recording) {
     console.error(
