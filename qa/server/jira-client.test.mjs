@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { JiraClient } from './jira-client.mjs';
+import { getReviewLabels, issueMatchesReviewFindings, JiraClient } from './jira-client.mjs';
 
 const config = {
   jiraBaseUrl: 'https://example.atlassian.net',
@@ -81,4 +81,49 @@ test('uses configured Jira issue type names when creating a report', async (cont
   });
 
   assert.equal(requestBodies[0].fields.issuetype.name, '버그');
+});
+
+test('matches review subtasks by the full fingerprint when legacy labels collide', async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const targetFingerprint = 'p1-qa-automation-"quoted"-review\\second-finding';
+
+  globalThis.fetch = async () =>
+    Response.json({
+      issues: [
+        {
+          key: 'JAL-30',
+          fields: {
+            description: {
+              content: [{ content: [{ text: 'Fingerprint: p1-qa-automation-claude-review-first' }] }],
+            },
+          },
+        },
+        {
+          key: 'JAL-33',
+          fields: {
+            description: {
+              content: [{ content: [{ text: `Fingerprint: ${targetFingerprint}` }] }],
+            },
+          },
+        },
+      ],
+    });
+
+  const client = new JiraClient(config);
+  const issue = await client.findReviewSubtask('JAL-26', targetFingerprint);
+
+  assert.equal(issue.key, 'JAL-33');
+});
+
+test('keeps a subtask open when its hashed review finding is still blocking', () => {
+  const fingerprint = 'p1-current-blocker';
+  const issue = {
+    fields: { labels: ['qa-review-followup', getReviewLabels(fingerprint)[0]] },
+  };
+
+  assert.equal(issueMatchesReviewFindings(issue, [{ fingerprint }]), true);
+  assert.equal(issueMatchesReviewFindings(issue, [{ fingerprint: 'p1-resolved' }]), false);
 });
