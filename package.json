@@ -48,6 +48,7 @@
     "qa:gateway": "node qa/server/index.mjs",
     "qa:lan": "concurrently --kill-others --names APP,QA --prefix-colors green,cyan \"EXPO_PUBLIC_QA_MODE=true expo start --web --lan --port 8081\" \"node qa/server/index.mjs\"",
     "qa:replay": "node qa/automation/replay.mjs",
+    "qa:expense-smoke": "node qa/automation/expense-smoke.mjs",
     "qa:review": "node qa/automation/claude-review.mjs",
     "qa:nightly": "node qa/automation/nightly-runner.mjs",
     "qa:nightly:dry": "node qa/automation/nightly-runner.mjs --dry-run --once --force",

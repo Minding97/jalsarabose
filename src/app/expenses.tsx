@@ -1,6 +1,6 @@
 import { ChevronLeft, Plus } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
@@ -13,7 +13,7 @@ import { expenseCategoryLabels, expenseStatusLabels } from '@/domain/labels';
 import { Expense, ExpenseCategory, ExpenseStatus } from '@/domain/types';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
-import { getExpenseSummary, getMemberName } from '@/utils/dashboard';
+import { getExpenseSettlement, getExpenseSummary, getMemberName } from '@/utils/dashboard';
 import { validateExpenseInput } from '@/utils/validation';
 
 type ExpenseView = 'list' | 'dashboard';
@@ -37,6 +37,10 @@ export default function ExpensesScreen() {
   const [payerId, setPayerId] = useState(snapshot.members[0]?.id ?? '');
   const [splitMode, setSplitMode] = useState<SplitMode>('equal');
   const [shares, setShares] = useState<Record<string, string>>({});
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [memo, setMemo] = useState('');
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -51,7 +55,11 @@ export default function ExpensesScreen() {
   }, [snapshot.expenses]);
 
   const maxCategoryAmount = Math.max(...summary.byCategory.map((item) => item.amount), 1);
-  const settlement = getSettlement(snapshot.expenses, snapshot.members.map((member) => member.id));
+  const maxPaymentMethodAmount = Math.max(
+    ...summary.byPaymentMethod.map((item) => item.amount),
+    1,
+  );
+  const settlement = getExpenseSettlement(snapshot, todayIso());
 
   const resetForm = () => {
     setFormOpen(false);
@@ -64,6 +72,10 @@ export default function ExpensesScreen() {
     setPayerId(snapshot.members[0]?.id ?? '');
     setSplitMode('equal');
     setShares({});
+    setPaymentMethod('');
+    setMemo('');
+    setIsRecurring(false);
+    setNotificationEnabled(true);
     setFormError(null);
   };
 
@@ -89,6 +101,10 @@ export default function ExpensesScreen() {
         ]),
       ),
     );
+    setPaymentMethod(expense.paymentMethod ?? '');
+    setMemo(expense.memo ?? '');
+    setIsRecurring(expense.isRecurring);
+    setNotificationEnabled(expense.notificationEnabled);
     setFormError(null);
     setFormOpen(true);
   };
@@ -106,12 +122,12 @@ export default function ExpensesScreen() {
       dueDate,
       category,
       status,
-      paymentMethod: undefined,
+      paymentMethod: paymentMethod.trim() || undefined,
       payerId,
       splitRatio,
-      isRecurring: false,
-      memo: undefined,
-      notificationEnabled: true,
+      isRecurring,
+      memo: memo.trim() || undefined,
+      notificationEnabled,
     };
     const validationMessage = validateExpenseInput(payload);
 
@@ -176,11 +192,19 @@ export default function ExpensesScreen() {
           placeholder="YYYY-MM-DD"
           testID="expense-due-date-input"
         />
+        <FormField
+          label="결제수단"
+          value={paymentMethod}
+          onChangeText={setPaymentMethod}
+          placeholder="예: 공동 체크카드"
+          testID="expense-payment-method-input"
+        />
         <ChipGroup
           label="카테고리"
           value={category}
           options={expenseCategoryOptions}
           onChange={setCategory}
+          testIDPrefix="expense-category"
         />
         <ChipGroup
           label="결제자"
@@ -190,28 +214,31 @@ export default function ExpensesScreen() {
             label: getMemberName(snapshot.members, member.id),
           }))}
           onChange={setPayerId}
+          testIDPrefix="expense-payer"
         />
         <ChipGroup
-          label="분배 방식"
+          label="분담 방식"
           value={splitMode}
           options={[
             { value: 'equal', label: '균등' },
             { value: 'custom', label: '직접 입력' },
           ]}
           onChange={setSplitMode}
+          testIDPrefix="expense-split"
         />
         {splitMode === 'custom' ? (
           <View style={styles.shareFields}>
             {snapshot.members.map((member) => (
               <FormField
                 key={member.id}
-                label={`${getMemberName(snapshot.members, member.id)} 부담액`}
+                label={`${getMemberName(snapshot.members, member.id)} 분담 비율 (%)`}
                 value={shares[member.id] ?? ''}
                 onChangeText={(value) =>
                   setShares((current) => ({ ...current, [member.id]: value }))
                 }
                 placeholder="0"
                 keyboardType="numeric"
+                testID={`expense-share-${member.id}-input`}
               />
             ))}
           </View>
@@ -221,6 +248,28 @@ export default function ExpensesScreen() {
           value={status}
           options={expenseStatusOptions}
           onChange={setStatus}
+          testIDPrefix="expense-status"
+        />
+        <FormField
+          label="메모"
+          value={memo}
+          onChangeText={setMemo}
+          placeholder="필요한 내용을 남겨주세요"
+          testID="expense-memo-input"
+        />
+        <SettingToggle
+          label="반복 지출"
+          description="같은 지출이 정기적으로 발생해요"
+          value={isRecurring}
+          onValueChange={setIsRecurring}
+          testID="expense-recurring-switch"
+        />
+        <SettingToggle
+          label="납부 알림"
+          description="납부일이 다가오면 결제자에게 알려줘요"
+          value={notificationEnabled}
+          onValueChange={setNotificationEnabled}
+          testID="expense-notification-switch"
         />
         {formError ? <Text style={[styles.errorText, { color: theme.danger }]}>{formError}</Text> : null}
         <View style={styles.formActions}>
@@ -271,7 +320,12 @@ export default function ExpensesScreen() {
                 {formatKoreanDate(date)}
               </Text>
               {expenses.map((expense) => (
-                <Pressable key={expense.id} onPress={() => editExpense(expense)}>
+                <Pressable
+                  key={expense.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${expense.title} 지출 수정`}
+                  testID={`expense-item-${expense.id}`}
+                  onPress={() => editExpense(expense)}>
                   <Card style={styles.listCard}>
                     <View style={styles.expenseRow}>
                       <View style={[styles.categoryBadge, { backgroundColor: theme.chip }]}>
@@ -290,8 +344,10 @@ export default function ExpensesScreen() {
                         </View>
                         <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
                           {getMemberName(snapshot.members, expense.payerId)} 결제 ·{' '}
+                          {expense.paymentMethod || '결제수단 미지정'} ·{' '}
                           {expense.splitRatio ? '직접 분배' : '균등 분배'} ·{' '}
                           {expenseStatusLabels[expense.status]}
+                          {expense.isRecurring ? ' · 반복' : ''}
                         </Text>
                       </View>
                     </View>
@@ -328,16 +384,52 @@ export default function ExpensesScreen() {
             ))}
           </View>
 
+          <SectionTitle>결제수단별 지출</SectionTitle>
+          <View style={styles.bars} testID="expense-payment-method-summary">
+            {summary.byPaymentMethod.map((item) => (
+              <ProgressRow
+                key={item.paymentMethod}
+                label={item.paymentMethod}
+                value={`${item.amount.toLocaleString()}원 · ${item.count}건`}
+                percent={(item.amount / maxPaymentMethodAmount) * 100}
+              />
+            ))}
+          </View>
+
+          <SectionTitle>납부 상태</SectionTitle>
+          <View style={styles.statusSummary} testID="expense-status-summary">
+            {summary.byStatus.map((item) => (
+              <View
+                key={item.status}
+                style={[styles.statusSummaryItem, { borderColor: theme.border }]}>
+                <Text style={[styles.statusSummaryLabel, { color: theme.textSecondary }]}>
+                  {expenseStatusLabels[item.status]}
+                </Text>
+                <Text style={[styles.statusSummaryValue, { color: theme.text }]}>
+                  {item.amount.toLocaleString()}원
+                </Text>
+                <Text style={[styles.statusSummaryCount, { color: theme.textTertiary }]}>
+                  {item.count}건
+                </Text>
+              </View>
+            ))}
+          </View>
+
           <SectionTitle>정산</SectionTitle>
-          <Card style={styles.settlementCard}>
-            <Text style={[styles.settlementText, { color: theme.text }]}>
-              {settlement
-                ? `${getMemberName(snapshot.members, settlement.from)}님이 ${getMemberName(
-                    snapshot.members,
-                    settlement.to,
-                  )}님에게 ${settlement.amount.toLocaleString()}원 보내면 정산 완료`
-                : '정산할 금액이 없어요'}
-            </Text>
+          <Card style={styles.settlementCard} testID="expense-settlement-summary">
+            {settlement.transfers.length > 0 ? (
+              settlement.transfers.map((transfer) => (
+                <Text
+                  key={`${transfer.from}-${transfer.to}`}
+                  style={[styles.settlementText, { color: theme.text }]}>
+                  {getMemberName(snapshot.members, transfer.from)}님이{' '}
+                  {getMemberName(snapshot.members, transfer.to)}님에게{' '}
+                  {transfer.amount.toLocaleString()}원 보내기
+                </Text>
+              ))
+            ) : (
+              <Text style={[styles.settlementText, { color: theme.text }]}>정산할 금액이 없어요</Text>
+            )}
           </Card>
         </>
       )}
@@ -362,11 +454,13 @@ function ChipGroup<T extends string>({
   value,
   options,
   onChange,
+  testIDPrefix,
 }: {
   label: string;
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  testIDPrefix?: string;
 }) {
   const theme = useTheme();
   return (
@@ -380,6 +474,8 @@ function ChipGroup<T extends string>({
               key={option.value}
               accessibilityRole="button"
               accessibilityState={{ selected }}
+              accessibilityLabel={`${label} ${option.label}`}
+              testID={testIDPrefix ? `${testIDPrefix}-${option.value}` : undefined}
               onPress={() => onChange(option.value)}
               style={[
                 styles.chip,
@@ -414,6 +510,40 @@ function FloatingButton({ onPress, label }: { onPress: () => void; label: string
   );
 }
 
+function SettingToggle({
+  label,
+  description,
+  value,
+  onValueChange,
+  testID,
+}: {
+  label: string;
+  description: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  testID: string;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.toggleRow, { borderColor: theme.border }]}>
+      <View style={styles.toggleText}>
+        <Text style={[styles.toggleLabel, { color: theme.text }]}>{label}</Text>
+        <Text style={[styles.toggleDescription, { color: theme.textSecondary }]}>
+          {description}
+        </Text>
+      </View>
+      <Switch
+        testID={testID}
+        accessibilityLabel={label}
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: theme.chip, true: theme.primarySoft }}
+        thumbColor={value ? theme.primary : theme.textTertiary}
+      />
+    </View>
+  );
+}
+
 function SectionTitle({ children }: { children: string }) {
   const theme = useTheme();
   return <Text style={[styles.sectionTitle, { color: theme.text }]}>{children}</Text>;
@@ -439,32 +569,15 @@ function ProgressRow({
         <View
           style={[
             styles.progressFill,
-            { backgroundColor: theme.primary, width: `${Math.max(percent, 4)}%` },
+            {
+              backgroundColor: theme.primary,
+              width: `${percent <= 0 ? 0 : Math.max(Math.min(percent, 100), 4)}%`,
+            },
           ]}
         />
       </View>
     </View>
   );
-}
-
-function getSettlement(expenses: Expense[], memberIds: string[]) {
-  if (memberIds.length !== 2 || expenses.length === 0) {
-    return null;
-  }
-  const paid = Object.fromEntries(memberIds.map((id) => [id, 0])) as Record<string, number>;
-  expenses.forEach((expense) => {
-    if (expense.payerId && paid[expense.payerId] !== undefined) {
-      paid[expense.payerId] += expense.amount;
-    }
-  });
-  const total = Object.values(paid).reduce((sum, value) => sum + value, 0);
-  const target = total / 2;
-  const from = memberIds.find((id) => paid[id] < target);
-  const to = memberIds.find((id) => paid[id] > target);
-  if (!from || !to) {
-    return null;
-  }
-  return { from, to, amount: Math.round(target - paid[from]) };
 }
 
 const expenseCategoryOptions = Object.entries(expenseCategoryLabels).map(([value, label]) => ({
@@ -588,6 +701,7 @@ const styles = StyleSheet.create({
   settlementCard: {
     borderRadius: 16,
     padding: 14,
+    gap: 8,
   },
   settlementText: {
     fontSize: 14,
@@ -639,6 +753,58 @@ const styles = StyleSheet.create({
   },
   shareFields: {
     gap: 10,
+  },
+  toggleRow: {
+    minHeight: 64,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    paddingVertical: 8,
+  },
+  toggleText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  toggleDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  statusSummary: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  statusSummaryItem: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    gap: 2,
+  },
+  statusSummaryLabel: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  statusSummaryValue: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  statusSummaryCount: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '500',
   },
   formActions: {
     flexDirection: 'row',
