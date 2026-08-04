@@ -24,6 +24,10 @@ function reviewLabel(fingerprint) {
   return `review-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 32)}`;
 }
 
+export function getAutomationBugLabel(fingerprint) {
+  return `daily-qa-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 32)}`;
+}
+
 export function getReviewLabels(fingerprint) {
   return [reviewLabel(fingerprint), legacyReviewLabel(fingerprint)];
 }
@@ -55,6 +59,10 @@ function buildDescription(metadata) {
     `Recording: ${metadata.recordingIncluded ? `${metadata.recordingStepCount}단계 / ${metadata.recordingDurationMs}ms` : '없음'}`,
     `Report ID: ${metadata.reportId}`,
   ];
+
+  if (metadata.details) {
+    lines.push(`상세: ${metadata.details}`);
+  }
 
   return {
     type: 'doc',
@@ -112,9 +120,12 @@ export class JiraClient {
           summary,
           description: buildDescription(metadata),
           labels: [
-            'qa-report',
-            'auto-fix-ready',
-            `qa-report-${metadata.reportId.toLowerCase()}`,
+            ...new Set([
+              'qa-report',
+              'auto-fix-ready',
+              `qa-report-${metadata.reportId.toLowerCase()}`,
+              ...(metadata.labels ?? []),
+            ]),
           ],
         },
       }),
@@ -131,6 +142,20 @@ export class JiraClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         jql: `project = "${this.config.jiraProjectKey}" AND labels = "${label}"`,
+        maxResults: 1,
+        fields: ['key', 'summary', 'status'],
+      }),
+    });
+    return response.issues?.[0] ?? null;
+  }
+
+  async findOpenAutomationBug(fingerprint) {
+    const label = getAutomationBugLabel(fingerprint);
+    const response = await this.request('/rest/api/3/search/jql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jql: `project = "${this.config.jiraProjectKey}" AND labels = "${label}" AND status != "${this.config.jiraDoneStatus}" ORDER BY created DESC`,
         maxResults: 1,
         fields: ['key', 'summary', 'status'],
       }),

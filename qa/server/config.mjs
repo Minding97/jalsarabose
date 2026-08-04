@@ -39,6 +39,8 @@ export function loadQaConfig() {
       process.env.QA_CHROME_EXECUTABLE_PATH ??
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     nightlyEndHour: numberValue(process.env.QA_NIGHTLY_END_HOUR, 7),
+    dailyQaHour: numberValue(process.env.QA_DAILY_HOUR, 7),
+    dailyQaMinute: numberValue(process.env.QA_DAILY_MINUTE, 10),
     recordingRetentionDays: numberValue(process.env.QA_RECORDING_RETENTION_DAYS, 30),
   };
 

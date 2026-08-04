@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getReviewLabels, issueMatchesReviewFindings, JiraClient } from './jira-client.mjs';
+import {
+  getAutomationBugLabel,
+  getReviewLabels,
+  issueMatchesReviewFindings,
+  JiraClient,
+} from './jira-client.mjs';
 
 const config = {
   jiraBaseUrl: 'https://example.atlassian.net',
@@ -78,9 +83,36 @@ test('uses configured Jira issue type names when creating a report', async (cont
     recordingStepCount: 0,
     recordingDurationMs: 0,
     reportId: 'REPORT-1',
+    details: '자동 테스트 오류 상세',
+    labels: ['daily-regression', getAutomationBugLabel('failure-one')],
   });
 
   assert.equal(requestBodies[0].fields.issuetype.name, '버그');
+  assert.ok(requestBodies[0].fields.labels.includes('daily-regression'));
+  assert.match(
+    JSON.stringify(requestBodies[0].fields.description),
+    /자동 테스트 오류 상세/,
+  );
+});
+
+test('finds an unresolved daily automation bug by its stable fingerprint', async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  let requestBody;
+
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return Response.json({ issues: [{ key: 'JAL-70' }] });
+  };
+
+  const client = new JiraClient({ ...config, jiraDoneStatus: '완료' });
+  const issue = await client.findOpenAutomationBug('same-failure');
+
+  assert.equal(issue.key, 'JAL-70');
+  assert.match(requestBody.jql, new RegExp(getAutomationBugLabel('same-failure')));
+  assert.match(requestBody.jql, /status != "완료"/);
 });
 
 test('matches review subtasks by the full fingerprint when legacy labels collide', async (context) => {

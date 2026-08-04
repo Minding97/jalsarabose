@@ -74,7 +74,10 @@ async function stopProcessGroup(child) {
   }
 }
 
-export async function withExpoWebServer({ worktree, port }, operation) {
+export async function withExpoWebServer(
+  { worktree, port, env = {}, inheritEnv = true },
+  operation,
+) {
   const expoPath = resolve(worktree, 'node_modules/.bin/expo');
   if (!existsSync(expoPath)) {
     throw new Error(`Expo executable not found: ${expoPath}`);
@@ -86,7 +89,8 @@ export async function withExpoWebServer({ worktree, port }, operation) {
     cwd: worktree,
     detached: true,
     env: {
-      ...process.env,
+      ...(inheritEnv ? process.env : {}),
+      ...env,
       BROWSER: 'none',
       CI: '1',
       EXPO_PUBLIC_QA_MODE: 'false',

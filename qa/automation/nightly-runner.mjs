@@ -607,6 +607,7 @@ async function main() {
   let lockFile;
   try {
     lockFile = openSync(lockPath, 'wx', 0o600);
+    writeFileSync(lockFile, String(process.pid));
   } catch {
     throw new Error(`Another QA nightly runner is active (${lockPath}).`);
   }

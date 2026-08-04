@@ -28,6 +28,8 @@ const defaults = [
   'QA_TEST_PASSWORD=',
   'GITHUB_REPOSITORY=Minding97/jalsarabose',
   'QA_NIGHTLY_END_HOUR=7',
+  'QA_DAILY_HOUR=7',
+  'QA_DAILY_MINUTE=10',
   'QA_RECORDING_RETENTION_DAYS=30',
   '',
 ].join('\n');
@@ -57,6 +59,12 @@ if (!existsSync(qaConfigPath)) {
   }
   if (!current.includes('QA_TEST_PASSWORD=')) {
     additions.push('QA_TEST_PASSWORD=');
+  }
+  if (!current.includes('QA_DAILY_HOUR=')) {
+    additions.push('QA_DAILY_HOUR=7');
+  }
+  if (!current.includes('QA_DAILY_MINUTE=')) {
+    additions.push('QA_DAILY_MINUTE=10');
   }
 
   if (additions.length > 0) {
