@@ -1,6 +1,6 @@
-import { ChevronLeft, Plus } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Check, ChevronLeft, Plus, Trash2 } from 'lucide-react-native';
+import { ReactNode, useState } from 'react';
+import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
@@ -24,6 +24,7 @@ export default function FridgeScreen() {
   const addFridgeItemEntry = useHouseholdStore((state) => state.addFridgeItemEntry);
   const updateFridgeItemEntry = useHouseholdStore((state) => state.updateFridgeItemEntry);
   const deleteFridgeItemEntry = useHouseholdStore((state) => state.deleteFridgeItemEntry);
+  const updateFridgeItemStatus = useHouseholdStore((state) => state.updateFridgeItemStatus);
   const today = todayIso();
   const summary = getFridgeSummary(snapshot, today);
   const [view, setView] = useState<FridgeView>('list');
@@ -35,22 +36,26 @@ export default function FridgeScreen() {
   const [category, setCategory] = useState<FridgeCategory>('other');
   const [storageType, setStorageType] = useState<StorageType>('fridge');
   const [status, setStatus] = useState<FridgeStatus>('stocked');
+  const [memo, setMemo] = useState('');
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [actionItemId, setActionItemId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const stockedItems = snapshot.fridgeItems.filter((item) => item.status === 'stocked');
-  const groups = useMemo(() => groupFridgeItems(stockedItems, today), [stockedItems, today]);
-  const categoryCounts = useMemo(() => {
-    return Object.values(
-      stockedItems.reduce<
-        Record<string, { category: FridgeCategory; count: number }>
-      >((acc, item) => {
-        acc[item.category] ??= { category: item.category, count: 0 };
-        acc[item.category].count += 1;
+  const groups = groupFridgeItems(stockedItems, today);
+  const categoryCounts = Object.values(
+    stockedItems.reduce<Record<string, { category: FridgeCategory; count: number }>>(
+      (acc, item) => {
+        const category = fridgeCategoryLabels[item.category] ? item.category : 'other';
+        acc[category] ??= { category, count: 0 };
+        acc[category].count += 1;
         return acc;
-      }, {}),
-    ).sort((a, b) => b.count - a.count);
-  }, [stockedItems]);
+      },
+      {},
+    ),
+  ).sort((a, b) => b.count - a.count);
   const maxCategoryCount = Math.max(...categoryCounts.map((item) => item.count), 1);
 
   const resetForm = () => {
@@ -62,6 +67,8 @@ export default function FridgeScreen() {
     setCategory('other');
     setStorageType('fridge');
     setStatus('stocked');
+    setMemo('');
+    setNotificationEnabled(true);
     setFormError(null);
   };
 
@@ -78,6 +85,8 @@ export default function FridgeScreen() {
     setCategory(item.category);
     setStorageType(item.storageType);
     setStatus(item.status);
+    setMemo(item.memo ?? '');
+    setNotificationEnabled(item.notificationEnabled);
     setFormError(null);
     setFormOpen(true);
   };
@@ -90,8 +99,8 @@ export default function FridgeScreen() {
       category,
       storageType,
       status,
-      memo: undefined,
-      notificationEnabled: true,
+      memo: memo.trim() || undefined,
+      notificationEnabled,
     };
     const validationMessage = validateFridgeItemInput(payload);
     if (validationMessage) {
@@ -111,6 +120,18 @@ export default function FridgeScreen() {
       setFormError(error instanceof Error ? error.message : '냉장고 항목을 저장하지 못했어요.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const changeStatus = async (item: FridgeItem, nextStatus: FridgeStatus) => {
+    setActionItemId(item.id);
+    setActionError(null);
+    try {
+      await updateFridgeItemStatus(item.id, nextStatus);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '냉장고 상태를 변경하지 못했어요.');
+    } finally {
+      setActionItemId(null);
     }
   };
 
@@ -160,7 +181,7 @@ export default function FridgeScreen() {
           </View>
           <View style={styles.fieldHalf}>
             <FormField
-              label="유통기한"
+              label="유통/소비기한"
               value={expiryDate}
               onChangeText={setExpiryDate}
               placeholder="YYYY-MM-DD"
@@ -173,23 +194,40 @@ export default function FridgeScreen() {
           value={category}
           options={categoryOptions}
           onChange={setCategory}
+          testIDPrefix="fridge-category"
         />
         <ChipGroup
           label="보관 위치"
           value={storageType}
           options={storageOptions}
           onChange={setStorageType}
+          testIDPrefix="fridge-storage"
         />
         <ChipGroup
           label="상태"
           value={status}
           options={statusOptions}
           onChange={setStatus}
+          testIDPrefix="fridge-status"
+        />
+        <FormField
+          label="메모"
+          value={memo}
+          onChangeText={setMemo}
+          placeholder="예: 개봉함, 먼저 먹기"
+          testID="fridge-memo-input"
+        />
+        <SettingToggle
+          label="유통기한 알림"
+          description="기한이 가까워지면 홈과 알림에서 알려줘요"
+          value={notificationEnabled}
+          onValueChange={setNotificationEnabled}
         />
         {formError ? <Text style={[styles.errorText, { color: theme.danger }]}>{formError}</Text> : null}
         <View style={styles.formActions}>
           {editingId ? (
             <ActionButton
+              testID="fridge-delete-button"
               variant="secondary"
               onPress={remove}
               disabled={submitting}
@@ -235,8 +273,12 @@ export default function FridgeScreen() {
                 {group.items.map((item) => {
                   const dday = getDday(item, today);
                   return (
-                    <Pressable key={item.id} onPress={() => editItem(item)}>
-                      <Card style={styles.listCard}>
+                    <Card key={item.id} style={styles.listCard}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${item.name} 냉장고 항목 수정`}
+                        testID={`fridge-item-${item.id}`}
+                        onPress={() => editItem(item)}>
                         <View style={styles.itemRow}>
                           <View style={styles.itemText}>
                             <Text style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
@@ -268,8 +310,28 @@ export default function FridgeScreen() {
                             </Text>
                           </View>
                         </View>
-                      </Card>
-                    </Pressable>
+                      </Pressable>
+                      <View style={[styles.quickActions, { borderTopColor: theme.border }]}>
+                        <QuickAction
+                          label="소진"
+                          accessibilityLabel={`${item.name} 소진`}
+                          testID={`fridge-use-button-${item.id}`}
+                          icon={<Check size={15} color={theme.primary} strokeWidth={2.5} />}
+                          color={theme.primary}
+                          disabled={actionItemId === item.id}
+                          onPress={() => void changeStatus(item, 'used')}
+                        />
+                        <QuickAction
+                          label="폐기"
+                          accessibilityLabel={`${item.name} 폐기`}
+                          testID={`fridge-discard-button-${item.id}`}
+                          icon={<Trash2 size={15} color={theme.danger} strokeWidth={2.2} />}
+                          color={theme.danger}
+                          disabled={actionItemId === item.id}
+                          onPress={() => void changeStatus(item, 'discarded')}
+                        />
+                      </View>
+                    </Card>
                   );
                 })}
               </View>
@@ -291,11 +353,20 @@ export default function FridgeScreen() {
                 {summary.expiringCount}개
               </Text>
             </Card>
+            <Card style={styles.summaryCard}>
+              <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>기한 초과</Text>
+              <Text style={[styles.summaryValue, { color: theme.danger }]}>
+                {summary.expiredCount}개
+              </Text>
+            </Card>
           </View>
 
           <Text style={[styles.sectionTitle, { color: theme.text }]}>분류별 재고</Text>
-          <View style={styles.categoryBars}>
-            {categoryCounts.map((item) => (
+          {categoryCounts.length === 0 ? (
+            <Text style={[styles.emptyText, { color: theme.textSecondary }]}>보관 중인 재고가 없어요</Text>
+          ) : (
+            <View style={styles.categoryBars} testID="fridge-category-summary">
+              {categoryCounts.map((item) => (
               <View key={item.category} style={styles.progressRow}>
                 <View style={styles.progressHeader}>
                   <Text style={[styles.progressLabel, { color: theme.text }]}>
@@ -317,10 +388,43 @@ export default function FridgeScreen() {
                   />
                 </View>
               </View>
+              ))}
+            </View>
+          )}
+
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>보관 위치별 재고</Text>
+          <View style={styles.storageSummary} testID="fridge-storage-summary">
+            {summary.byStorage.map((item) => (
+              <View key={item.storageType} style={[styles.storageItem, { borderColor: theme.border }]}>
+                <Text style={[styles.storageLabel, { color: theme.textSecondary }]}>
+                  {storageTypeLabels[item.storageType]}
+                </Text>
+                <Text style={[styles.storageValue, { color: theme.text }]}>{item.count}개</Text>
+                <Text style={[styles.storageHelper, { color: theme.textTertiary }]}>
+                  임박 {item.expiringCount}개
+                </Text>
+              </View>
             ))}
+          </View>
+
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>최근 등록</Text>
+          <ItemSummaryList
+            items={summary.recentItems.slice(0, 5)}
+            emptyText="최근 3일 안에 등록한 항목이 없어요"
+            onPress={editItem}
+          />
+
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>소진·폐기 이력</Text>
+          <View testID="fridge-processed-summary">
+            <ItemSummaryList
+              items={summary.processedItems.slice(0, 5)}
+              emptyText="소진하거나 폐기한 항목이 없어요"
+              onPress={editItem}
+            />
           </View>
         </>
       )}
+      {actionError ? <Text style={[styles.errorText, { color: theme.danger }]}>{actionError}</Text> : null}
     </Screen>
   );
 }
@@ -330,11 +434,13 @@ function ChipGroup<T extends string>({
   value,
   options,
   onChange,
+  testIDPrefix,
 }: {
   label: string;
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  testIDPrefix?: string;
 }) {
   const theme = useTheme();
   return (
@@ -347,7 +453,9 @@ function ChipGroup<T extends string>({
             <Pressable
               key={option.value}
               accessibilityRole="button"
+              accessibilityLabel={`${label} ${option.label}`}
               accessibilityState={{ selected }}
+              testID={testIDPrefix ? `${testIDPrefix}-${option.value}` : undefined}
               onPress={() => onChange(option.value)}
               style={[
                 styles.chip,
@@ -364,6 +472,118 @@ function ChipGroup<T extends string>({
           );
         })}
       </View>
+    </View>
+  );
+}
+
+function SettingToggle({
+  label,
+  description,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  description: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.toggleRow, { borderColor: theme.border }]}>
+      <View style={styles.toggleText}>
+        <Text style={[styles.toggleLabel, { color: theme.text }]}>{label}</Text>
+        <Text style={[styles.toggleDescription, { color: theme.textSecondary }]}>
+          {description}
+        </Text>
+      </View>
+      <Switch
+        testID="fridge-notification-switch"
+        accessibilityLabel={label}
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ false: theme.chip, true: theme.primarySoft }}
+        thumbColor={value ? theme.primary : theme.textTertiary}
+      />
+    </View>
+  );
+}
+
+function QuickAction({
+  label,
+  accessibilityLabel,
+  testID,
+  icon,
+  color,
+  disabled,
+  onPress,
+}: {
+  label: string;
+  accessibilityLabel: string;
+  testID: string;
+  icon: ReactNode;
+  color: string;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      testID={testID}
+      disabled={disabled}
+      onPress={onPress}
+      style={styles.quickAction}>
+      {icon}
+      <Text style={[styles.quickActionText, { color }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function ItemSummaryList({
+  items,
+  emptyText,
+  onPress,
+}: {
+  items: FridgeItem[];
+  emptyText: string;
+  onPress: (item: FridgeItem) => void;
+}) {
+  const theme = useTheme();
+  if (items.length === 0) {
+    return <Text style={[styles.emptyText, { color: theme.textSecondary }]}>{emptyText}</Text>;
+  }
+
+  return (
+    <View style={styles.summaryList}>
+      {items.map((item) => (
+        <Pressable
+          key={item.id}
+          accessibilityRole="button"
+          accessibilityLabel={`${item.name} 냉장고 항목 수정`}
+          onPress={() => onPress(item)}
+          style={[styles.summaryListRow, { borderBottomColor: theme.border }]}>
+          <View style={styles.summaryListText}>
+            <Text style={[styles.summaryListName, { color: theme.text }]}>{item.name}</Text>
+            <Text style={[styles.itemMeta, { color: theme.textSecondary }]}>
+              {item.quantity ?? '수량 미입력'} · {storageTypeLabels[item.storageType]}
+            </Text>
+          </View>
+          <Text
+            style={[
+              styles.summaryListStatus,
+              {
+                color:
+                  item.status === 'discarded'
+                    ? theme.danger
+                    : item.status === 'used'
+                      ? theme.info
+                      : theme.primary,
+              },
+            ]}>
+            {fridgeStatusLabels[item.status]}
+          </Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -469,6 +689,25 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '500',
   },
+  quickActions: {
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 16,
+    paddingTop: 9,
+  },
+  quickAction: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 4,
+  },
+  quickActionText: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
   ddayBadge: {
     minHeight: 26,
     borderRadius: 100,
@@ -505,6 +744,66 @@ const styles = StyleSheet.create({
   },
   categoryBars: {
     gap: 10,
+  },
+  emptyText: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '500',
+    paddingVertical: 6,
+  },
+  storageSummary: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  storageItem: {
+    flex: 1,
+    minWidth: 0,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    gap: 2,
+  },
+  storageLabel: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  storageValue: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '800',
+  },
+  storageHelper: {
+    fontSize: 10,
+    lineHeight: 15,
+    fontWeight: '500',
+  },
+  summaryList: {
+    gap: 0,
+  },
+  summaryListRow: {
+    minHeight: 54,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  summaryListText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  summaryListName: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  summaryListStatus: {
+    flexShrink: 0,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   progressRow: {
     gap: 4,
@@ -557,6 +856,30 @@ const styles = StyleSheet.create({
   fieldHalf: {
     flex: 1,
     minWidth: 0,
+  },
+  toggleRow: {
+    minHeight: 64,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    paddingVertical: 8,
+  },
+  toggleText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  toggleLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  toggleDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
   },
   chipSection: {
     gap: 8,
