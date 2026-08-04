@@ -6,7 +6,9 @@ import test from 'node:test';
 import { Chore, HouseholdMember } from '@/domain/types';
 import {
   createNextChoreOccurrence,
+  createChoreCompletionPlan,
   completeChoreCollection,
+  getChoreRotationOrder,
   getNextChoreAssigneeId,
   getNextChoreAssigneeIdFromOrder,
   getNextChoreDueDate,
@@ -65,6 +67,20 @@ test('rotates by join order with defined fallbacks', () => {
   assert.equal(getNextChoreAssigneeId([members[0]], 'member-a'), 'member-a');
   assert.equal(getNextChoreAssigneeId([], 'member-left'), 'member-left');
   assert.equal(getNextChoreAssigneeIdFromOrder(['member-a', 'member-b'], 'member-a'), 'member-b');
+});
+
+test('keeps configured join order when members share a join date', () => {
+  const sameDayMembers = members.map((member) => ({ ...member, joinedAt: '2026-01-01' }));
+  const configuredOrder = ['member-b', 'member-a'];
+
+  assert.deepEqual(getChoreRotationOrder(sameDayMembers, configuredOrder), configuredOrder);
+  assert.equal(
+    getNextChoreAssigneeIdFromOrder(
+      getChoreRotationOrder(sameDayMembers, configuredOrder),
+      'member-b',
+    ),
+    'member-a',
+  );
 });
 
 test('creates a scheduled next occurrence without mutating the source', () => {
@@ -132,6 +148,39 @@ test('completes mock collections idempotently and schedules only repeated chores
   );
   assert.equal(completedOnce.length, 1);
   assert.equal(completedOnce[0].status, 'done');
+});
+
+test('builds an idempotent completion plan used by the Firestore transaction', () => {
+  const scheduled: Chore = {
+    id: 'scheduled',
+    householdId: 'household',
+    title: '청소',
+    assigneeId: 'member-a',
+    dueDate: '2026-08-04',
+    repeatCycle: 'weekly',
+    score: 3,
+    status: 'scheduled',
+    createdBy: 'user-a',
+    createdAt: '2026-08-04',
+    notificationEnabled: true,
+  };
+  const plan = createChoreCompletionPlan(
+    scheduled,
+    ['member-a', 'member-b'],
+    '2026-08-05',
+  );
+
+  assert.equal(plan?.status, 'done');
+  assert.equal(plan?.nextChore?.assigneeId, 'member-b');
+  assert.equal(plan?.nextChore?.dueDate, '2026-08-11');
+  assert.equal(
+    createChoreCompletionPlan(
+      { ...scheduled, status: 'done' },
+      ['member-a', 'member-b'],
+      '2026-08-05',
+    ),
+    null,
+  );
 });
 
 function expectNextOccurrence(): Chore {

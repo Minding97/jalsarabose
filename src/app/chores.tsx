@@ -14,7 +14,10 @@ import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, fromIsoDate, todayIso } from '@/utils/dates';
 import { getChoreSummary, getMemberName } from '@/utils/dashboard';
-import { getNextChoreAssigneeId } from '@/utils/chore-recurrence';
+import {
+  getChoreRotationOrder,
+  getNextChoreAssigneeIdFromOrder,
+} from '@/utils/chore-recurrence';
 import { validateChoreInput } from '@/utils/validation';
 
 type ChoreView = 'list' | 'dashboard';
@@ -41,6 +44,10 @@ export default function ChoresScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const maxContribution = Math.max(...summary.contribution.map((item) => item.completedScore), 1);
+  const rotationOrder = getChoreRotationOrder(
+    snapshot.members,
+    snapshot.household.memberOrder,
+  );
 
   const resetForm = () => {
     setFormOpen(false);
@@ -353,7 +360,7 @@ export default function ChoresScreen() {
                     {getMemberName(snapshot.members, chore.assigneeId)} →{' '}
                     {getMemberName(
                       snapshot.members,
-                      getNextChoreAssigneeId(snapshot.members, chore.assigneeId),
+                      getNextChoreAssigneeIdFromOrder(rotationOrder, chore.assigneeId),
                     )}
                   </Text>
                 </View>

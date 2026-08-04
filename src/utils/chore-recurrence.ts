@@ -59,6 +59,25 @@ export function getNextChoreAssigneeIdFromOrder(
     : memberOrder[(currentIndex + 1) % memberOrder.length];
 }
 
+export function getChoreRotationOrder(
+  members: Pick<HouseholdMember, 'id' | 'joinedAt'>[],
+  configuredOrder: string[] = [],
+): string[] {
+  const activeMemberIds = new Set(members.map((member) => member.id));
+  const configuredActiveOrder = configuredOrder.filter((memberId) =>
+    activeMemberIds.has(memberId),
+  );
+  const configuredIds = new Set(configuredActiveOrder);
+  const missingMemberOrder = [...members]
+    .filter((member) => !configuredIds.has(member.id))
+    .sort(
+      (left, right) =>
+        left.joinedAt.localeCompare(right.joinedAt) || left.id.localeCompare(right.id),
+    )
+    .map((member) => member.id);
+  return [...configuredActiveOrder, ...missingMemberOrder];
+}
+
 export function createNextChoreOccurrence(
   chore: Chore,
   members: Pick<HouseholdMember, 'id' | 'joinedAt'>[],
@@ -91,6 +110,22 @@ export function createNextChoreOccurrenceForAssignee(
       : {}),
     status: 'scheduled',
     createdAt,
+  };
+}
+
+export function createChoreCompletionPlan(
+  chore: Chore,
+  memberOrder: string[],
+  createdAt: ISODate,
+) {
+  if (chore.status === 'done') {
+    return null;
+  }
+
+  const nextAssigneeId = getNextChoreAssigneeIdFromOrder(memberOrder, chore.assigneeId);
+  return {
+    status: 'done' as const,
+    nextChore: createNextChoreOccurrenceForAssignee(chore, nextAssigneeId, createdAt),
   };
 }
 

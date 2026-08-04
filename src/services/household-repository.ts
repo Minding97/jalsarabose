@@ -43,8 +43,7 @@ import {
 } from '@/domain/types';
 import { todayIso } from '@/utils/dates';
 import {
-  createNextChoreOccurrenceForAssignee,
-  getNextChoreAssigneeIdFromOrder,
+  createChoreCompletionPlan,
 } from '@/utils/chore-recurrence';
 
 type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
@@ -321,21 +320,17 @@ export async function completeChoreAndScheduleNext(
     }
 
     const chore = choreFromDoc(snapshot);
-    if (chore.status === 'done') {
-      return { nextScheduled: false };
-    }
-
-    transaction.update(choreRef, { status: 'done' });
-
     const memberOrder = Array.isArray(householdSnapshot.data().memberOrder)
       ? householdSnapshot.data().memberOrder.map(String)
       : [];
-    const nextAssigneeId = getNextChoreAssigneeIdFromOrder(memberOrder, chore.assigneeId);
-    const nextChore = createNextChoreOccurrenceForAssignee(
-      chore,
-      nextAssigneeId,
-      todayIso(),
-    );
+    const completionPlan = createChoreCompletionPlan(chore, memberOrder, todayIso());
+    if (!completionPlan) {
+      return { nextScheduled: false };
+    }
+
+    transaction.update(choreRef, { status: completionPlan.status });
+
+    const nextChore = completionPlan.nextChore;
     if (!nextChore) {
       return { nextScheduled: false };
     }
