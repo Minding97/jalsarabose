@@ -199,6 +199,7 @@ function expenseToEvent(expense: Expense): HouseholdEvent {
     }`,
     date: expense.dueDate,
     status: expense.status,
+    notificationEnabled: expense.notificationEnabled,
     tone: expense.status === 'overdue' ? 'danger' : 'info',
   };
 }
@@ -214,6 +215,7 @@ function choreToEvent(chore: Chore, members: HouseholdMember[]): HouseholdEvent 
     }`,
     date: chore.dueDate,
     status: chore.status,
+    notificationEnabled: chore.notificationEnabled,
     tone: chore.status === 'missed' ? 'warning' : 'primary',
   };
 }
@@ -229,6 +231,7 @@ function fridgeToEvent(item: FridgeItem): HouseholdEvent {
     }`,
     date: item.expiryDate ?? item.createdAt,
     status: item.status,
+    notificationEnabled: item.notificationEnabled,
     tone: 'accent',
   };
 }

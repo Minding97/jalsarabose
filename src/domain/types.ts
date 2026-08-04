@@ -95,6 +95,7 @@ export type HouseholdEvent = {
   subtitle: string;
   date: ISODate;
   status: string;
+  notificationEnabled: boolean;
   tone: 'primary' | 'accent' | 'warning' | 'danger' | 'info';
 };
 
