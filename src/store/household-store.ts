@@ -13,6 +13,7 @@ import {
   FridgeItem,
   FridgeItemInput,
   FridgeStatus,
+  HouseholdRole,
   HouseholdSnapshot,
   UserProfile,
 } from '@/domain/types';
@@ -34,6 +35,8 @@ import {
   updateChore,
   updateExpense,
   updateFridgeItem,
+  updateHouseholdMemberRole,
+  updateHouseholdName,
   upsertUserProfile,
 } from '@/services/household-repository';
 import { firebaseConfigIssues, isFirebaseConfigured, useMocks } from '@/services/firebase';
@@ -59,6 +62,8 @@ type HouseholdActions = {
   signOut: () => Promise<void>;
   createNewHousehold: (name: string) => Promise<void>;
   joinHousehold: (code: string) => Promise<void>;
+  renameHousehold: (name: string) => Promise<void>;
+  changeMemberRole: (memberId: string, role: HouseholdRole) => Promise<void>;
   addExpenseItem: (input: ExpenseInput) => Promise<void>;
   updateExpenseItem: (expenseId: string, input: ExpenseInput) => Promise<void>;
   deleteExpenseItem: (expenseId: string) => Promise<void>;
@@ -260,6 +265,43 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
     try {
       await joinHouseholdByInviteCode(code, user);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  renameHousehold: async (name) => {
+    const state = get();
+    const normalizedName = name.trim();
+
+    if (useMocks) {
+      set((current) => ({ household: { ...current.household, name: normalizedName } }));
+      return;
+    }
+
+    try {
+      await updateHouseholdName(requireHouseholdId(state), normalizedName);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  changeMemberRole: async (memberId, role) => {
+    const state = get();
+
+    if (useMocks) {
+      set((current) => ({
+        members: current.members.map((member) =>
+          member.id === memberId ? { ...member, role } : member,
+        ),
+      }));
+      return;
+    }
+
+    try {
+      await updateHouseholdMemberRole(requireHouseholdId(state), memberId, role);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
       throw error;

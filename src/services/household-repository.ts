@@ -36,6 +36,7 @@ import {
   FridgeItem,
   Household,
   HouseholdMember,
+  HouseholdRole,
   HouseholdSnapshot,
   UserProfile,
 } from '@/domain/types';
@@ -107,8 +108,16 @@ export async function createHousehold({ name, owner }: CreateHouseholdInput) {
   const today = todayIso();
 
   await runTransaction(db, async (transaction) => {
+    const userRef = doc(db, 'users', owner.uid);
     const inviteRef = doc(db, 'inviteCodes', inviteCode);
-    const inviteSnapshot = await transaction.get(inviteRef);
+    const [userSnapshot, inviteSnapshot] = await Promise.all([
+      transaction.get(userRef),
+      transaction.get(inviteRef),
+    ]);
+
+    if (userSnapshot.data()?.activeHouseholdId) {
+      throw new Error('이미 활성 가구가 있어요. 마이페이지에서 가구를 확인해주세요.');
+    }
 
     if (inviteSnapshot.exists()) {
       throw new Error('초대 코드 생성이 충돌했어요. 다시 시도해주세요.');
@@ -135,7 +144,7 @@ export async function createHousehold({ name, owner }: CreateHouseholdInput) {
       createdAt: today,
     });
     transaction.set(
-      doc(db, 'users', owner.uid),
+      userRef,
       {
         activeHouseholdId: householdRef.id,
         updatedAt: today,
@@ -151,18 +160,32 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   const db = requireDb();
   const normalizedCode = code.trim().toUpperCase();
   const inviteRef = doc(db, 'inviteCodes', normalizedCode);
-  const inviteSnapshot = await getDoc(inviteRef);
-
-  if (!inviteSnapshot.exists()) {
-    throw new Error('초대 코드를 찾을 수 없어요.');
-  }
-
-  const householdId = String(inviteSnapshot.data().householdId ?? '');
   const today = todayIso();
+  let joinedHouseholdId = '';
 
   await runTransaction(db, async (transaction) => {
+    const inviteSnapshot = await transaction.get(inviteRef);
+    if (!inviteSnapshot.exists()) {
+      throw new Error('초대 코드를 찾을 수 없어요.');
+    }
+
+    const householdId = String(inviteSnapshot.data().householdId ?? '');
+    if (!householdId) {
+      throw new Error('초대 코드의 가구 정보가 올바르지 않아요.');
+    }
+
+    const householdRef = doc(db, 'households', householdId);
     const memberRef = doc(db, 'households', householdId, 'members', user.uid);
-    const memberSnapshot = await transaction.get(memberRef);
+    const [householdSnapshot, memberSnapshot] = await Promise.all([
+      transaction.get(householdRef),
+      transaction.get(memberRef),
+    ]);
+
+    if (!householdSnapshot.exists()) {
+      throw new Error('초대받은 가구를 찾을 수 없어요.');
+    }
+
+    joinedHouseholdId = householdId;
 
     if (!memberSnapshot.exists()) {
       transaction.set(memberRef, {
@@ -185,7 +208,23 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
     );
   });
 
-  return householdId;
+  return joinedHouseholdId;
+}
+
+export function updateHouseholdName(householdId: string, name: string) {
+  const normalizedName = name.trim();
+  if (normalizedName.length < 2 || normalizedName.length > 30) {
+    throw new Error('가구 이름은 2~30자로 입력해주세요.');
+  }
+  return updateDoc(doc(requireDb(), 'households', householdId), { name: normalizedName });
+}
+
+export function updateHouseholdMemberRole(
+  householdId: string,
+  memberId: string,
+  role: HouseholdRole,
+) {
+  return updateDoc(doc(requireDb(), 'households', householdId, 'members', memberId), { role });
 }
 
 export function subscribeHouseholdSnapshot(
