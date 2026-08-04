@@ -2,10 +2,10 @@ import { spawn } from 'node:child_process';
 
 const MAX_CAPTURE_BYTES = 2 * 1024 * 1024;
 
-function appendBounded(chunks, chunk) {
+function appendBounded(chunks, chunk, maxCaptureBytes) {
   chunks.push(chunk);
   let size = chunks.reduce((total, entry) => total + entry.byteLength, 0);
-  while (size > MAX_CAPTURE_BYTES && chunks.length > 1) {
+  while (size > maxCaptureBytes && chunks.length > 1) {
     size -= chunks.shift().byteLength;
   }
 }
@@ -13,11 +13,12 @@ function appendBounded(chunks, chunk) {
 export async function runCommand(command, args, options = {}) {
   const output = [];
   const errors = [];
+  const maxCaptureBytes = options.maxCaptureBytes ?? MAX_CAPTURE_BYTES;
 
   const child = spawn(command, args, {
     cwd: options.cwd,
     detached: process.platform !== 'win32',
-    env: { ...process.env, ...options.env },
+    env: options.inheritEnv === false ? (options.env ?? {}) : { ...process.env, ...options.env },
     stdio: options.inherit ? 'inherit' : [options.input ? 'pipe' : 'ignore', 'pipe', 'pipe'],
   });
   let timedOut = false;
@@ -36,8 +37,8 @@ export async function runCommand(command, args, options = {}) {
     if (options.input) {
       child.stdin.end(options.input);
     }
-    child.stdout.on('data', (chunk) => appendBounded(output, chunk));
-    child.stderr.on('data', (chunk) => appendBounded(errors, chunk));
+    child.stdout.on('data', (chunk) => appendBounded(output, chunk, maxCaptureBytes));
+    child.stderr.on('data', (chunk) => appendBounded(errors, chunk, maxCaptureBytes));
   }
 
   const exitCode = await new Promise((resolve, reject) => {

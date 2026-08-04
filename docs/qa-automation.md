@@ -56,6 +56,7 @@ QA_TEST_PASSWORD=QA 전용 앱 비밀번호
 ## 3. Claude CLI
 
 Claude Code를 설치하고 Pro 또는 Max 계정으로 로그인한다.
+자동 리뷰는 Claude Code `2.1.220` 이상을 사용한다.
 
 ```bash
 npm install -g @anthropic-ai/claude-code
@@ -63,6 +64,9 @@ claude
 ```
 
 야간 리뷰는 Claude CLI의 비대화형 JSON 모드를 사용한다. API 키는 사용하지 않는다.
+리뷰어에는 추적된 코드와 diff만 제공하며 `Read`, `Glob`, `Grep`만 허용한다.
+`.env.local`, `node_modules`, Jira·GitHub·Firebase·QA 인증 환경변수는 리뷰 프로세스에 전달하지 않는다.
+각 리뷰 시작 전 실제 CLI의 버전과 필수 격리 옵션 지원 여부를 검증한다.
 
 ## 4. 내부망 실행
 
