@@ -14,6 +14,7 @@ import { Expense, ExpenseCategory, ExpenseStatus } from '@/domain/types';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
 import { getExpenseSettlement, getExpenseSummary, getMemberName } from '@/utils/dashboard';
+import { normalizeSplitRatio } from '@/utils/expense-split';
 import { validateExpenseInput } from '@/utils/validation';
 
 type ExpenseView = 'list' | 'dashboard';
@@ -85,6 +86,11 @@ export default function ExpensesScreen() {
   };
 
   const editExpense = (expense: Expense) => {
+    const normalizedSplitRatio = normalizeSplitRatio(
+      expense.splitRatio,
+      snapshot.members.map((member) => member.id),
+    );
+
     setEditingId(expense.id);
     setTitle(expense.title);
     setAmount(String(expense.amount));
@@ -92,10 +98,10 @@ export default function ExpensesScreen() {
     setCategory(expense.category);
     setStatus(expense.status);
     setPayerId(expense.payerId ?? snapshot.members[0]?.id ?? '');
-    setSplitMode(expense.splitRatio ? 'custom' : 'equal');
+    setSplitMode(normalizedSplitRatio ? 'custom' : 'equal');
     setShares(
       Object.fromEntries(
-        Object.entries(expense.splitRatio ?? {}).map(([memberId, value]) => [
+        Object.entries(normalizedSplitRatio ?? {}).map(([memberId, value]) => [
           memberId,
           String(value),
         ]),
