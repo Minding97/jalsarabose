@@ -12,7 +12,7 @@ import { choreRepeatLabels } from '@/domain/labels';
 import { Chore, ChoreRepeatCycle, ChoreStatus } from '@/domain/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
-import { formatKoreanDate, todayIso } from '@/utils/dates';
+import { formatKoreanDate, fromIsoDate, todayIso } from '@/utils/dates';
 import { getChoreSummary, getMemberName } from '@/utils/dashboard';
 import { getNextChoreAssigneeId } from '@/utils/chore-recurrence';
 import { validateChoreInput } from '@/utils/validation';
@@ -37,7 +37,9 @@ export default function ChoresScreen() {
   const [score, setScore] = useState('1');
   const [status, setStatus] = useState<ChoreStatus>('scheduled');
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const maxContribution = Math.max(...summary.contribution.map((item) => item.completedScore), 1);
 
   const resetForm = () => {
@@ -70,7 +72,7 @@ export default function ChoresScreen() {
   };
 
   const submit = async () => {
-    const payload = {
+    const basePayload = {
       title: title.trim(),
       assigneeId,
       dueDate,
@@ -80,11 +82,26 @@ export default function ChoresScreen() {
       memo: undefined,
       notificationEnabled: true,
     };
-    const validationMessage = validateChoreInput(payload);
+    const validationMessage = validateChoreInput(basePayload);
     if (validationMessage) {
       setFormError(validationMessage);
       return;
     }
+
+    const editingChore = snapshot.chores.find((chore) => chore.id === editingId);
+    const preserveAnchor =
+      editingChore?.repeatCycle === 'monthly' &&
+      editingChore.dueDate === dueDate &&
+      editingChore.repeatAnchorDay
+        ? editingChore.repeatAnchorDay
+        : undefined;
+    const payload = {
+      ...basePayload,
+      repeatAnchorDay:
+        repeatCycle === 'monthly'
+          ? (preserveAnchor ?? fromIsoDate(dueDate).getDate())
+          : undefined,
+    };
 
     setSubmitting(true);
     try {
@@ -98,6 +115,22 @@ export default function ChoresScreen() {
       setFormError(error instanceof Error ? error.message : '집안일을 저장하지 못했어요.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleComplete = async (choreId: string) => {
+    setActionError(null);
+    setCompletingIds((current) => new Set(current).add(choreId));
+    try {
+      await completeChore(choreId);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '집안일을 완료하지 못했어요.');
+    } finally {
+      setCompletingIds((current) => {
+        const next = new Set(current);
+        next.delete(choreId);
+        return next;
+      });
     }
   };
 
@@ -220,6 +253,7 @@ export default function ChoresScreen() {
         onChange={setView}
         accessibilityLabel="집안일 보기"
       />
+      {actionError ? <Text style={[styles.errorText, { color: theme.danger }]}>{actionError}</Text> : null}
 
       {view === 'list' ? (
         snapshot.chores.length === 0 ? (
@@ -228,21 +262,23 @@ export default function ChoresScreen() {
           snapshot.chores.map((chore, index) => {
             const memberName = getMemberName(snapshot.members, chore.assigneeId);
             const done = chore.status === 'done';
+            const completing = completingIds.has(chore.id);
             return (
               <Card key={chore.id} style={styles.listCard}>
                 <View style={styles.choreRow}>
                   <Pressable
                     testID={`chore-complete-button-${chore.id}`}
                     accessibilityRole="checkbox"
-                    accessibilityState={{ checked: done }}
+                    accessibilityState={{ checked: done, disabled: done || completing }}
                     accessibilityLabel={`${chore.title} 완료`}
-                    disabled={done}
-                    onPress={() => void completeChore(chore.id)}
+                    disabled={done || completing}
+                    onPress={() => void handleComplete(chore.id)}
                     style={[
                       styles.checkbox,
                       {
                         borderColor: done ? theme.primary : theme.border,
                         backgroundColor: done ? theme.primary : theme.backgroundElement,
+                        opacity: completing ? 0.5 : 1,
                       },
                     ]}>
                     {done ? <Check size={15} color="#FFFFFF" strokeWidth={3} /> : null}

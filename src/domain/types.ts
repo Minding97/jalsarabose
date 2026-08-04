@@ -56,6 +56,7 @@ export type Chore = {
   assigneeId: ID;
   dueDate: ISODate;
   repeatCycle: ChoreRepeatCycle;
+  repeatAnchorDay?: number;
   score: number;
   status: ChoreStatus;
   memo?: string;
@@ -128,6 +129,7 @@ export type ChoreInput = Pick<
   | 'assigneeId'
   | 'dueDate'
   | 'repeatCycle'
+  | 'repeatAnchorDay'
   | 'score'
   | 'status'
   | 'memo'

@@ -13,6 +13,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -294,10 +295,11 @@ export function updateChore(householdId: string, choreId: string, patch: Partial
 export async function completeChoreAndScheduleNext(
   householdId: string,
   choreId: string,
-  members: HouseholdMember[],
 ) {
   const db = requireDb();
   const choreRef = doc(db, 'households', householdId, 'chores', choreId);
+  const memberSnapshot = await getDocs(collection(db, 'households', householdId, 'members'));
+  const members = memberSnapshot.docs.map(memberFromDoc);
 
   return runTransaction(db, async (transaction) => {
     const snapshot = await transaction.get(choreRef);

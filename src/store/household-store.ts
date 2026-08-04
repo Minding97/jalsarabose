@@ -379,7 +379,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       return;
     }
 
-    await completeChoreAndScheduleNext(requireHouseholdId(state), choreId, state.members);
+    await completeChoreAndScheduleNext(requireHouseholdId(state), choreId);
   },
 
   addFridgeItemEntry: async (input) => {

@@ -1,4 +1,4 @@
-import { addDays, addMonths } from 'date-fns';
+import { addDays, addMonths, getDaysInMonth, setDate, startOfMonth } from 'date-fns';
 
 import { Chore, HouseholdMember, ISODate } from '@/domain/types';
 import { fromIsoDate, toIsoDate } from '@/utils/dates';
@@ -9,14 +9,18 @@ const repeatDayOffsets: Partial<Record<Chore['repeatCycle'], number>> = {
   biweekly: 14,
 };
 
-export function getNextChoreDueDate(chore: Pick<Chore, 'dueDate' | 'repeatCycle'>): ISODate | null {
+export function getNextChoreDueDate(
+  chore: Pick<Chore, 'dueDate' | 'repeatCycle' | 'repeatAnchorDay'>,
+): ISODate | null {
   if (chore.repeatCycle === 'none') {
     return null;
   }
 
   const currentDueDate = fromIsoDate(chore.dueDate);
   if (chore.repeatCycle === 'monthly') {
-    return toIsoDate(addMonths(currentDueDate, 1));
+    const nextMonth = startOfMonth(addMonths(currentDueDate, 1));
+    const anchorDay = Math.min(Math.max(chore.repeatAnchorDay ?? currentDueDate.getDate(), 1), 31);
+    return toIsoDate(setDate(nextMonth, Math.min(anchorDay, getDaysInMonth(nextMonth))));
   }
 
   return toIsoDate(addDays(currentDueDate, repeatDayOffsets[chore.repeatCycle] ?? 0));
@@ -56,6 +60,10 @@ export function createNextChoreOccurrence(
     ...template,
     assigneeId: getNextChoreAssigneeId(members, chore.assigneeId),
     dueDate,
+    repeatAnchorDay:
+      chore.repeatCycle === 'monthly'
+        ? (chore.repeatAnchorDay ?? fromIsoDate(chore.dueDate).getDate())
+        : undefined,
     status: 'scheduled',
     createdAt,
   };
