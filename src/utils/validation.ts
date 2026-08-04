@@ -35,7 +35,7 @@ export function validateExpenseInput(input: ExpenseInput) {
       return '분담 비율은 0 이상의 숫자로 입력해주세요.';
     }
     const total = ratios.reduce((sum, ratio) => sum + ratio, 0);
-    if (Math.abs(total - 100) > 0.01) {
+    if (Math.abs(total - 100) > 0.01 + 1e-9) {
       return '분담 비율 합계는 100%여야 해요.';
     }
   }

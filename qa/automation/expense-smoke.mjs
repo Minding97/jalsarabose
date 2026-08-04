@@ -41,7 +41,7 @@ try {
   await createAndVerifyExpense(page);
   await verifyDashboard(page);
   await verifyEditState(page);
-  await cleanupTestExpenses(page);
+  await cleanupTestExpenseFromAnyState(page);
 
   if (browserErrors.length > 0) {
     throw new Error(`Browser errors detected:\n${browserErrors.join('\n')}`);
@@ -77,6 +77,12 @@ try {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exitCode = 1;
 } finally {
+  await cleanupTestExpenseFromAnyState(page).catch((cleanupError) => {
+    process.stderr.write(
+      `Expense smoke cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}\n`,
+    );
+    process.exitCode = 1;
+  });
   await browser.close();
 }
 
@@ -173,6 +179,29 @@ async function cleanupTestExpenses(targetPage) {
     await targetPage.getByTestId('expense-delete-button').click();
     await targetPage.getByTestId('expenses-screen').waitFor({ state: 'visible', timeout: 15_000 });
   }
+}
+
+async function cleanupTestExpenseFromAnyState(targetPage) {
+  if (await targetPage.getByTestId('expense-form-screen').isVisible().catch(() => false)) {
+    const titleInput = targetPage.getByTestId('expense-title-input');
+    const titleValue = await titleInput.inputValue().catch(() => '');
+    const deleteButton = targetPage.getByTestId('expense-delete-button');
+
+    if (titleValue === TEST_TITLE && (await deleteButton.isVisible().catch(() => false))) {
+      await deleteButton.click();
+      await targetPage.getByTestId('expenses-screen').waitFor({
+        state: 'visible',
+        timeout: 15_000,
+      });
+    } else {
+      await targetPage.getByTestId('expense-form-back-button').click();
+    }
+  }
+
+  if (!(await targetPage.getByTestId('expenses-screen').isVisible().catch(() => false))) {
+    await openExpenses(targetPage);
+  }
+  await cleanupTestExpenses(targetPage);
 }
 
 async function fillShares(inputs, values) {

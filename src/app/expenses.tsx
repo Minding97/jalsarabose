@@ -447,7 +447,12 @@ function FormHeader({ title, onBack }: { title: string; onBack: () => void }) {
   const theme = useTheme();
   return (
     <View style={styles.formHeader}>
-      <Pressable accessibilityRole="button" accessibilityLabel="뒤로" onPress={onBack}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="뒤로"
+        testID="expense-form-back-button"
+        onPress={onBack}
+      >
         <ChevronLeft size={22} color={theme.textSecondary} strokeWidth={2} />
       </Pressable>
       <Text style={[styles.formTitle, { color: theme.text }]}>{title}</Text>
