@@ -1,8 +1,45 @@
+import { createHash } from 'node:crypto';
+
 function adfParagraph(text) {
   return {
     type: 'paragraph',
     content: [{ type: 'text', text: String(text) }],
   };
+}
+
+function adfText(node) {
+  if (!node) {
+    return '';
+  }
+  if (Array.isArray(node)) {
+    return node.map(adfText).join('');
+  }
+  if (typeof node.text === 'string') {
+    return node.text;
+  }
+  return adfText(node.content);
+}
+
+function reviewLabel(fingerprint) {
+  return `review-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 32)}`;
+}
+
+export function getReviewLabels(fingerprint) {
+  return [reviewLabel(fingerprint), legacyReviewLabel(fingerprint)];
+}
+
+export function issueMatchesReviewFindings(issue, findings) {
+  const labels = issue.fields?.labels ?? [];
+  return findings.some((finding) =>
+    getReviewLabels(finding.fingerprint).some((label) => labels.includes(label)),
+  );
+}
+
+function legacyReviewLabel(fingerprint) {
+  return `review-${fingerprint
+    .slice(0, 32)
+    .replace(/[^a-z0-9-]/gi, '-')
+    .toLowerCase()}`;
 }
 
 function buildDescription(metadata) {
@@ -238,7 +275,7 @@ export class JiraClient {
             'qa-review-followup',
             'auto-fix-ready',
             `pr-${pullRequestNumber}`,
-            `review-${finding.fingerprint.slice(0, 32).replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`,
+            getReviewLabels(finding.fingerprint)[0],
           ],
         },
       }),
@@ -248,20 +285,21 @@ export class JiraClient {
   }
 
   async findReviewSubtask(parentKey, fingerprint) {
-    const label = `review-${fingerprint
-      .slice(0, 32)
-      .replace(/[^a-z0-9-]/gi, '-')
-      .toLowerCase()}`;
+    const [label, legacyLabel] = getReviewLabels(fingerprint);
     const response = await this.request('/rest/api/3/search/jql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jql: `project = "${this.config.jiraProjectKey}" AND parent = "${parentKey}" AND labels = "${label}"`,
-        maxResults: 1,
-        fields: ['summary', 'status'],
+        jql: `project = "${this.config.jiraProjectKey}" AND parent = "${parentKey}" AND labels in ("${label}", "${legacyLabel}")`,
+        maxResults: 20,
+        fields: ['summary', 'status', 'description'],
       }),
     });
-    return response.issues?.[0] ?? null;
+    const marker = `Fingerprint: ${fingerprint}`;
+    return (
+      response.issues?.find((issue) => adfText(issue.fields?.description).includes(marker)) ??
+      null
+    );
   }
 
   async addComment(issueKey, text) {

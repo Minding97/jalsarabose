@@ -19,7 +19,7 @@ import { gunzipSync } from 'node:zlib';
 
 import { loadQaConfig } from '../server/config.mjs';
 import { decryptRecording } from '../server/crypto.mjs';
-import { JiraClient } from '../server/jira-client.mjs';
+import { issueMatchesReviewFindings, JiraClient } from '../server/jira-client.mjs';
 import { withExpoWebServer } from './app-server.mjs';
 import { reviewWithClaude } from './claude-review.mjs';
 import { runCommand } from './command.mjs';
@@ -358,14 +358,7 @@ async function reviewAndGate({
     }
     if (
       issue.key !== parentKey &&
-      !blockers.some((finding) =>
-        (issue.fields?.labels ?? []).includes(
-          `review-${finding.fingerprint
-            .slice(0, 32)
-            .replace(/[^a-z0-9-]/gi, '-')
-            .toLowerCase()}`,
-        ),
-      )
+      !issueMatchesReviewFindings(issue, blockers)
     ) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
