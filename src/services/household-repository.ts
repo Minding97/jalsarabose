@@ -8,11 +8,13 @@ import {
 import {
   Unsubscribe,
   addDoc,
+  arrayUnion,
   collection,
   deleteField,
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -40,6 +42,9 @@ import {
   UserProfile,
 } from '@/domain/types';
 import { todayIso } from '@/utils/dates';
+import {
+  createChoreCompletionPlan,
+} from '@/utils/chore-recurrence';
 
 type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
 type CreateHouseholdInput = {
@@ -117,6 +122,7 @@ export async function createHousehold({ name, owner }: CreateHouseholdInput) {
     transaction.set(householdRef, {
       name: name.trim(),
       inviteCode,
+      memberOrder: [owner.uid],
       createdBy: owner.uid,
       createdAt: today,
     });
@@ -172,6 +178,9 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
         role: 'member',
         joinedAt: today,
         inviteCode: normalizedCode,
+      });
+      transaction.update(doc(db, 'households', householdId), {
+        memberOrder: arrayUnion(user.uid),
       });
     }
 
@@ -288,6 +297,79 @@ export function updateChore(householdId: string, choreId: string, patch: Partial
     doc(requireDb(), 'households', householdId, 'chores', choreId),
     replaceUndefinedWithDelete(patch),
   );
+}
+
+export async function completeChoreAndScheduleNext(
+  householdId: string,
+  choreId: string,
+) {
+  const db = requireDb();
+  const choreRef = doc(db, 'households', householdId, 'chores', choreId);
+  const householdRef = doc(db, 'households', householdId);
+
+  await ensureHouseholdMemberOrder(householdId);
+
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(choreRef);
+    const householdSnapshot = await transaction.get(householdRef);
+    if (!snapshot.exists()) {
+      throw new Error('완료할 집안일을 찾을 수 없어요.');
+    }
+    if (!householdSnapshot.exists()) {
+      throw new Error('가구 정보를 찾을 수 없어요.');
+    }
+
+    const chore = choreFromDoc(snapshot);
+    const memberOrder = Array.isArray(householdSnapshot.data().memberOrder)
+      ? householdSnapshot.data().memberOrder.map(String)
+      : [];
+    const completionPlan = createChoreCompletionPlan(chore, memberOrder, todayIso());
+    if (!completionPlan) {
+      return { nextScheduled: false };
+    }
+
+    transaction.update(choreRef, { status: completionPlan.status });
+
+    const nextChore = completionPlan.nextChore;
+    if (!nextChore) {
+      return { nextScheduled: false };
+    }
+
+    const nextChoreRef = doc(collection(db, 'households', householdId, 'chores'));
+    transaction.set(nextChoreRef, omitUndefined(nextChore));
+    return { nextScheduled: true, nextChoreId: nextChoreRef.id };
+  });
+}
+
+async function ensureHouseholdMemberOrder(householdId: string) {
+  const db = requireDb();
+  const householdRef = doc(db, 'households', householdId);
+  const memberSnapshot = await getDocs(collection(db, 'households', householdId, 'members'));
+  const fetchedOrder = memberSnapshot.docs
+    .map(memberFromDoc)
+    .sort(
+      (left, right) =>
+        left.joinedAt.localeCompare(right.joinedAt) || left.id.localeCompare(right.id),
+    )
+    .map((member) => member.id);
+
+  await runTransaction(db, async (transaction) => {
+    const householdSnapshot = await transaction.get(householdRef);
+    if (!householdSnapshot.exists()) {
+      throw new Error('가구 정보를 찾을 수 없어요.');
+    }
+
+    const existingOrder: string[] = Array.isArray(householdSnapshot.data().memberOrder)
+      ? householdSnapshot.data().memberOrder.map(String)
+      : [];
+    const memberOrder = [
+      ...fetchedOrder,
+      ...existingOrder.filter((memberId) => !fetchedOrder.includes(memberId)),
+    ];
+    if (memberOrder.join('|') !== existingOrder.join('|')) {
+      transaction.update(householdRef, { memberOrder });
+    }
+  });
 }
 
 export function deleteChore(householdId: string, choreId: string) {

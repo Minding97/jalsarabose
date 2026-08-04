@@ -12,8 +12,12 @@ import { choreRepeatLabels } from '@/domain/labels';
 import { Chore, ChoreRepeatCycle, ChoreStatus } from '@/domain/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
-import { todayIso } from '@/utils/dates';
+import { formatKoreanDate, fromIsoDate, todayIso } from '@/utils/dates';
 import { getChoreSummary, getMemberName } from '@/utils/dashboard';
+import {
+  getChoreRotationOrder,
+  getNextChoreAssigneeIdFromOrder,
+} from '@/utils/chore-recurrence';
 import { validateChoreInput } from '@/utils/validation';
 
 type ChoreView = 'list' | 'dashboard';
@@ -33,13 +37,17 @@ export default function ChoresScreen() {
   const [assigneeId, setAssigneeId] = useState(snapshot.members[0]?.id ?? '');
   const [dueDate, setDueDate] = useState(todayIso());
   const [repeatCycle, setRepeatCycle] = useState<ChoreRepeatCycle>('weekly');
+  const [score, setScore] = useState('1');
   const [status, setStatus] = useState<ChoreStatus>('scheduled');
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const doneCount = snapshot.chores.filter((chore) => chore.status === 'done').length;
-  const completionPercent =
-    snapshot.chores.length === 0 ? 0 : Math.round((doneCount / snapshot.chores.length) * 100);
+  const [completingIds, setCompletingIds] = useState<Set<string>>(new Set());
   const maxContribution = Math.max(...summary.contribution.map((item) => item.completedScore), 1);
+  const rotationOrder = getChoreRotationOrder(
+    snapshot.members,
+    snapshot.household.memberOrder,
+  );
 
   const resetForm = () => {
     setFormOpen(false);
@@ -48,6 +56,7 @@ export default function ChoresScreen() {
     setAssigneeId(snapshot.members[0]?.id ?? '');
     setDueDate(todayIso());
     setRepeatCycle('weekly');
+    setScore('1');
     setStatus('scheduled');
     setFormError(null);
   };
@@ -63,27 +72,43 @@ export default function ChoresScreen() {
     setAssigneeId(chore.assigneeId);
     setDueDate(chore.dueDate);
     setRepeatCycle(chore.repeatCycle);
+    setScore(String(chore.score));
     setStatus(chore.status);
     setFormError(null);
     setFormOpen(true);
   };
 
   const submit = async () => {
-    const payload = {
+    const basePayload = {
       title: title.trim(),
       assigneeId,
       dueDate,
       repeatCycle,
-      score: 1,
+      score: Number(score),
       status,
       memo: undefined,
       notificationEnabled: true,
     };
-    const validationMessage = validateChoreInput(payload);
+    const validationMessage = validateChoreInput(basePayload);
     if (validationMessage) {
       setFormError(validationMessage);
       return;
     }
+
+    const editingChore = snapshot.chores.find((chore) => chore.id === editingId);
+    const preserveAnchor =
+      editingChore?.repeatCycle === 'monthly' &&
+      editingChore.dueDate === dueDate &&
+      editingChore.repeatAnchorDay
+        ? editingChore.repeatAnchorDay
+        : undefined;
+    const payload = {
+      ...basePayload,
+      repeatAnchorDay:
+        repeatCycle === 'monthly'
+          ? (preserveAnchor ?? fromIsoDate(dueDate).getDate())
+          : undefined,
+    };
 
     setSubmitting(true);
     try {
@@ -97,6 +122,22 @@ export default function ChoresScreen() {
       setFormError(error instanceof Error ? error.message : '집안일을 저장하지 못했어요.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleComplete = async (choreId: string) => {
+    setActionError(null);
+    setCompletingIds((current) => new Set(current).add(choreId));
+    try {
+      await completeChore(choreId);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : '집안일을 완료하지 못했어요.');
+    } finally {
+      setCompletingIds((current) => {
+        const next = new Set(current);
+        next.delete(choreId);
+        return next;
+      });
     }
   };
 
@@ -151,6 +192,14 @@ export default function ChoresScreen() {
           value={repeatCycle}
           options={repeatOptions}
           onChange={setRepeatCycle}
+        />
+        <FormField
+          label="점수"
+          value={score}
+          onChangeText={setScore}
+          placeholder="예: 3"
+          keyboardType="number-pad"
+          testID="chore-score-input"
         />
         <ChipGroup
           label="이번 차례 담당자"
@@ -211,6 +260,7 @@ export default function ChoresScreen() {
         onChange={setView}
         accessibilityLabel="집안일 보기"
       />
+      {actionError ? <Text style={[styles.errorText, { color: theme.danger }]}>{actionError}</Text> : null}
 
       {view === 'list' ? (
         snapshot.chores.length === 0 ? (
@@ -219,21 +269,23 @@ export default function ChoresScreen() {
           snapshot.chores.map((chore, index) => {
             const memberName = getMemberName(snapshot.members, chore.assigneeId);
             const done = chore.status === 'done';
+            const completing = completingIds.has(chore.id);
             return (
               <Card key={chore.id} style={styles.listCard}>
                 <View style={styles.choreRow}>
                   <Pressable
                     testID={`chore-complete-button-${chore.id}`}
                     accessibilityRole="checkbox"
-                    accessibilityState={{ checked: done }}
+                    accessibilityState={{ checked: done, disabled: done || completing }}
                     accessibilityLabel={`${chore.title} 완료`}
-                    disabled={done}
-                    onPress={() => void completeChore(chore.id)}
+                    disabled={done || completing}
+                    onPress={() => void handleComplete(chore.id)}
                     style={[
                       styles.checkbox,
                       {
                         borderColor: done ? theme.primary : theme.border,
                         backgroundColor: done ? theme.primary : theme.backgroundElement,
+                        opacity: completing ? 0.5 : 1,
                       },
                     ]}>
                     {done ? <Check size={15} color="#FFFFFF" strokeWidth={3} /> : null}
@@ -247,7 +299,8 @@ export default function ChoresScreen() {
                       {chore.title}
                     </Text>
                     <Text style={[styles.choreMeta, { color: theme.textSecondary }]}>
-                      {choreRepeatLabels[chore.repeatCycle]} · {memberName} 담당
+                      {formatKoreanDate(chore.dueDate, 'M월 d일')} ·{' '}
+                      {choreRepeatLabels[chore.repeatCycle]} · {memberName} 담당 · {chore.score}점
                     </Text>
                   </Pressable>
                   <View
@@ -267,19 +320,25 @@ export default function ChoresScreen() {
           <Card style={styles.completionCard}>
             <Text style={[styles.dashboardLabel, { color: theme.textSecondary }]}>오늘 수행률</Text>
             <Text style={[styles.completionValue, { color: theme.text }]}>
-              {completionPercent}%
+              {summary.todayCompletionPercent}%
             </Text>
-            <ProgressBar percent={completionPercent} color={theme.primary} />
+            <ProgressBar percent={summary.todayCompletionPercent} color={theme.primary} />
+            <Text style={[styles.dashboardCaption, { color: theme.textSecondary }]}>
+              오늘 {summary.todayCompletedCount}/{summary.todayTotalCount}건 완료
+            </Text>
           </Card>
 
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>이번 주 수행 현황</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>이번 달 수행 기여도</Text>
+          <Text style={[styles.sectionCaption, { color: theme.textSecondary }]}>
+            이번 주 {summary.weekCompletedCount}/{summary.weekCount}건 완료
+          </Text>
           <View style={styles.memberBars}>
             {summary.contribution.map((member, index) => (
               <View key={member.memberId} style={styles.memberBar}>
                 <View style={styles.progressHeader}>
                   <Text style={[styles.progressLabel, { color: theme.text }]}>{member.name}</Text>
                   <Text style={[styles.progressValue, { color: theme.textSecondary }]}>
-                    {member.completedScore}건
+                    {member.completedScore}점 · {member.ratio}%
                   </Text>
                 </View>
                 <ProgressBar
@@ -291,16 +350,22 @@ export default function ChoresScreen() {
           </View>
 
           <Text style={[styles.sectionTitle, { color: theme.text }]}>로테이션 순서</Text>
-          {snapshot.chores.map((chore) => (
-            <Card key={chore.id} style={styles.rotationCard}>
-              <View style={styles.rotationRow}>
-                <Text style={[styles.rotationTitle, { color: theme.text }]}>{chore.title}</Text>
-                <Text style={[styles.rotationOrder, { color: theme.textSecondary }]}>
-                  {getMemberName(snapshot.members, chore.assigneeId)} → 다음 가구원
-                </Text>
-              </View>
-            </Card>
-          ))}
+          {snapshot.chores
+            .filter((chore) => chore.status === 'scheduled' && chore.repeatCycle !== 'none')
+            .map((chore) => (
+              <Card key={chore.id} style={styles.rotationCard}>
+                <View style={styles.rotationRow}>
+                  <Text style={[styles.rotationTitle, { color: theme.text }]}>{chore.title}</Text>
+                  <Text style={[styles.rotationOrder, { color: theme.textSecondary }]}>
+                    {getMemberName(snapshot.members, chore.assigneeId)} →{' '}
+                    {getMemberName(
+                      snapshot.members,
+                      getNextChoreAssigneeIdFromOrder(rotationOrder, chore.assigneeId),
+                    )}
+                  </Text>
+                </View>
+              </Card>
+            ))}
         </>
       )}
     </Screen>
@@ -357,7 +422,10 @@ function ProgressBar({ percent, color }: { percent: number; color: string }) {
       <View
         style={[
           styles.progressFill,
-          { backgroundColor: color, width: `${Math.max(Math.min(percent, 100), 3)}%` },
+          {
+            backgroundColor: color,
+            width: `${percent <= 0 ? 0 : Math.max(Math.min(percent, 100), 3)}%`,
+          },
         ]}
       />
     </View>
@@ -439,11 +507,23 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     fontWeight: '800',
   },
+  dashboardCaption: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+    marginTop: 8,
+  },
   sectionTitle: {
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '700',
     marginTop: 4,
+  },
+  sectionCaption: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+    marginTop: -6,
   },
   memberBars: {
     gap: 12,

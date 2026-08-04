@@ -18,6 +18,7 @@ export type Household = {
   id: ID;
   name: string;
   inviteCode: string;
+  memberOrder?: ID[];
   createdBy: ID;
   createdAt: ISODate;
 };
@@ -56,6 +57,7 @@ export type Chore = {
   assigneeId: ID;
   dueDate: ISODate;
   repeatCycle: ChoreRepeatCycle;
+  repeatAnchorDay?: number;
   score: number;
   status: ChoreStatus;
   memo?: string;
@@ -128,6 +130,7 @@ export type ChoreInput = Pick<
   | 'assigneeId'
   | 'dueDate'
   | 'repeatCycle'
+  | 'repeatAnchorDay'
   | 'score'
   | 'status'
   | 'memo'
