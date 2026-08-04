@@ -30,6 +30,11 @@ export default function HomeScreen() {
             <Text style={[styles.date, { color: theme.textSecondary }]}>
               {formatKoreanDate(today)}
             </Text>
+            <Text
+              testID="home-household-meta"
+              style={[styles.householdMeta, { color: theme.textSecondary }]}>
+              {snapshot.household.name} · 가구원 {snapshot.members.length}명
+            </Text>
             <Text style={[styles.greetingTitle, { color: theme.text }]}>
               {greetingName}님, 안녕하세요
             </Text>
@@ -69,8 +74,11 @@ export default function HomeScreen() {
 
         <Card style={styles.todayCard}>
           <View style={styles.cardHeading}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>오늘 일정</Text>
-            <Pressable accessibilityRole="button" onPress={() => router.push('/calendar')}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>오늘 해야 할 일</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="캘린더 보기"
+              onPress={() => router.push('/calendar')}>
               <Text style={[styles.cardLink, { color: theme.textSecondary }]}>캘린더 보기</Text>
             </Pressable>
           </View>
@@ -92,7 +100,12 @@ export default function HomeScreen() {
         </Card>
 
         <View style={styles.summaryGrid}>
-          <Pressable style={styles.summaryPressable} onPress={() => router.push('/expenses')}>
+          <Pressable
+            testID="home-expense-summary"
+            accessibilityRole="button"
+            accessibilityLabel="이번 달 지출 보기"
+            style={styles.summaryPressable}
+            onPress={() => router.push('/expenses')}>
             <Card style={styles.summaryCard}>
               <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>이번 달 지출</Text>
               <Text style={[styles.summaryValue, { color: theme.text }]}>
@@ -107,7 +120,12 @@ export default function HomeScreen() {
               </Text>
             </Card>
           </Pressable>
-          <Pressable style={styles.summaryPressable} onPress={() => router.push('/fridge')}>
+          <Pressable
+            testID="home-fridge-summary"
+            accessibilityRole="button"
+            accessibilityLabel="유통기한 임박 항목 보기"
+            style={styles.summaryPressable}
+            onPress={() => router.push('/fridge')}>
             <Card style={styles.summaryCard}>
               <Text style={[styles.summaryLabel, { color: theme.textSecondary }]}>유통기한 임박</Text>
               <Text style={[styles.summaryValue, { color: theme.primary }]}>
@@ -120,7 +138,48 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <Pressable onPress={() => router.push('/chores')}>
+        <Pressable
+          testID="home-upcoming-expenses"
+          accessibilityRole="button"
+          accessibilityLabel="다가오는 지출 보기"
+          onPress={() => router.push('/expenses')}>
+          <Card>
+            <View style={styles.cardHeading}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>다가오는 지출</Text>
+              <Text style={[styles.cardLink, { color: theme.textSecondary }]}>
+                {summary.upcomingExpenses.length}건
+              </Text>
+            </View>
+            {summary.upcomingExpenses.length === 0 ? (
+              <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+                7일 안에 납부할 지출이 없어요
+              </Text>
+            ) : (
+              summary.upcomingExpenses.slice(0, 3).map((expense) => (
+                <View key={expense.id} style={styles.expenseRow}>
+                  <View style={[styles.dot, { backgroundColor: theme.info }]} />
+                  <View style={styles.expenseText}>
+                    <Text style={[styles.scheduleTitle, { color: theme.text }]}>
+                      {expense.title}
+                    </Text>
+                    <Text style={[styles.rowHelper, { color: theme.textSecondary }]}>
+                      {formatKoreanDate(expense.dueDate)}
+                    </Text>
+                  </View>
+                  <Text style={[styles.expenseAmount, { color: theme.text }]}>
+                    {expense.amount.toLocaleString()}원
+                  </Text>
+                </View>
+              ))
+            )}
+          </Card>
+        </Pressable>
+
+        <Pressable
+          testID="home-chore-summary"
+          accessibilityRole="button"
+          accessibilityLabel="집안일 현황 보기"
+          onPress={() => router.push('/chores')}>
           <Card>
             <View style={styles.cardHeading}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>오늘의 집안일</Text>
@@ -153,6 +212,37 @@ export default function HomeScreen() {
                   );
                 })
             )}
+            <View style={[styles.contributionSection, { borderTopColor: theme.border }]}>
+              <Text style={[styles.contributionTitle, { color: theme.text }]}>
+                이번 달 집안일 균형
+              </Text>
+              {summary.choreContribution.map((member) => (
+                <View
+                  key={member.memberId}
+                  testID={`home-chore-contribution-${member.memberId}`}
+                  style={styles.contributionRow}>
+                  <View style={styles.contributionHeading}>
+                    <Text style={[styles.contributionName, { color: theme.text }]}>
+                      {member.name}
+                    </Text>
+                    <Text style={[styles.rowHelper, { color: theme.textSecondary }]}>
+                      {member.completedScore}점 · {member.ratio}%
+                    </Text>
+                  </View>
+                  <View style={[styles.progressTrack, { backgroundColor: theme.chip }]}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        {
+                          backgroundColor: theme.primary,
+                          width: `${member.ratio <= 0 ? 0 : Math.max(member.ratio, 4)}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+              ))}
+            </View>
           </Card>
         </Pressable>
       </Screen>
@@ -176,6 +266,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
+  },
+  householdMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
     marginBottom: 4,
   },
   greetingTitle: {
@@ -296,6 +391,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  expenseRow: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 4,
+  },
+  expenseText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rowHelper: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  expenseAmount: {
+    flexShrink: 0,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
   choreRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -323,5 +440,41 @@ const styles = StyleSheet.create({
   choreStatus: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  contributionSection: {
+    borderTopWidth: 1,
+    marginTop: 4,
+    paddingTop: 14,
+    gap: 10,
+  },
+  contributionTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  contributionRow: {
+    gap: 4,
+  },
+  contributionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  contributionName: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  progressTrack: {
+    height: 7,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 4,
   },
 });
