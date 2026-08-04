@@ -99,7 +99,7 @@ if (!useMocks) {
   }
 }
 
-if (firebaseProjectId && mergedEnv.EXPO_PUBLIC_FIREBASE_PROJECT_ID) {
+if (!useMocks && firebaseProjectId && mergedEnv.EXPO_PUBLIC_FIREBASE_PROJECT_ID) {
   if (firebaseProjectId !== mergedEnv.EXPO_PUBLIC_FIREBASE_PROJECT_ID) {
     issues.push(
       `.firebaserc default project "${firebaseProjectId}" does not match EXPO_PUBLIC_FIREBASE_PROJECT_ID.`,
