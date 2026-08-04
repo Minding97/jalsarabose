@@ -14,7 +14,8 @@ const desktop = process.argv.includes('--desktop');
 const viewport = desktop ? { width: 1280, height: 900 } : { width: 390, height: 844 };
 const successScreenshotPath = `/tmp/jalsarabose-chore-smoke-${desktop ? 'desktop' : 'mobile'}.png`;
 const browser = await chromium.launch({ executablePath, headless: true });
-const page = await browser.newPage({ viewport });
+const context = await browser.newContext({ viewport });
+const page = await context.newPage();
 const failures = [];
 
 page.on('console', (message) => {
@@ -28,15 +29,8 @@ page.on('requestfailed', (request) => {
 });
 
 try {
-  await page.goto(`${appUrl}/chores`, { waitUntil: 'networkidle' });
-  if (await page.getByTestId('auth-email-input').isVisible()) {
-    assert(config.testEmail && config.testPassword, 'QA_TEST_EMAIL and QA_TEST_PASSWORD are required.');
-    await page.getByTestId('auth-email-input').fill(config.testEmail);
-    await page.getByTestId('auth-password-input').fill(config.testPassword);
-    await page.getByTestId('auth-submit-button').click();
-  }
-
-  await page.getByTestId('chores-screen').waitFor();
+  await page.goto(`${appUrl}/chores`, { waitUntil: 'domcontentloaded' });
+  await ensureChoresReady(page);
   await deleteGeneratedChores(page);
 
   const completionButtons = page.locator('[data-testid^="chore-complete-button-"]');
@@ -50,7 +44,14 @@ try {
   await page.getByText(title, { exact: true }).waitFor();
   assert.equal(await completionButtons.count(), initialCompletionCount + 1);
 
-  await completionButtons.last().click();
+  const secondPage = await context.newPage();
+  await secondPage.goto(`${appUrl}/chores`, { waitUntil: 'domcontentloaded' });
+  await ensureChoresReady(secondPage);
+  const secondCompletionButtons = secondPage.locator(
+    '[data-testid^="chore-complete-button-"]',
+  );
+  await Promise.all([completionButtons.last().click(), secondCompletionButtons.last().click()]);
+  await secondPage.close();
   await page.getByText(title, { exact: true }).nth(1).waitFor();
   assert.equal(await page.getByText(title, { exact: true }).count(), 2);
   assert.equal(await completionButtons.count(), initialCompletionCount + 2);
@@ -75,7 +76,10 @@ try {
   const screenshotPath = '/tmp/jalsarabose-chore-smoke-failure.png';
   await page.screenshot({ path: screenshotPath, fullPage: true });
   console.error(`URL: ${page.url()}`);
-  console.error(`Screen: ${(await page.locator('body').innerText()).slice(0, 3000)}`);
+  const visibleTestIds = await page.locator('[data-testid]').evaluateAll((elements) =>
+    elements.slice(0, 50).map((element) => element.getAttribute('data-testid')),
+  );
+  console.error(`Visible test IDs: ${visibleTestIds.filter(Boolean).join(', ')}`);
   console.error(`Screenshot: ${screenshotPath}`);
   try {
     if (await page.getByTestId('chores-screen').isVisible()) {
@@ -95,6 +99,24 @@ try {
 
 async function assertText(page, text) {
   await page.getByText(text, { exact: false }).first().waitFor();
+}
+
+async function ensureChoresReady(page) {
+  const authInput = page.getByTestId('auth-email-input');
+  const choresScreen = page.getByTestId('chores-screen');
+  await Promise.race([authInput.waitFor(), choresScreen.waitFor()]);
+
+  if (await authInput.isVisible()) {
+    assert(
+      config.testEmail && config.testPassword,
+      'QA_TEST_EMAIL and QA_TEST_PASSWORD are required.',
+    );
+    await authInput.fill(config.testEmail);
+    await page.getByTestId('auth-password-input').fill(config.testPassword);
+    await page.getByTestId('auth-submit-button').click();
+  }
+
+  await choresScreen.waitFor();
 }
 
 async function deleteGeneratedChores(page) {

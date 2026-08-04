@@ -56,6 +56,9 @@ export function householdFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Hous
     id: doc.id,
     name: String(data.name ?? ''),
     inviteCode: String(data.inviteCode ?? ''),
+    memberOrder: Array.isArray(data.memberOrder)
+      ? data.memberOrder.map(String)
+      : undefined,
     createdBy: String(data.createdBy ?? ''),
     createdAt: data.createdAt as ISODate,
   };

@@ -1,10 +1,14 @@
+/// <reference types="node" />
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { Chore, HouseholdMember } from '@/domain/types';
 import {
   createNextChoreOccurrence,
+  completeChoreCollection,
   getNextChoreAssigneeId,
+  getNextChoreAssigneeIdFromOrder,
   getNextChoreDueDate,
 } from '@/utils/chore-recurrence';
 
@@ -60,6 +64,7 @@ test('rotates by join order with defined fallbacks', () => {
   assert.equal(getNextChoreAssigneeId(members, 'member-left'), 'member-a');
   assert.equal(getNextChoreAssigneeId([members[0]], 'member-a'), 'member-a');
   assert.equal(getNextChoreAssigneeId([], 'member-left'), 'member-left');
+  assert.equal(getNextChoreAssigneeIdFromOrder(['member-a', 'member-b'], 'member-a'), 'member-b');
 });
 
 test('creates a scheduled next occurrence without mutating the source', () => {
@@ -83,3 +88,64 @@ test('creates a scheduled next occurrence without mutating the source', () => {
   assert.equal(next?.status, 'scheduled');
   assert.equal(chore.dueDate, '2026-08-04');
 });
+
+test('completes mock collections idempotently and schedules only repeated chores', () => {
+  const repeated: Chore = {
+    id: 'repeated',
+    householdId: 'household',
+    title: '청소',
+    assigneeId: 'member-a',
+    dueDate: '2026-08-04',
+    repeatCycle: 'weekly',
+    score: 3,
+    status: 'scheduled',
+    createdBy: 'user-a',
+    createdAt: '2026-08-04',
+    notificationEnabled: true,
+  };
+  const once: Chore = { ...repeated, id: 'once', repeatCycle: 'none' };
+
+  const completedRepeated = completeChoreCollection(
+    [repeated, once],
+    members,
+    repeated.id,
+    '2026-08-05',
+    () => 'next',
+  );
+  assert.equal(completedRepeated.length, 3);
+  assert.equal(completedRepeated[0].status, 'done');
+  assert.deepEqual(
+    completedRepeated.find((item) => item.id === 'next'),
+    expectNextOccurrence(),
+  );
+  assert.equal(
+    completeChoreCollection(completedRepeated, members, repeated.id, '2026-08-05', () => 'duplicate'),
+    completedRepeated,
+  );
+
+  const completedOnce = completeChoreCollection(
+    [once],
+    members,
+    once.id,
+    '2026-08-05',
+    () => 'unused',
+  );
+  assert.equal(completedOnce.length, 1);
+  assert.equal(completedOnce[0].status, 'done');
+});
+
+function expectNextOccurrence(): Chore {
+  return {
+    id: 'next',
+    householdId: 'household',
+    title: '청소',
+    assigneeId: 'member-b',
+    dueDate: '2026-08-11',
+    repeatCycle: 'weekly',
+    score: 3,
+    status: 'scheduled',
+    createdBy: 'user-a',
+    createdAt: '2026-08-05',
+    notificationEnabled: true,
+  };
+}

@@ -39,7 +39,7 @@ import {
 } from '@/services/household-repository';
 import { firebaseConfigIssues, isFirebaseConfigured, useMocks } from '@/services/firebase';
 import { todayIso } from '@/utils/dates';
-import { createNextChoreOccurrence } from '@/utils/chore-recurrence';
+import { completeChoreCollection } from '@/utils/chore-recurrence';
 
 type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'mock' | 'missing-config';
 type DataStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
@@ -563,18 +563,13 @@ function createLocalId(prefix: string) {
 }
 
 function completeMockChore(state: StoreState, choreId: string): Chore[] {
-  const chore = state.chores.find((item) => item.id === choreId);
-  if (!chore || chore.status === 'done') {
-    return state.chores;
-  }
-
-  const completed = state.chores.map((item) =>
-    item.id === choreId ? { ...item, status: 'done' as const } : item,
+  return completeChoreCollection(
+    state.chores,
+    state.members,
+    choreId,
+    todayIso(),
+    () => createLocalId('chore'),
   );
-  const nextChore = createNextChoreOccurrence(chore, state.members, todayIso());
-  return nextChore
-    ? [...completed, { ...nextChore, id: createLocalId('chore') }]
-    : completed;
 }
 
 function getErrorMessage(error: unknown) {

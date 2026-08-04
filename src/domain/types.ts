@@ -18,6 +18,7 @@ export type Household = {
   id: ID;
   name: string;
   inviteCode: string;
+  memberOrder?: ID[];
   createdBy: ID;
   createdAt: ISODate;
 };

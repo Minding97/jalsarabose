@@ -27,7 +27,7 @@ export function getNextChoreDueDate(
 }
 
 export function getNextChoreAssigneeId(
-  members: HouseholdMember[],
+  members: Pick<HouseholdMember, 'id' | 'joinedAt'>[],
   currentAssigneeId: string,
 ): string {
   const orderedMembers = [...members].sort(
@@ -45,9 +45,35 @@ export function getNextChoreAssigneeId(
   return orderedMembers[(currentIndex + 1) % orderedMembers.length].id;
 }
 
+export function getNextChoreAssigneeIdFromOrder(
+  memberOrder: string[],
+  currentAssigneeId: string,
+): string {
+  if (memberOrder.length === 0) {
+    return currentAssigneeId;
+  }
+
+  const currentIndex = memberOrder.indexOf(currentAssigneeId);
+  return currentIndex < 0
+    ? memberOrder[0]
+    : memberOrder[(currentIndex + 1) % memberOrder.length];
+}
+
 export function createNextChoreOccurrence(
   chore: Chore,
-  members: HouseholdMember[],
+  members: Pick<HouseholdMember, 'id' | 'joinedAt'>[],
+  createdAt: ISODate,
+): Omit<Chore, 'id'> | null {
+  return createNextChoreOccurrenceForAssignee(
+    chore,
+    getNextChoreAssigneeId(members, chore.assigneeId),
+    createdAt,
+  );
+}
+
+export function createNextChoreOccurrenceForAssignee(
+  chore: Chore,
+  nextAssigneeId: string,
   createdAt: ISODate,
 ): Omit<Chore, 'id'> | null {
   const dueDate = getNextChoreDueDate(chore);
@@ -55,16 +81,34 @@ export function createNextChoreOccurrence(
     return null;
   }
 
-  const { id: _id, ...template } = chore;
+  const { id: _id, repeatAnchorDay: _repeatAnchorDay, ...template } = chore;
   return {
     ...template,
-    assigneeId: getNextChoreAssigneeId(members, chore.assigneeId),
+    assigneeId: nextAssigneeId,
     dueDate,
-    repeatAnchorDay:
-      chore.repeatCycle === 'monthly'
-        ? (chore.repeatAnchorDay ?? fromIsoDate(chore.dueDate).getDate())
-        : undefined,
+    ...(chore.repeatCycle === 'monthly'
+      ? { repeatAnchorDay: chore.repeatAnchorDay ?? fromIsoDate(chore.dueDate).getDate() }
+      : {}),
     status: 'scheduled',
     createdAt,
   };
+}
+
+export function completeChoreCollection(
+  chores: Chore[],
+  members: Pick<HouseholdMember, 'id' | 'joinedAt'>[],
+  choreId: string,
+  createdAt: ISODate,
+  createId: () => string,
+): Chore[] {
+  const chore = chores.find((item) => item.id === choreId);
+  if (!chore || chore.status === 'done') {
+    return chores;
+  }
+
+  const completed = chores.map((item) =>
+    item.id === choreId ? { ...item, status: 'done' as const } : item,
+  );
+  const nextChore = createNextChoreOccurrence(chore, members, createdAt);
+  return nextChore ? [...completed, { ...nextChore, id: createId() }] : completed;
 }
