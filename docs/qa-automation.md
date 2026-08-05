@@ -7,6 +7,7 @@
 - Jira에 비공개 티켓과 암호화된 Recording을 즉시 생성한다.
 - 매일 00:30~07:00에 Codex가 대기 티켓을 순차 수정한다.
 - Claude CLI 리뷰와 GitHub 검증을 통과한 PR만 자동 머지한다.
+- 매일 07:10에 최신 `main` 회귀 테스트를 실행하고 실패를 Bug 티켓으로 되돌린다.
 
 ## 1. Jira 준비
 
@@ -46,6 +47,8 @@ JIRA_TASK_TYPE=Task
 JIRA_SUBTASK_TYPE=Sub-task
 QA_TEST_EMAIL=QA 전용 앱 이메일
 QA_TEST_PASSWORD=QA 전용 앱 비밀번호
+QA_DAILY_HOUR=7
+QA_DAILY_MINUTE=10
 ```
 
 이슈 유형과 상태 이름은 Jira 프로젝트에 표시되는 언어와 정확히 같아야 한다.
@@ -105,7 +108,31 @@ npm run qa:install-schedule
 - Claude P0~P2는 Jira Sub-task로 생성한다.
 - 3회 리뷰 후에도 차단 항목이 남으면 `사람 확인 필요`로 이동한다.
 
-## 6. GitHub 설정
+## 6. 병합 후 일일 QA
+
+수동 점검:
+
+```bash
+npm run qa:daily:dry
+```
+
+예약 작업은 `npm run qa:install-schedule` 실행 시 야간 수정 작업과 함께 설치된다.
+
+처리 규칙:
+
+- 07:10에 원격 최신 `main`을 별도 작업공간에 받는다.
+- 야간 수정·리뷰가 끝나지 않았으면 종료될 때까지 기다린다.
+- 전체 검증과 등록된 브라우저 smoke 테스트를 순차 실행한다.
+- 의존성 설치 스크립트는 실행하지 않고, 격리된 HOME과 QA 전용 계정만 테스트에 전달한다.
+- 실패마다 Jira Bug를 만들고 `자동수정 대기` 상태로 보낸다.
+- 같은 미해결 버그는 중복 생성하지 않는다.
+- 수정 완료 후 다른 커밋에서 재발하면 새 버그로 등록한다.
+- 생성된 티켓은 다음 야간 자동수정 큐에서 처리한다.
+- Git·네트워크·패키지 저장소 같은 실행 기반 장애는 Jira 버그로 만들지 않고 `qa-daily-error.log`에 남긴다.
+
+예약 작업은 설치 당시의 원격 `main` 자동화 코드를 별도 작업공간에 고정한다. 자동화 runner 자체가 변경된 PR을 병합한 뒤에는 `npm run qa:install-schedule`을 다시 실행한다.
+
+## 7. GitHub 설정
 
 GitHub CLI 로그인 후 설정을 한 번 적용한다.
 
@@ -126,7 +153,7 @@ npm run qa:configure-github
 
 Recording과 입력값은 공개 PR에 포함하지 않는다.
 
-## 7. 보관
+## 8. 보관
 
 - Recording은 Jira에 AES-256-GCM 암호문으로 저장한다.
 - Firebase·Jira·GitHub 인증정보는 암호화 전에 제거한다.
