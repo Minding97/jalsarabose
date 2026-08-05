@@ -22,6 +22,7 @@ import { decryptRecording } from '../server/crypto.mjs';
 import { issueMatchesReviewFindings, JiraClient } from '../server/jira-client.mjs';
 import { withExpoWebServer } from './app-server.mjs';
 import { reviewWithClaude } from './claude-review.mjs';
+import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
 import { replayRecording } from './replay.mjs';
@@ -207,33 +208,18 @@ async function runCodex(
   baselineReplayPath,
 ) {
   const resultPath = resolve(worktree, '.qa/codex-result.json');
-  await runCommand(
-    getCodexPath(),
-    [
-      'exec',
-      '-C',
-      worktree,
-      '-s',
-      'workspace-write',
-      '-a',
-      'never',
-      '--output-schema',
-      resolve(worktree, 'qa/automation/codex-result-schema.json'),
-      '-o',
-      resultPath,
-      buildCodexPrompt(
-        issue,
-        issueContextPath,
-        recordingPaths,
-        baselineReplayPath,
-      ),
-    ],
-    {
-      cwd: worktree,
-      sensitive: true,
-      timeoutMs: 90 * 60 * 1000,
-    },
-  );
+  await runCodexCommand({
+    codexPath: getCodexPath(),
+    worktree,
+    schemaPath: resolve(worktree, 'qa/automation/codex-result-schema.json'),
+    resultPath,
+    prompt: buildCodexPrompt(
+      issue,
+      issueContextPath,
+      recordingPaths,
+      baselineReplayPath,
+    ),
+  });
   copyFileSync(resultPath, resolve(issueArtifacts, 'codex-result.json'));
   return JSON.parse(readFileSync(resultPath, 'utf8'));
 }
