@@ -32,6 +32,7 @@ export default function AppTabs() {
         name="index"
         options={{
           title: '홈',
+          tabBarButtonTestID: 'tab-home',
           tabBarLabel: ({ color }) => <TabLabel color={color}>홈</TabLabel>,
           tabBarIcon: ({ color, size }) => <House color={color} size={size} strokeWidth={2.2} />,
         }}
@@ -40,6 +41,7 @@ export default function AppTabs() {
         name="calendar"
         options={{
           title: '캘린더',
+          tabBarButtonTestID: 'tab-calendar',
           tabBarLabel: ({ color }) => <TabLabel color={color}>캘린더</TabLabel>,
           tabBarIcon: ({ color, size }) => (
             <CalendarDays color={color} size={size} strokeWidth={2.2} />
@@ -50,6 +52,7 @@ export default function AppTabs() {
         name="expenses"
         options={{
           title: '지출',
+          tabBarButtonTestID: 'tab-expenses',
           tabBarLabel: ({ color }) => <TabLabel color={color}>지출</TabLabel>,
           tabBarIcon: ({ color, size }) => (
             <ReceiptText color={color} size={size} strokeWidth={2.2} />
@@ -60,6 +63,7 @@ export default function AppTabs() {
         name="chores"
         options={{
           title: '집안일',
+          tabBarButtonTestID: 'tab-chores',
           tabBarLabel: ({ color }) => <TabLabel color={color}>집안일</TabLabel>,
           tabBarIcon: ({ color, size }) => (
             <ClipboardCheck color={color} size={size} strokeWidth={2.2} />
@@ -70,6 +74,7 @@ export default function AppTabs() {
         name="fridge"
         options={{
           title: '냉장고',
+          tabBarButtonTestID: 'tab-fridge',
           tabBarLabel: ({ color }) => <TabLabel color={color}>냉장고</TabLabel>,
           tabBarIcon: ({ color, size }) => (
             <Refrigerator color={color} size={size} strokeWidth={2.2} />
