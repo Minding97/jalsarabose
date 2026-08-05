@@ -27,6 +27,7 @@ const lockPath = resolve(tmpdir(), 'jalsarabose-daily-regression.lock');
 const nightlyLockPath = resolve(tmpdir(), 'jalsarabose-qa-nightly.lock');
 const stateDirectory = resolve(homedir(), '.local/state/jalsarabose');
 const statePath = resolve(stateDirectory, 'qa-daily-state.json');
+const browserArtifactRoot = resolve(stateDirectory, 'qa-daily-artifacts');
 const failureOutputLimit = 4000;
 const requiredFirebaseKeys = [
   'EXPO_PUBLIC_FIREBASE_API_KEY',
@@ -244,6 +245,8 @@ async function runSuite({ name, command, args, cwd, env, timeoutMs }) {
 }
 
 async function runRegressionSuites(config) {
+  rmSync(browserArtifactRoot, { recursive: true, force: true });
+  mkdirSync(browserArtifactRoot, { recursive: true, mode: 0o700 });
   const testEnvironment = buildIsolatedEnvironment(config, {
     SMOKE_TEST_EMAIL: config.testEmail,
     SMOKE_TEST_PASSWORD: config.testPassword,
@@ -280,12 +283,21 @@ async function runRegressionSuites(config) {
       },
       async (appUrl) => {
         for (const script of smokeScripts) {
+          const artifactDirectory = resolve(
+            browserArtifactRoot,
+            script.replace(/[^a-z0-9-]+/gi, '-'),
+          );
+          mkdirSync(artifactDirectory, { recursive: true, mode: 0o700 });
           const result = await runSuite({
             name: script,
             command: 'npm',
             args: ['run', script],
             cwd: worktree,
-            env: { ...testEnvironment, QA_APP_URL: appUrl },
+            env: {
+              ...testEnvironment,
+              QA_APP_URL: appUrl,
+              QA_ARTIFACTS_DIR: artifactDirectory,
+            },
             timeoutMs: 15 * 60 * 1000,
           });
           results.push(result);
