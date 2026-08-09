@@ -1,5 +1,6 @@
 import { addDays, addMonths, eachDayOfInterval, isSameMonth, startOfMonth, startOfWeek } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react-native';
+import { Bell, BellOff, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -7,6 +8,8 @@ import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
 import { Screen } from '@/components/app/screen';
+import { SegmentedControl } from '@/components/app/segmented-control';
+import { EventType, HouseholdEvent } from '@/domain/types';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, fromIsoDate, toIsoDate, todayIso } from '@/utils/dates';
@@ -19,8 +22,11 @@ type LocalEvent = {
   date: string;
 };
 
+type CalendarFilter = 'all' | EventType;
+
 export default function CalendarScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const snapshot = useHouseholdStore();
   const today = todayIso();
   const [visibleMonth, setVisibleMonth] = useState(startOfMonth(fromIsoDate(today)));
@@ -29,6 +35,7 @@ export default function CalendarScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newTime, setNewTime] = useState('');
   const [localEvents, setLocalEvents] = useState<LocalEvent[]>([]);
+  const [filter, setFilter] = useState<CalendarFilter>('all');
 
   const monthDays = useMemo(() => {
     const start = startOfWeek(visibleMonth, { weekStartsOn: 0 });
@@ -36,8 +43,11 @@ export default function CalendarScreen() {
   }, [visibleMonth]);
 
   const generatedEvents = getCalendarEvents(snapshot);
-  const selectedGeneratedEvents = generatedEvents.filter((event) => event.date === selectedDate);
-  const selectedLocalEvents = localEvents.filter((event) => event.date === selectedDate);
+  const filteredEvents = generatedEvents.filter((event) => filter === 'all' || event.type === filter);
+  const selectedGeneratedEvents = filteredEvents.filter((event) => event.date === selectedDate);
+  const selectedLocalEvents = localEvents.filter(
+    (event) => filter === 'all' && event.date === selectedDate,
+  );
 
   const saveLocalEvent = () => {
     if (!newTitle.trim()) {
@@ -64,6 +74,17 @@ export default function CalendarScreen() {
     setSelectedDate(toIsoDate(startOfMonth(nextMonth)));
   };
 
+  const selectDate = (date: Date) => {
+    setSelectedDate(toIsoDate(date));
+    if (!isSameMonth(date, visibleMonth)) {
+      setVisibleMonth(startOfMonth(date));
+    }
+  };
+
+  const openEvent = (event: HouseholdEvent) => {
+    router.push(`/${event.type === 'expense' ? 'expenses' : event.type === 'chore' ? 'chores' : 'fridge'}`);
+  };
+
   return (
     <Screen title="캘린더" testID="calendar-screen">
       <View style={styles.monthNavigation}>
@@ -86,6 +107,14 @@ export default function CalendarScreen() {
         </Pressable>
       </View>
 
+      <SegmentedControl
+        testID="calendar-type-filter"
+        accessibilityLabel="캘린더 유형 필터"
+        value={filter}
+        options={calendarFilterOptions}
+        onChange={setFilter}
+      />
+
       <View style={styles.weekHeader}>
         {['일', '월', '화', '수', '목', '금', '토'].map((day) => (
           <Text key={day} style={[styles.weekday, { color: theme.textSecondary }]}>
@@ -99,16 +128,18 @@ export default function CalendarScreen() {
           const isoDate = toIsoDate(date);
           const selected = isoDate === selectedDate;
           const inMonth = isSameMonth(date, visibleMonth);
-          const hasEvents =
-            generatedEvents.some((event) => event.date === isoDate) ||
-            localEvents.some((event) => event.date === isoDate);
+          const dateEvents = filteredEvents.filter((event) => event.date === isoDate);
+          const hasLocalEvents =
+            filter === 'all' && localEvents.some((event) => event.date === isoDate);
 
           return (
             <Pressable
               key={isoDate}
               accessibilityRole="button"
               accessibilityLabel={`${formatKoreanDate(isoDate)} 선택`}
-              onPress={() => setSelectedDate(isoDate)}
+              accessibilityState={{ selected }}
+              testID={`calendar-day-${isoDate}`}
+              onPress={() => selectDate(date)}
               style={[styles.dayCell, { opacity: inMonth ? 1 : 0.35 }]}>
               <View
                 style={[
@@ -123,12 +154,18 @@ export default function CalendarScreen() {
                   {date.getDate()}
                 </Text>
               </View>
-              <View
-                style={[
-                  styles.eventDot,
-                  { backgroundColor: theme.primary, opacity: hasEvents ? 1 : 0 },
-                ]}
-              />
+              <View style={styles.eventDots}>
+                {dateEvents.slice(0, 3).map((event) => (
+                  <View
+                    key={event.id}
+                    testID={`calendar-dot-${event.type}-${isoDate}`}
+                    style={[styles.eventDot, { backgroundColor: eventTypeColor(event.type, theme) }]}
+                  />
+                ))}
+                {hasLocalEvents ? (
+                  <View style={[styles.eventDot, { backgroundColor: theme.textTertiary }]} />
+                ) : null}
+              </View>
             </Pressable>
           );
         })}
@@ -194,17 +231,43 @@ export default function CalendarScreen() {
       ) : (
         <>
           {selectedGeneratedEvents.map((event) => (
-            <Card key={event.id} style={styles.eventCard}>
-              <View style={styles.eventRow}>
-                <View style={[styles.eventDotLarge, { backgroundColor: theme.primary }]} />
-                <View style={styles.eventText}>
-                  <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
-                  <Text style={[styles.eventTime, { color: theme.textSecondary }]}>
-                    {event.typeLabel}
-                  </Text>
+            <Pressable
+              key={event.id}
+              testID={`calendar-event-${event.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${event.title} ${event.typeLabel} 상세 보기`}
+              onPress={() => openEvent(event)}>
+              <Card style={styles.eventCard}>
+                <View style={styles.eventRow}>
+                  <View
+                    style={[
+                      styles.eventDotLarge,
+                      { backgroundColor: eventTypeColor(event.type, theme) },
+                    ]}
+                  />
+                  <View style={styles.eventText}>
+                    <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
+                    <Text style={[styles.eventTime, { color: theme.textSecondary }]}>
+                      {event.subtitle}
+                    </Text>
+                  </View>
+                  <View style={styles.notificationState}>
+                    {event.notificationEnabled ? (
+                      <Bell size={14} color={theme.primary} strokeWidth={2} />
+                    ) : (
+                      <BellOff size={14} color={theme.textTertiary} strokeWidth={2} />
+                    )}
+                    <Text
+                      style={[
+                        styles.notificationText,
+                        { color: event.notificationEnabled ? theme.primary : theme.textTertiary },
+                      ]}>
+                      {event.notificationEnabled ? '알림 켬' : '알림 끔'}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            </Card>
+              </Card>
+            </Pressable>
           ))}
           {selectedLocalEvents.map((event) => (
             <Card key={event.id} style={styles.eventCard}>
@@ -286,6 +349,13 @@ const styles = StyleSheet.create({
     height: 4,
     borderRadius: 2,
   },
+  eventDots: {
+    height: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
   scheduleHeader: {
     marginTop: 8,
     flexDirection: 'row',
@@ -340,6 +410,7 @@ const styles = StyleSheet.create({
   },
   eventText: {
     flex: 1,
+    minWidth: 0,
   },
   eventTitle: {
     fontSize: 14,
@@ -357,4 +428,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  notificationState: {
+    flexShrink: 0,
+    alignItems: 'center',
+    gap: 2,
+  },
+  notificationText: {
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: '600',
+  },
 });
+
+const calendarFilterOptions: { value: CalendarFilter; label: string }[] = [
+  { value: 'all', label: '전체' },
+  { value: 'expense', label: '지출' },
+  { value: 'chore', label: '집안일' },
+  { value: 'fridge', label: '냉장고' },
+];
+
+function eventTypeColor(type: EventType, theme: ReturnType<typeof useTheme>) {
+  if (type === 'expense') return theme.info;
+  if (type === 'chore') return theme.primary;
+  return theme.warning;
+}
