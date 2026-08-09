@@ -56,6 +56,9 @@ export function householdFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Hous
     id: doc.id,
     name: String(data.name ?? ''),
     inviteCode: String(data.inviteCode ?? ''),
+    memberOrder: Array.isArray(data.memberOrder)
+      ? data.memberOrder.map(String)
+      : undefined,
     createdBy: String(data.createdBy ?? ''),
     createdAt: data.createdAt as ISODate,
   };
@@ -106,6 +109,7 @@ export function choreFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Chore {
     assigneeId: String(data.assigneeId ?? ''),
     dueDate: data.dueDate as ISODate,
     repeatCycle: (data.repeatCycle as Chore['repeatCycle']) ?? 'none',
+    repeatAnchorDay: data.repeatAnchorDay ? Number(data.repeatAnchorDay) : undefined,
     score: Number(data.score ?? 1),
     status: (data.status as Chore['status']) ?? 'scheduled',
     memo: data.memo ? String(data.memo) : undefined,

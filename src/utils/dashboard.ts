@@ -1,4 +1,4 @@
-import { addDays, isSameMonth, isWithinInterval } from 'date-fns';
+import { endOfWeek, isSameMonth, isWithinInterval, startOfWeek } from 'date-fns';
 
 import { choreStatusLabels, expenseStatusLabels, fridgeStatusLabels } from '@/domain/labels';
 import {
@@ -112,19 +112,26 @@ export function getExpenseSummary(snapshot: HouseholdSnapshot, today: ISODate) {
 
 export function getChoreSummary(snapshot: HouseholdSnapshot, today: ISODate) {
   const todayDate = fromIsoDate(today);
-  const weekEnd = addDays(todayDate, 7);
+  const weekStart = startOfWeek(todayDate, { weekStartsOn: 1 });
+  const weekEnd = endOfWeek(todayDate, { weekStartsOn: 1 });
+  const todayChores = snapshot.chores.filter((chore) => chore.dueDate === today);
+  const weekChores = snapshot.chores.filter((chore) =>
+    isWithinInterval(fromIsoDate(chore.dueDate), { start: weekStart, end: weekEnd }),
+  );
   const currentMonthChores = snapshot.chores.filter((chore) =>
     isSameMonth(fromIsoDate(chore.dueDate), todayDate),
   );
   const contribution = getChoreContribution(snapshot.members, currentMonthChores);
+  const todayCompletedCount = todayChores.filter((chore) => chore.status === 'done').length;
 
   return {
-    todayCount: snapshot.chores.filter(
-      (chore) => chore.dueDate === today && chore.status === 'scheduled',
-    ).length,
-    weekCount: snapshot.chores.filter((chore) =>
-      isWithinInterval(fromIsoDate(chore.dueDate), { start: todayDate, end: weekEnd }),
-    ).length,
+    todayCount: todayChores.filter((chore) => chore.status === 'scheduled').length,
+    todayTotalCount: todayChores.length,
+    todayCompletedCount,
+    todayCompletionPercent:
+      todayChores.length === 0 ? 0 : Math.round((todayCompletedCount / todayChores.length) * 100),
+    weekCount: weekChores.length,
+    weekCompletedCount: weekChores.filter((chore) => chore.status === 'done').length,
     completedScore: currentMonthChores
       .filter((chore) => chore.status === 'done')
       .reduce((sum, chore) => sum + chore.score, 0),
