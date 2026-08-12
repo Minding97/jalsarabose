@@ -206,7 +206,7 @@ export class JiraClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jql: `project = "${this.config.jiraProjectKey}" AND status = "${this.config.jiraReadyStatus}" ORDER BY priority DESC, created ASC`,
+          jql: `project = "${this.config.jiraProjectKey}" AND status = "${this.config.jiraReadyStatus}" AND labels = "auto-fix-ready" ORDER BY priority DESC, created ASC`,
           maxResults: 100,
           nextPageToken,
           fields: [
