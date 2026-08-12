@@ -7,6 +7,10 @@ import { runCommand } from './command.mjs';
 
 const deliveryStatePath = resolve(homedir(), '.local/state/jalsarabose/qa-notification-last.json');
 
+export function isTestNotificationRun({ dryRun, explicitTestNotification = false }) {
+  return Boolean(dryRun || explicitTestNotification);
+}
+
 function lineList(values, empty = '없음') {
   return values?.length ? values.join(', ') : empty;
 }
@@ -27,7 +31,8 @@ export function sanitizeNotificationFailure(value, sensitiveValues = []) {
 
 export function formatAutomationSummary(summary, sensitiveValues = []) {
   const isNightly = summary.kind === 'nightly';
-  const title = isNightly ? '🌙 야간 개발 완료' : '🧪 일일 자동 테스트 완료';
+  const productionTitle = isNightly ? '🌙 야간 개발 완료' : '🧪 일일 자동 테스트 완료';
+  const title = summary.testNotification ? `🧪 시험 알림 · ${productionTitle}` : productionTitle;
   const lines = [
     `${title} · ${summary.status}`,
     `실행: ${summary.startedAt} → ${summary.completedAt}`,

@@ -19,7 +19,7 @@ import { getAutomationBugLabel, JiraClient } from '../server/jira-client.mjs';
 import { redactSecrets } from '../server/sanitize.mjs';
 import { withExpoWebServer } from './app-server.mjs';
 import { runCommand } from './command.mjs';
-import { notifyAutomationSummary } from './notification.mjs';
+import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(automationDirectory, '../..');
@@ -480,10 +480,10 @@ export async function runDailyRegression({ force = false, dryRun = false } = {})
   );
 }
 
-export function buildDailyCompletionSummary({ result, runId, startedAt, completedAt }) {
+export function buildDailyCompletionSummary({ result, runId, startedAt, completedAt, testNotification = false }) {
   const skipped = Boolean(result?.skipped);
   return {
-    kind: 'daily', runId, startedAt, completedAt,
+    kind: 'daily', runId, startedAt, completedAt, testNotification,
     status: skipped ? '중복 실행 건너뜀' : result?.passed === false ? '실패' : '성공',
     commitSha: result?.commitSha,
     suites: skipped ? [] : result?.suites ?? [],
@@ -499,20 +499,33 @@ export function buildDailyCompletionSummary({ result, runId, startedAt, complete
   };
 }
 
+export function buildDailyFailureSummary({ error, runId, startedAt, completedAt, testNotification = false }) {
+  return {
+    kind: 'daily', runId, startedAt, completedAt, testNotification,
+    status: '실패', suites: [], reports: [], verification: '실행 중단',
+    failures: [error instanceof Error ? error.message : String(error)],
+    remainingQueue: [], nextAction: '로그와 환경 설정 확인 후 재실행',
+  };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const flags = parseFlags(process.argv.slice(2));
   const dryRun = flags.has('--dry-run');
+  const testNotification = isTestNotificationRun({
+    dryRun,
+    explicitTestNotification: flags.has('--test-notification'),
+  });
   const startedAt = new Date().toISOString();
   const runId = `daily-${startedAt}-${process.pid}`;
   const config = loadQaConfig();
   let summary;
   try {
     const result = await runDailyRegression({ force: flags.has('--force'), dryRun });
-    summary = buildDailyCompletionSummary({ result, runId, startedAt, completedAt: new Date().toISOString() });
+    summary = buildDailyCompletionSummary({ result, runId, startedAt, completedAt: new Date().toISOString(), testNotification });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    summary = { kind: 'daily', runId, startedAt, completedAt: new Date().toISOString(), status: '실패', suites: [], reports: [], verification: '실행 중단', failures: [message], remainingQueue: [], nextAction: '로그와 환경 설정 확인 후 재실행' };
+    summary = buildDailyFailureSummary({ error, runId, startedAt, completedAt: new Date().toISOString(), testNotification });
     process.exitCode = 1;
   }
   try {

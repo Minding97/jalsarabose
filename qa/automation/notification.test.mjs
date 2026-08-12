@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { formatAutomationSummary, notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
+import { formatAutomationSummary, isTestNotificationRun, notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
   const text = formatAutomationSummary({
@@ -18,6 +18,21 @@ test('formats a concise nightly completion report with tickets, gates, queue, an
   assert.match(text, /#18 대기/);
   assert.match(text, /남은 큐: JAL-53/);
   assert.match(text, /다음 조치: 리뷰 재시도/);
+});
+
+test('labels manual verification notifications as test messages, never scheduled completions', () => {
+  const text = formatAutomationSummary({
+    kind: 'nightly', testNotification: true, status: '성공', startedAt: 'start', completedAt: 'end',
+    plannedTickets: [], ticketResults: [], pullRequests: [], remainingQueue: [],
+  });
+  assert.match(text, /^🧪 시험 알림 · 🌙 야간 개발 완료/);
+  assert.doesNotMatch(text, /^🌙 야간 개발 완료/);
+});
+
+test('does not infer a test notification from force or once production rerun flags', () => {
+  assert.equal(isTestNotificationRun({ dryRun: false, force: true, once: true }), false);
+  assert.equal(isTestNotificationRun({ dryRun: true, force: true }), true);
+  assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
 });
 
 test('redacts secrets from notification text', () => {
