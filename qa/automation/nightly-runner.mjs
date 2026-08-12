@@ -25,6 +25,7 @@ import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
+import { buildNightlyPlan, reportNightlyPlan } from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
@@ -608,18 +609,24 @@ async function main() {
       await cleanupExpiredRecordings(jira, config);
     }
 
-    do {
-      const queue = await jira.searchReadyIssues();
-      if (queue.length === 0) {
+    const queueSnapshot = await jira.searchReadyIssues();
+    const plan = buildNightlyPlan(queueSnapshot, config);
+    console.log(plan.text);
+    await reportNightlyPlan({ jira, plan, config, dryRun });
+    if (plan.issues.length === 0) {
         console.log('QA queue is empty.');
+        return;
+    }
+    for (const issue of plan.issues) {
+      if (Date.now() >= deadline.getTime() && !force) {
+        console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
       }
-
-      await processIssue({ jira, github, config, issue: queue[0], dryRun });
+      await processIssue({ jira, github, config, issue, dryRun });
       if (once || dryRun) {
         break;
       }
-    } while (Date.now() < deadline.getTime());
+    }
   } finally {
     if (lockFile !== undefined) {
       closeSync(lockFile);

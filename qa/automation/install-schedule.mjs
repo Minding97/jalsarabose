@@ -19,6 +19,7 @@ const stateDirectory = resolve(homedir(), '.local/state/jalsarabose');
 const automationRoot = resolve(homedir(), '.local/share/jalsarabose/automation-main');
 const uid = process.getuid();
 const domain = `gui/${uid}`;
+const nodeExecutable = '/opt/homebrew/bin/node';
 const pathValue = [
   resolve(homedir(), '.local/bin'),
   '/opt/homebrew/bin',
@@ -53,7 +54,7 @@ export function buildLaunchAgentPlist({
   <string>${escapeXml(label)}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${escapeXml(process.execPath)}</string>
+    <string>${escapeXml(nodeExecutable)}</string>
     <string>${escapeXml(scriptPath)}</string>
   </array>
   <key>WorkingDirectory</key>

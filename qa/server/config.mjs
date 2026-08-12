@@ -41,6 +41,8 @@ export function loadQaConfig() {
     nightlyEndHour: numberValue(process.env.QA_NIGHTLY_END_HOUR, 7),
     dailyQaHour: numberValue(process.env.QA_DAILY_HOUR, 7),
     dailyQaMinute: numberValue(process.env.QA_DAILY_MINUTE, 10),
+    nightlyPlanWebhookUrl: process.env.QA_NIGHTLY_PLAN_WEBHOOK_URL ?? '',
+    nightlyPlanCommand: process.env.QA_NIGHTLY_PLAN_COMMAND ?? '',
     recordingRetentionDays: numberValue(process.env.QA_RECORDING_RETENTION_DAYS, 30),
   };
 
