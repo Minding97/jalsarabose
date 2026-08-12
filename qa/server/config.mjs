@@ -43,6 +43,8 @@ export function loadQaConfig() {
     dailyQaMinute: numberValue(process.env.QA_DAILY_MINUTE, 10),
     nightlyPlanWebhookUrl: process.env.QA_NIGHTLY_PLAN_WEBHOOK_URL ?? '',
     nightlyPlanCommand: process.env.QA_NIGHTLY_PLAN_COMMAND ?? '',
+    telegramTarget: process.env.QA_TELEGRAM_TARGET ?? '',
+    openclawCliPath: process.env.OPENCLAW_CLI_PATH ?? 'openclaw',
     recordingRetentionDays: numberValue(process.env.QA_RECORDING_RETENTION_DAYS, 30),
   };
 

@@ -70,6 +70,10 @@ export function buildLaunchAgentPlist({
     <string>${escapeXml(pathValue)}</string>
     <key>CODEX_CLI_PATH</key>
     <string>/Applications/ChatGPT.app/Contents/Resources/codex</string>
+    <key>CLAUDE_CLI_PATH</key>
+    <string>/opt/homebrew/bin/claude</string>
+    <key>OPENCLAW_CLI_PATH</key>
+    <string>${escapeXml(resolve(homedir(), 'Library/pnpm/openclaw'))}</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict>

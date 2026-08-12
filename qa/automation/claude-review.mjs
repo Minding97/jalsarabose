@@ -44,9 +44,9 @@ const allowedEnvironmentKeys = new Set([
   'USER',
   'XDG_CONFIG_HOME',
 ]);
-const requiredClaudeFlags = ['--tools', '--safe-mode', '--no-session-persistence'];
-const minimumClaudeVersion = [2, 1, 220];
-const verifiedClaudePaths = new Set();
+const requiredClaudeFlags = ['--tools', '--no-session-persistence', '--permission-mode'];
+const minimumClaudeVersion = [2, 1, 87];
+const verifiedClaudePaths = new Map();
 
 export function buildReviewEnvironment(source = process.env) {
   return Object.fromEntries(
@@ -58,7 +58,7 @@ export function buildReviewEnvironment(source = process.env) {
 
 export async function verifyClaudeCompatibility(claudePath, environment) {
   if (verifiedClaudePaths.has(claudePath)) {
-    return;
+    return verifiedClaudePaths.get(claudePath);
   }
 
   const help = await runCommand(claudePath, ['--help'], {
@@ -84,7 +84,9 @@ export async function verifyClaudeCompatibility(claudePath, environment) {
     );
   }
 
-  verifiedClaudePaths.add(claudePath);
+  const capabilities = { safeMode: help.stdout.includes('--safe-mode') };
+  verifiedClaudePaths.set(claudePath, capabilities);
+  return capabilities;
 }
 
 function compareVersions(version, minimum) {
@@ -161,7 +163,7 @@ export async function reviewWithClaude({
 }) {
   const claudePath = process.env.CLAUDE_CLI_PATH || 'claude';
   const reviewEnvironment = buildReviewEnvironment();
-  await verifyClaudeCompatibility(claudePath, reviewEnvironment);
+  const capabilities = await verifyClaudeCompatibility(claudePath, reviewEnvironment);
   const reviewWorkspace = await createReviewWorkspace(worktree, baseBranch);
   const prompt = [
     'You are the independent final reviewer for the Jalsarabose QA automation.',
@@ -188,7 +190,7 @@ export async function reviewWithClaude({
         '24',
         '--permission-mode',
         'dontAsk',
-        '--safe-mode',
+        ...(capabilities.safeMode ? ['--safe-mode'] : []),
         '--no-session-persistence',
         '--tools',
         'Read,Glob,Grep',

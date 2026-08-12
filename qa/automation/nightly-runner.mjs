@@ -25,6 +25,7 @@ import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
+import { notifyAutomationSummary } from './notification.mjs';
 import {
   buildNightlyPlan,
   executePlannedIssue,
@@ -602,6 +603,12 @@ async function main() {
   const once = flags.has('--once');
   const force = flags.has('--force');
   const config = loadQaConfig();
+  const startedAt = new Date().toISOString();
+  const summary = {
+    kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
+    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [],
+    verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
+  };
 
   if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
     throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
@@ -635,6 +642,7 @@ async function main() {
 
     const queueSnapshot = await jira.searchReadyIssues();
     const plan = buildNightlyPlan(queueSnapshot, config);
+    summary.plannedTickets = plan.issues.map((issue) => issue.key);
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
     if (plan.issues.length === 0) {
@@ -663,17 +671,42 @@ async function main() {
           if (!dryRun) await jira.addComment(heldIssue.key, message);
         },
       });
-      if (result.held) continue;
+      if (result.held) {
+        summary.ticketResults.push({ key: issue.key, result: '보류' });
+        continue;
+      }
       processedCount += 1;
+      summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      const prNumber = getPullRequestNumber(issue);
+      if (prNumber) summary.pullRequests.push(`#${prNumber} ${result.succeeded ? 'merged/완료' : '대기'}`);
       if (once || dryRun) {
         break;
       }
     }
+    summary.remainingQueue = plan.issues
+      .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
+      .map((issue) => issue.key);
+    summary.status = summary.ticketResults.some((item) => item.result === '실패/미병합') ? '일부 실패' : '성공';
+    summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
+    summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    summary.status = '실패';
+    summary.failures.push(message);
+    summary.nextAction = '야간 로그 확인 후 안전 재실행';
+    throw error;
   } finally {
     if (lockFile !== undefined) {
       closeSync(lockFile);
     }
     rmSync(lockPath, { force: true });
+    summary.completedAt = new Date().toISOString();
+    try {
+      await notifyAutomationSummary({ summary, config, dryRun });
+    } catch (error) {
+      console.error(`Nightly Telegram notification failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
   }
 }
 
