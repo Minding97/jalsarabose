@@ -42,7 +42,7 @@ export async function notifyAutomationSummary({ summary, config, dryRun = false,
   const result = await runCommand(
     config.openclawCliPath || 'openclaw',
     ['message', 'send', '--channel', 'telegram', '--target', config.telegramTarget, '--message', message, '--json', ...(dryRun ? ['--dry-run'] : [])],
-    { sensitive: true, maxCaptureBytes: 256 * 1024 },
+    { sensitive: true, maxCaptureBytes: 256 * 1024, timeoutMs: 30_000 },
   );
   if (!dryRun) {
     writeFileSync(statePath, `${JSON.stringify({ runId: summary.runId, deliveredAt: new Date().toISOString(), channel: 'telegram', target: config.telegramTarget }, null, 2)}\n`, { mode: 0o600 });

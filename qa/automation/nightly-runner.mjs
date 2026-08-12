@@ -610,10 +610,6 @@ async function main() {
     verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
   };
 
-  if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
-    throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
-  }
-
   const now = new Date();
   const deadline = buildDeadline(now, config.nightlyEndHour);
   if (!force && !once && now >= deadline) {
@@ -624,6 +620,9 @@ async function main() {
   mkdirSync(dirname(lockPath), { recursive: true });
   let lockFile;
   try {
+    if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
+      throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
+    }
     lockFile = openSync(lockPath, 'wx', 0o600);
     writeFileSync(lockFile, String(process.pid));
   } catch {
@@ -677,8 +676,17 @@ async function main() {
       }
       processedCount += 1;
       summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
-      const prNumber = getPullRequestNumber(issue);
-      if (prNumber) summary.pullRequests.push(`#${prNumber} ${result.succeeded ? 'merged/완료' : '대기'}`);
+      try {
+        const refreshedIssue = dryRun ? issue : await jira.getIssue(issue.key);
+        const prNumber = getPullRequestNumber(refreshedIssue);
+        if (prNumber) {
+          const pullRequest = await github.getPullRequest(prNumber);
+          const merged = pullRequest.state === 'MERGED' || Boolean(pullRequest.mergedAt);
+          summary.pullRequests.push(`#${prNumber} ${merged ? 'merged' : '대기'}`);
+        }
+      } catch (error) {
+        summary.failures.push(`${issue.key} PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
+      }
       if (once || dryRun) {
         break;
       }

@@ -12,6 +12,7 @@ import test from 'node:test';
 
 import {
   buildFailureMetadata,
+  buildDailyCompletionSummary,
   buildIsolatedEnvironment,
   copyEnvironmentFile,
   createFailureFingerprint,
@@ -221,6 +222,16 @@ test('skips a completed same-day run unless force is enabled', () => {
   assert.equal(shouldSkipDailyRegression(previous, '2026-08-04', false), true);
   assert.equal(shouldSkipDailyRegression(previous, '2026-08-04', true), false);
   assert.equal(shouldSkipDailyRegression(previous, '2026-08-05', false), false);
+});
+
+test('builds an explicit no-duplicate-notification summary for a same-day skip', () => {
+  const summary = buildDailyCompletionSummary({
+    result: { skipped: true, passed: false, commitSha: 'abc', suites: [{ name: 'old', passed: false }] },
+    runId: 'run', startedAt: 'start', completedAt: 'end',
+  });
+  assert.equal(summary.status, '중복 실행 건너뜀');
+  assert.deepEqual(summary.suites, []);
+  assert.match(summary.verification, /중복 테스트를 건너뜀/);
 });
 
 test('rejects a concurrent run and removes its lock after failure', async () => {
