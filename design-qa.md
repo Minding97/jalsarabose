@@ -3,14 +3,14 @@
 ## 기준
 
 - Source visual truth
-  - `design_handoff_household_app/동거인 라이프스타일 앱.dc.html`
   - `design_handoff_household_app/README.md`
   - `design_handoff_household_app/ios-frame.jsx`
+  - `src/constants/theme.ts`
 - 구현 화면: `design-qa-assets/responsive-home-402.jpg`
 - 검증 뷰포트: 320 x 700, 375 x 812, 402 x 874
 - 상태: 로그인 완료, 2인 가구, Firebase 데모 데이터 표시
 
-원본 handoff에는 `support.js`가 포함되지 않아 HTML 캡처에서 동적 값과 화면 조건이 치환되지 않는다. 색상, 타이포, 간격, 카드 구조는 HTML의 인라인 스타일과 README 명세를 기준으로 확인했다.
+초기 HTML 프로토타입은 최신 MVP보다 넓은 범위를 담고 있어 구현 기준에서 제외했다. 현재 색상, 타이포, 간격, 카드 구조는 앱 테마와 README 명세를 기준으로 확인한다.
 
 ## 비교 증거
 
@@ -22,8 +22,6 @@
   - `design-qa-assets/responsive-profile-320.jpg`
   - `design-qa-assets/responsive-expenses-list-320.jpg`
   - `design-qa-assets/responsive-expenses-dashboard-320.jpg`
-  - `design-qa-assets/responsive-chores-list-320.jpg`
-  - `design-qa-assets/responsive-chores-dashboard-320.jpg`
   - `design-qa-assets/responsive-fridge-list-320.jpg`
   - `design-qa-assets/responsive-fridge-dashboard-320.jpg`
   - `design-qa-assets/responsive-calendar-320.jpg`
@@ -34,7 +32,6 @@
   - `design-qa-assets/implementation-expenses-list.jpg`
   - `design-qa-assets/implementation-expenses-dashboard.jpg`
   - `design-qa-assets/implementation-expense-form.jpg`
-  - `design-qa-assets/implementation-chores-list.jpg`
   - `design-qa-assets/implementation-fridge-list.jpg`
   - `design-qa-assets/implementation-profile-sheet.jpg`
 
@@ -44,19 +41,18 @@
 - `#17B854` 핵심 액션과 상태 강조 적용
 - Noto Sans KR 및 제목·본문 위계 적용
 - 320~402px 모바일 폭에서 텍스트 잘림과 요소 겹침 없음
-- 하단 탭 5개 라벨의 말줄임 없음
+- 하단 탭 4개 라벨의 말줄임 없음
 - 세그먼트 선택 후 불필요한 포커스 외곽선 없음
 - 긴 이메일형 가구원 이름은 짧은 화면용 이름으로 표시
 - 지출 목록의 제목·금액·메타 문구가 한 글자만 다음 줄로 밀리지 않음
-- 하단 5개 탭, FAB, 세그먼트, 폼, 마이페이지 시트가 handoff 구조와 일치
+- 하단 4개 탭, FAB, 세그먼트, 폼, 마이페이지 시트가 현재 MVP 구조와 일치
 - 실제 Firebase 데이터가 홈, 캘린더, 목록, 대시보드에 연결됨
 
 ## 상호작용
 
-- 5개 탭 이동
+- 4개 탭 이동
 - 캘린더 날짜 선택 및 일정 추가
 - 지출 생성·수정·삭제, 목록·대시보드 전환
-- 집안일 생성·완료·수정·삭제, 목록·대시보드 전환
 - 냉장고 생성·수정·삭제, 목록·대시보드 전환
 - 마이페이지 열기·닫기, 알림 스위치, 로그아웃
 - 로그인·회원가입 전환, 입력 검증, 재로그인

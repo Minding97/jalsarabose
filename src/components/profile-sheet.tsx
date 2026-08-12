@@ -24,23 +24,15 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const cancelNotifications = useHouseholdStore((state) => state.cancelNotifications);
   const notificationMessage = useHouseholdStore((state) => state.notificationMessage);
   const [expiryEnabled, setExpiryEnabled] = useState(true);
-  const [choreEnabled, setChoreEnabled] = useState(false);
   const [switchingHousehold, setSwitchingHousehold] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [submittingSwitch, setSubmittingSwitch] = useState(false);
 
-  const updateReminder = (kind: 'expiry' | 'chore', enabled: boolean) => {
-    const nextExpiry = kind === 'expiry' ? enabled : expiryEnabled;
-    const nextChore = kind === 'chore' ? enabled : choreEnabled;
+  const updateExpiryReminder = (enabled: boolean) => {
+    setExpiryEnabled(enabled);
 
-    if (kind === 'expiry') {
-      setExpiryEnabled(enabled);
-    } else {
-      setChoreEnabled(enabled);
-    }
-
-    if (nextExpiry || nextChore) {
+    if (enabled) {
       void scheduleNotifications();
     } else {
       void cancelNotifications();
@@ -126,20 +118,11 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
                 styles.panel,
                 { backgroundColor: theme.backgroundElement, borderColor: theme.border },
               ]}>
-              <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
+              <View style={[styles.settingRow, styles.settingRowLast]}>
                 <Text style={[styles.settingText, { color: theme.text }]}>유통기한 알림</Text>
                 <Switch
                   value={expiryEnabled}
-                  onValueChange={(value) => updateReminder('expiry', value)}
-                  trackColor={{ false: theme.border, true: theme.primary }}
-                  thumbColor="#FFFFFF"
-                />
-              </View>
-              <View style={[styles.settingRow, styles.settingRowLast]}>
-                <Text style={[styles.settingText, { color: theme.text }]}>집안일 리마인드</Text>
-                <Switch
-                  value={choreEnabled}
-                  onValueChange={(value) => updateReminder('chore', value)}
+                  onValueChange={updateExpiryReminder}
                   trackColor={{ false: theme.border, true: theme.primary }}
                   thumbColor="#FFFFFF"
                 />

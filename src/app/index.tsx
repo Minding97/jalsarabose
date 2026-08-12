@@ -3,13 +3,12 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/app/card';
-import { EmptyState } from '@/components/app/empty-state';
 import { Screen } from '@/components/app/screen';
 import { ProfileSheet } from '@/components/profile-sheet';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
-import { getHomeSummary, getMemberDisplayName, getMemberName } from '@/utils/dashboard';
+import { getHomeSummary, getMemberDisplayName } from '@/utils/dashboard';
 
 export default function HomeScreen() {
   const theme = useTheme();
@@ -120,41 +119,6 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <Pressable onPress={() => router.push('/chores')}>
-          <Card>
-            <View style={styles.cardHeading}>
-              <Text style={[styles.sectionTitle, { color: theme.text }]}>오늘의 집안일</Text>
-              <Text style={[styles.cardLink, { color: theme.textSecondary }]}>
-                {summary.todayChores.length}개 예정
-              </Text>
-            </View>
-            {snapshot.chores.filter((chore) => chore.dueDate === today).length === 0 ? (
-              <EmptyState title="오늘 예정된 집안일이 없어요." />
-            ) : (
-              snapshot.chores
-                .filter((chore) => chore.dueDate === today)
-                .slice(0, 4)
-                .map((chore) => {
-                  const memberName = getMemberName(snapshot.members, chore.assigneeId);
-                  return (
-                    <View key={chore.id} style={styles.choreRow}>
-                      <View style={styles.choreAvatar}>
-                        <Text style={styles.choreInitial}>{memberName.slice(0, 1)}</Text>
-                      </View>
-                      <Text style={[styles.choreTitle, { color: theme.text }]}>{chore.title}</Text>
-                      <Text
-                        style={[
-                          styles.choreStatus,
-                          { color: chore.status === 'done' ? theme.primary : theme.textSecondary },
-                        ]}>
-                        {chore.status === 'done' ? '완료' : '대기'}
-                      </Text>
-                    </View>
-                  );
-                })
-            )}
-          </Card>
-        </Pressable>
       </Screen>
 
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
@@ -295,33 +259,5 @@ const styles = StyleSheet.create({
   summaryHelper: {
     fontSize: 12,
     fontWeight: '500',
-  },
-  choreRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 6,
-  },
-  choreAvatar: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#2B2A28',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  choreInitial: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  choreTitle: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  choreStatus: {
-    fontSize: 13,
-    fontWeight: '600',
   },
 });

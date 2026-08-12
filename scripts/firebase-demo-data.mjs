@@ -96,7 +96,6 @@ try {
 async function resetDemoData(householdId) {
   const targets = [
     ['expenses', 'title'],
-    ['chores', 'title'],
     ['fridgeItems', 'name'],
   ];
   let deletedCount = 0;
@@ -157,34 +156,6 @@ async function seedDemoData(householdId, uid) {
     notificationEnabled: false,
   });
 
-  await addDoc(collection(db, 'households', householdId, 'chores'), {
-    householdId,
-    title: '[demo] 분리수거',
-    assigneeId: uid,
-    dueDate: tomorrow,
-    repeatCycle: 'weekly',
-    score: 2,
-    status: 'scheduled',
-    memo: DEMO_MARKER,
-    createdBy: uid,
-    createdAt: today,
-    notificationEnabled: true,
-  });
-
-  await addDoc(collection(db, 'households', householdId, 'chores'), {
-    householdId,
-    title: '[demo] 욕실 청소',
-    assigneeId: uid,
-    dueDate: today,
-    repeatCycle: 'none',
-    score: 3,
-    status: 'done',
-    memo: DEMO_MARKER,
-    createdBy: uid,
-    createdAt: today,
-    notificationEnabled: false,
-  });
-
   await addDoc(collection(db, 'households', householdId, 'fridgeItems'), {
     householdId,
     name: '[demo] 우유',
@@ -213,7 +184,7 @@ async function seedDemoData(householdId, uid) {
     notificationEnabled: true,
   });
 
-  console.log('Seeded 6 demo item(s).');
+  console.log('Seeded 4 demo item(s).');
 }
 
 function readLocalEnv() {

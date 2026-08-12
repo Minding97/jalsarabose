@@ -1,6 +1,6 @@
 import { isValid } from 'date-fns';
 
-import { ChoreInput, ExpenseInput, FridgeItemInput } from '@/domain/types';
+import { ExpenseInput, FridgeItemInput } from '@/domain/types';
 import { fromIsoDate } from '@/utils/dates';
 
 export function isValidIsoDate(value: string) {
@@ -28,22 +28,6 @@ export function validateExpenseInput(input: ExpenseInput) {
   }
   if (!isValidIsoDate(input.dueDate)) {
     return '납부 날짜는 YYYY-MM-DD 형식으로 입력해주세요.';
-  }
-  return null;
-}
-
-export function validateChoreInput(input: ChoreInput) {
-  if (!input.title.trim()) {
-    return '집안일명을 입력해주세요.';
-  }
-  if (!input.assigneeId) {
-    return '담당자를 선택해주세요.';
-  }
-  if (!isValidIsoDate(input.dueDate)) {
-    return '수행 날짜는 YYYY-MM-DD 형식으로 입력해주세요.';
-  }
-  if (!Number.isFinite(input.score) || input.score <= 0) {
-    return '점수는 0보다 큰 숫자로 입력해주세요.';
   }
   return null;
 }
