@@ -25,7 +25,12 @@ import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
-import { buildNightlyPlan, reportNightlyPlan, shouldStopForDeadline } from './nightly-plan.mjs';
+import {
+  buildNightlyPlan,
+  reportNightlyPlan,
+  shouldStopForDeadline,
+  unsatisfiedDependencies,
+} from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
@@ -381,7 +386,8 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
     } else {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
-    return;
+    const completed = await jira.getIssue(issue.key);
+    return completed.fields.status?.name === config.jiraDoneStatus;
   }
 
   if (
@@ -393,7 +399,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
     } else {
       await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
     }
-    return;
+    return false;
   }
 
   const existingPullRequestNumber = getPullRequestNumber(issueDetails);
@@ -412,7 +418,8 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
         await jira.transitionIssue(issue.key, config.jiraDoneStatus);
       }
     }
-    return;
+    const completed = await jira.getIssue(issue.key);
+    return completed.fields.status?.name === config.jiraDoneStatus;
   }
   const branch =
     existingPullRequest?.headRefName ??
@@ -422,7 +429,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
     console.log(
       `[dry-run] ${issue.key}: ${existingPullRequest ? `update PR #${existingPullRequest.number}` : `create ${branch}`}`,
     );
-    return;
+    return true;
   }
 
   await jira.transitionIssue(issue.key, config.jiraInProgressStatus);
@@ -505,7 +512,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       await jira.addLabel(issue.key, `pr-${pullRequest.number}`);
     }
     await jira.transitionIssue(parentKey, config.jiraReviewStatus);
-    await reviewAndGate({
+    const reviewResult = await reviewAndGate({
       jira,
       github,
       config,
@@ -516,6 +523,15 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       pullRequest,
       sha,
     });
+    if (!reviewResult.merged) {
+      return false;
+    }
+    const [completedIssue, mergedPullRequest] = await Promise.all([
+      jira.getIssue(issue.key),
+      github.getPullRequest(pullRequest.number),
+    ]);
+    return completedIssue.fields.status?.name === config.jiraDoneStatus
+      && (mergedPullRequest.state === 'MERGED' || Boolean(mergedPullRequest.mergedAt));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
@@ -529,6 +545,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       console.error(`${issue.key} failure transition failed:`, jiraError);
     }
     console.error(`${issue.key} failed:`, message);
+    return false;
   } finally {
     if (worktree) {
       rmSync(resolve(worktree, '.qa'), { recursive: true, force: true });
@@ -620,12 +637,25 @@ async function main() {
         return;
     }
     let processedCount = 0;
+    const successfulKeys = new Set();
     for (const issue of plan.issues) {
       if (shouldStopForDeadline({ now: Date.now(), deadline, force, once, processedCount })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
       }
-      await processIssue({ jira, github, config, issue, dryRun });
+      const blockers = unsatisfiedDependencies(plan, issue.key, successfulKeys);
+      if (blockers.length > 0) {
+        const message = `야간 자동수정 보류: 같은 밤 선행 티켓 ${blockers.join(', ')}의 Jira 완료 및 PR merge가 확인되지 않았습니다. 다음 야간 큐에서 다시 확인합니다.`;
+        console.log(`${issue.key}: ${message}`);
+        if (!dryRun) {
+          await jira.addComment(issue.key, message);
+        }
+        continue;
+      }
+      const succeeded = await processIssue({ jira, github, config, issue, dryRun });
+      if (succeeded) {
+        successfulKeys.add(issue.key);
+      }
       processedCount += 1;
       if (once || dryRun) {
         break;

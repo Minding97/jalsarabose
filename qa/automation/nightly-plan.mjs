@@ -8,6 +8,10 @@ export function shouldStopForDeadline({ now, deadline, force, once, processedCou
   return now >= deadline.getTime() && !once && (!force || processedCount > 0);
 }
 
+export function unsatisfiedDependencies(plan, issueKey, successfulKeys) {
+  return (plan.dependencies.get(issueKey) ?? []).filter((key) => !successfulKeys.has(key));
+}
+
 function stableRank(issue) {
   return [
     priorityOrder.get(issue.fields?.priority?.name?.toLowerCase()) ?? 99,
@@ -89,6 +93,7 @@ export function buildNightlyPlan(issues, config) {
     `야간 자동수정 고정 계획 (${new Date().toISOString()})`,
     `전체 ${issues.length}건 · Task ${taskCount}건 · Bug ${bugCount}건${otherCount ? ` · 기타/불명확 ${otherCount}건` : ''}`,
     '실행 중 새 티켓은 오늘 계획에 추가하지 않습니다. Jira 의존 링크를 먼저 반영하고, 동순위는 priority → created → key 순입니다.',
+    '후속 티켓은 같은 밤의 모든 선행 티켓이 Jira 완료 상태이고 PR merge까지 확인된 경우에만 실행합니다. 실패·사람 확인 필요·merge 미완료 선행 티켓의 downstream은 보류하고, 독립 티켓은 계속 처리합니다.',
     '',
     ...classifications.flatMap(({ issue, kind, basis, dependencies: deps }, index) => [
       `${index + 1}. ${issue.key} [${kind}] ${issue.fields?.summary ?? ''}`,
@@ -112,10 +117,10 @@ export function buildNightlyPlan(issues, config) {
         : `야간 자동수정 계획에서 보류되었습니다${cyclicKeys.includes(issue.key) ? ' (의존 순환)' : ' (큐 밖 미완료 선행조건)'}.`,
       `${issue.key} ${issue.fields?.summary ?? ''}`,
       `우선순위 ${issue.fields?.priority?.name ?? '미지정'}${allDependencies.get(issue.key).length ? `; 선행 ${allDependencies.get(issue.key).join(', ')}` : ''}`,
-      '실행 중 새 티켓은 오늘 계획에 추가하지 않으며, 구현 후 회귀 테스트·qa:test·verify·사후 녹화 재생을 수행합니다.',
+      '실행 중 새 티켓은 오늘 계획에 추가하지 않으며, 모든 선행 티켓의 Jira 완료 및 PR merge가 확인된 경우에만 실행합니다. 선행 실패·사람 확인 필요·merge 미완료 시 보류됩니다.',
     ].join('\n'),
   ]));
-  return { issues: ordered, reportIssues: issues, text, ticketTexts, cyclicKeys, externallyBlockedKeys, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
+  return { issues: ordered, reportIssues: issues, text, ticketTexts, dependencies: allDependencies, cyclicKeys, externallyBlockedKeys, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
 }
 
 function runReportCommand(command, text) {
