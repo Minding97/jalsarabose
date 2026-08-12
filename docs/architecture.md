@@ -13,8 +13,9 @@ Expo + React Native + TypeScript를 기준으로 시작한다. 모바일 앱, �
 - `src/app/index.tsx`: 홈 대시보드
 - `src/app/calendar.tsx`: 월간 캘린더와 날짜별 이벤트
 - `src/app/expenses.tsx`: 지출 대시보드와 납부 상태
-- `src/app/chores.tsx`: 집안일 목록과 완료 처리
 - `src/app/fridge.tsx`: 냉장고 재고와 소진/폐기 처리
+
+MVP 제외 기능의 숨김 리다이렉트와 보존 데이터 경로는 [retired-feature-policy.md](./retired-feature-policy.md)의 호환 경계로만 유지한다.
 
 ## 백엔드
 

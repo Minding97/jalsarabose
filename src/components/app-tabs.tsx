@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { CalendarDays, ClipboardCheck, House, ReceiptText, Refrigerator } from 'lucide-react-native';
+import { CalendarDays, House, ReceiptText, Refrigerator } from 'lucide-react-native';
 import { ColorValue, Platform, StyleSheet, Text } from 'react-native';
 
 import { Colors } from '@/constants/theme';
@@ -59,11 +59,7 @@ export default function AppTabs() {
       <Tabs.Screen
         name="chores"
         options={{
-          title: '집안일',
-          tabBarLabel: ({ color }) => <TabLabel color={color}>집안일</TabLabel>,
-          tabBarIcon: ({ color, size }) => (
-            <ClipboardCheck color={color} size={size} strokeWidth={2.2} />
-          ),
+          href: null,
         }}
       />
       <Tabs.Screen

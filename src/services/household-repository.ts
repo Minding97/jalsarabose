@@ -22,7 +22,6 @@ import {
 } from 'firebase/firestore';
 
 import {
-  choreFromDoc,
   expenseFromDoc,
   fridgeItemFromDoc,
   householdFromDoc,
@@ -31,7 +30,6 @@ import {
 } from '@/services/firestore-mappers';
 import { requireAuth, requireDb } from '@/services/firebase';
 import {
-  Chore,
   Expense,
   FridgeItem,
   Household,
@@ -197,7 +195,6 @@ export function subscribeHouseholdSnapshot(
   let household: Household | null = null;
   let members: HouseholdMember[] = [];
   let expenses: Expense[] = [];
-  let chores: Chore[] = [];
   let fridgeItems: FridgeItem[] = [];
 
   const emit = () => {
@@ -205,7 +202,7 @@ export function subscribeHouseholdSnapshot(
       return;
     }
 
-    callback({ household, members, expenses, chores, fridgeItems });
+    callback({ household, members, expenses, fridgeItems });
   };
 
   const unsubs = [
@@ -233,14 +230,6 @@ export function subscribeHouseholdSnapshot(
       query(collection(db, 'households', householdId, 'expenses'), orderBy('dueDate', 'asc')),
       (snapshot) => {
         expenses = snapshot.docs.map(expenseFromDoc);
-        emit();
-      },
-      onError,
-    ),
-    onSnapshot(
-      query(collection(db, 'households', householdId, 'chores'), orderBy('dueDate', 'asc')),
-      (snapshot) => {
-        chores = snapshot.docs.map(choreFromDoc);
         emit();
       },
       onError,
@@ -274,24 +263,6 @@ export function updateExpense(householdId: string, expenseId: string, patch: Par
 
 export function deleteExpense(householdId: string, expenseId: string) {
   return deleteDoc(doc(requireDb(), 'households', householdId, 'expenses', expenseId));
-}
-
-export function addChore(householdId: string, chore: Omit<Chore, 'id'>) {
-  return addDoc(
-    collection(requireDb(), 'households', householdId, 'chores'),
-    omitUndefined(chore),
-  );
-}
-
-export function updateChore(householdId: string, choreId: string, patch: Partial<Chore>) {
-  return updateDoc(
-    doc(requireDb(), 'households', householdId, 'chores', choreId),
-    replaceUndefinedWithDelete(patch),
-  );
-}
-
-export function deleteChore(householdId: string, choreId: string) {
-  return deleteDoc(doc(requireDb(), 'households', householdId, 'chores', choreId));
 }
 
 export function addFridgeItem(householdId: string, item: Omit<FridgeItem, 'id'>) {

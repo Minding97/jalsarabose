@@ -31,7 +31,9 @@ const targetHousehold = await getDocument(`households/${targetHouseholdId}`);
 const user = await getDocument(`users/${userId}`);
 const sourceMembers = await listDocuments(`households/${sourceHouseholdId}/members`);
 const sourceExpenses = await listDocuments(`households/${sourceHouseholdId}/expenses`);
-const sourceChores = await listDocuments(`households/${sourceHouseholdId}/chores`);
+const sourceRetiredFeatureRecords = await listDocuments(
+  `households/${sourceHouseholdId}/chores`,
+);
 const sourceFridgeItems = await listDocuments(`households/${sourceHouseholdId}/fridgeItems`);
 const sourceInviteCode = sourceHousehold.fields?.inviteCode?.stringValue;
 const sourceInvite = await getDocument(`inviteCodes/${sourceInviteCode}`);
@@ -54,13 +56,16 @@ assert(Boolean(targetInviteCode), 'Target household has no invite code.');
 assert(sourceMembers.length === 1, 'Source household has more than one member.');
 assert(documentId(sourceMembers[0]) === userId, 'Source household member is not the expected user.');
 assert(sourceExpenses.length === 0, 'Source household contains expenses.');
-assert(sourceChores.length === 0, 'Source household contains chores.');
+assert(
+  sourceRetiredFeatureRecords.length === 0,
+  'Source household contains preserved records for a retired feature.',
+);
 assert(sourceFridgeItems.length === 0, 'Source household contains fridge items.');
 
 console.log(`Source household: ${sourceHousehold.fields.name.stringValue} (${sourceHouseholdId})`);
 console.log(`Target household: ${targetHousehold.fields.name.stringValue} (${targetHouseholdId})`);
 console.log(`User: ${user.fields.email.stringValue} (${userId})`);
-console.log('Source contents: 1 member, 0 expenses, 0 chores, 0 fridge items.');
+console.log('Source contents: 1 member, 0 expenses, 0 retired records, 0 fridge items.');
 
 if (!applyChanges) {
   console.log('Safety checks passed. No changes applied.');

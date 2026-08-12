@@ -105,11 +105,9 @@ service cloud.firestore {
         allow delete: if isHouseholdMember(householdId) && existingItemBelongsToHousehold(householdId);
       }
 
-      match /chores/{choreId} {
-        allow read: if isHouseholdMember(householdId);
-        allow create: if isHouseholdMember(householdId) && itemBelongsToHousehold(householdId);
-        allow update: if isHouseholdMember(householdId) && itemStaysInHousehold(householdId);
-        allow delete: if isHouseholdMember(householdId) && existingItemBelongsToHousehold(householdId);
+      match /chores/{recordId} {
+        // Retained records are intentionally preserved while the retired feature is inaccessible.
+        allow read, write: if false;
       }
 
       match /fridgeItems/{itemId} {
