@@ -71,6 +71,10 @@ function buildDeadline(now, endHour) {
   return deadline;
 }
 
+export function shouldStopForDeadline({ now, deadline, force, once }) {
+  return now >= deadline.getTime() && !force && !once;
+}
+
 async function createWorktree(issue, existingPullRequest, branch) {
   const worktree = resolve(worktreesRoot, issue.key);
   mkdirSync(worktreesRoot, { recursive: true });
@@ -618,7 +622,7 @@ async function main() {
         return;
     }
     for (const issue of plan.issues) {
-      if (Date.now() >= deadline.getTime() && !force) {
+      if (shouldStopForDeadline({ now: Date.now(), deadline, force, once })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
       }

@@ -19,7 +19,6 @@ const stateDirectory = resolve(homedir(), '.local/state/jalsarabose');
 const automationRoot = resolve(homedir(), '.local/share/jalsarabose/automation-main');
 const uid = process.getuid();
 const domain = `gui/${uid}`;
-const nodeExecutable = '/opt/homebrew/bin/node';
 const pathValue = [
   resolve(homedir(), '.local/bin'),
   '/opt/homebrew/bin',
@@ -27,6 +26,11 @@ const pathValue = [
   '/usr/bin',
   '/bin',
 ].join(':');
+
+export function resolveNodeExecutable() {
+  const stableHomebrewPath = '/opt/homebrew/bin/node';
+  return existsSync(stableHomebrewPath) ? stableHomebrewPath : process.execPath;
+}
 
 function escapeXml(value) {
   return String(value)
@@ -45,6 +49,7 @@ export function buildLaunchAgentPlist({
   minute,
   stdoutPath,
   stderrPath,
+  nodeExecutable = resolveNodeExecutable(),
 }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
