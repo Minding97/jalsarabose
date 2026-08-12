@@ -380,6 +380,10 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
   const parentKey = issueDetails.fields.parent?.key ?? issue.key;
   const parentDetails =
     parentKey === issue.key ? issueDetails : await jira.getIssue(parentKey);
+  const existingPullRequestNumber = getPullRequestNumber(issueDetails);
+  const existingPullRequest = existingPullRequestNumber
+    ? await github.getPullRequest(existingPullRequestNumber)
+    : null;
 
   if (issue.key !== parentKey && parentDetails.fields.status?.name === config.jiraDoneStatus) {
     if (dryRun) {
@@ -388,7 +392,7 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
     const completed = await jira.getIssue(issue.key);
-    return completed.fields.status?.name === config.jiraDoneStatus;
+    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
   }
 
   if (
@@ -403,10 +407,6 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
     return false;
   }
 
-  const existingPullRequestNumber = getPullRequestNumber(issueDetails);
-  const existingPullRequest = existingPullRequestNumber
-    ? await github.getPullRequest(existingPullRequestNumber)
-    : null;
   if (
     existingPullRequest &&
     (existingPullRequest.state === 'MERGED' || existingPullRequest.mergedAt)
