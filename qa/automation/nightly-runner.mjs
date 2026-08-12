@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
 import { loadQaConfig } from '../server/config.mjs';
@@ -375,7 +375,7 @@ async function reviewAndGate({
   return { needsHuman: false, merged };
 }
 
-async function processIssue({ jira, github, config, issue, dryRun }) {
+export async function processIssue({ jira, github, config, issue, dryRun }) {
   const issueDetails = await jira.getIssue(issue.key);
   const parentKey = issueDetails.fields.parent?.key ?? issue.key;
   const parentDetails =
@@ -430,7 +430,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
     console.log(
       `[dry-run] ${issue.key}: ${existingPullRequest ? `update PR #${existingPullRequest.number}` : `create ${branch}`}`,
     );
-    return true;
+    return false;
   }
 
   await jira.transitionIssue(issue.key, config.jiraInProgressStatus);
@@ -670,11 +670,13 @@ async function main() {
   }
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(
-    `QA nightly runner stopped: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(
+      `QA nightly runner stopped: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+  }
 }
