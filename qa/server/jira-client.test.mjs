@@ -15,6 +15,22 @@ const config = {
   jiraProjectKey: 'JAL',
 };
 
+test('requires the automation-ready label in the nightly queue JQL', async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => { globalThis.fetch = originalFetch; });
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return Response.json({ issues: [] });
+  };
+
+  const client = new JiraClient({ ...config, jiraReadyStatus: '해야 할 일' });
+  await client.searchReadyIssues();
+
+  assert.match(requestBody.jql, /status = "해야 할 일"/);
+  assert.match(requestBody.jql, /labels = "auto-fix-ready"/);
+});
+
 test('paginates status searches beyond 100 Jira issues', async (context) => {
   const originalFetch = globalThis.fetch;
   context.after(() => {
