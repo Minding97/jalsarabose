@@ -78,8 +78,9 @@ function buildDeadline(now, endHour) {
   return deadline;
 }
 
-export function classifyNightlyStatus(ticketResults) {
+export function classifyNightlyStatus(ticketResults, plannedCount = ticketResults.length) {
   if (ticketResults.some((item) => item.result === '실패/미병합')) return '일부 실패';
+  if (plannedCount > 0 && ticketResults.length === 0) return '보류/지연';
   if (ticketResults.length > 0 && ticketResults.every((item) => item.result === '보류')) return '보류/지연';
   return '성공';
 }
@@ -701,7 +702,7 @@ async function main() {
     summary.remainingQueue = plan.issues
       .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
       .map((issue) => issue.key);
-    summary.status = classifyNightlyStatus(summary.ticketResults);
+    summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
     summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
     summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
   } catch (error) {

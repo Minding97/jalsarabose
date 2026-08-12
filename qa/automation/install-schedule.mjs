@@ -32,18 +32,30 @@ export function resolveNodeExecutable() {
   return existsSync(stableHomebrewPath) ? stableHomebrewPath : process.execPath;
 }
 
-export function resolveClaudeExecutable() {
-  for (const candidate of ['/opt/homebrew/bin/claude', '/usr/local/bin/claude']) {
-    if (existsSync(candidate)) return candidate;
+export function resolveClaudeExecutable(
+  pathExists = existsSync,
+  candidates = ['/opt/homebrew/bin/claude', '/usr/local/bin/claude'],
+) {
+  for (const candidate of candidates) {
+    if (pathExists(candidate)) return candidate;
   }
   throw new Error('A current Claude CLI is required at a supported stable path.');
 }
 
-export function resolveOpenClawExecutable() {
-  for (const candidate of [resolve(homedir(), 'Library/pnpm/openclaw'), '/opt/homebrew/bin/openclaw', '/usr/local/bin/openclaw']) {
-    if (existsSync(candidate)) return candidate;
+export function resolveOpenClawExecutable(
+  pathExists = existsSync,
+  candidates = [resolve(homedir(), 'Library/pnpm/openclaw'), '/opt/homebrew/bin/openclaw', '/usr/local/bin/openclaw'],
+) {
+  for (const candidate of candidates) {
+    if (pathExists(candidate)) return candidate;
   }
   throw new Error('OpenClaw CLI is required for scheduled Telegram completion notifications.');
+}
+
+export function validateScheduleConfig(config) {
+  if (!config.telegramTarget) {
+    throw new Error('Set QA_TELEGRAM_TARGET before installing required completion notifications.');
+  }
 }
 
 function escapeXml(value) {
@@ -164,9 +176,7 @@ function installAgent({ label, filename, script, hour, minute, logPrefix }, root
 
 export function installSchedules() {
   const config = loadQaConfig();
-  if (!config.telegramTarget) {
-    throw new Error('Set QA_TELEGRAM_TARGET before installing required completion notifications.');
-  }
+  validateScheduleConfig(config);
   mkdirSync(launchAgentsDirectory, { recursive: true });
   mkdirSync(stateDirectory, { recursive: true });
   const root = prepareAutomationCheckout();

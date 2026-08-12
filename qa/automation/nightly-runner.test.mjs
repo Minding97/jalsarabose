@@ -83,6 +83,7 @@ test('processIssue dry-run is conservative for unprocessed work', async () => {
 
 test('nightly completion status does not call an all-held queue successful', () => {
   assert.equal(classifyNightlyStatus([{ key: 'JAL-48', result: '보류' }]), '보류/지연');
+  assert.equal(classifyNightlyStatus([], 2), '보류/지연');
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }]), '성공');
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '실패/미병합' }]), '일부 실패');
 });
