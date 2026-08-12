@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatAutomationSummary } from './notification.mjs';
+import { formatAutomationSummary, notifyAutomationSummary } from './notification.mjs';
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
   const text = formatAutomationSummary({
@@ -20,4 +20,11 @@ test('formats a concise nightly completion report with tickets, gates, queue, an
 test('redacts secrets from notification text', () => {
   const text = formatAutomationSummary({ kind: 'daily', status: '실패', startedAt: 'start', completedAt: 'end', failures: ['Authorization: Bearer abc.def.ghi'], remainingQueue: [] });
   assert.doesNotMatch(text, /abc\.def\.ghi/);
+});
+
+test('fails closed when the required Telegram destination is not configured', async () => {
+  await assert.rejects(
+    notifyAutomationSummary({ config: {}, dryRun: true, summary: { kind: 'daily' } }),
+    /QA_TELEGRAM_TARGET is required/,
+  );
 });

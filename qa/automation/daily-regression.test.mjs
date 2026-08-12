@@ -192,6 +192,8 @@ test('builds a daily launch agent at the configured time', () => {
     stdoutPath: '/tmp/out.log',
     stderrPath: '/tmp/error.log',
     nodeExecutable: '/stable/node',
+    claudeExecutable: '/stable/claude',
+    openclawExecutable: '/stable/openclaw',
   });
 
   assert.match(plist, /com\.jalsarabose\.qa-daily/);
@@ -199,6 +201,8 @@ test('builds a daily launch agent at the configured time', () => {
   assert.match(plist, /<integer>10<\/integer>/);
   assert.match(plist, /daily-regression\.mjs/);
   assert.match(plist, /<string>\/stable\/node<\/string>/);
+  assert.match(plist, /<string>\/stable\/claude<\/string>/);
+  assert.match(plist, /<string>\/stable\/openclaw<\/string>/);
 });
 
 test('lets once and forced runs process one item after the nightly deadline', () => {

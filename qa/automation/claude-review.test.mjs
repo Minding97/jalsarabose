@@ -36,7 +36,7 @@ test('removes QA and infrastructure credentials from the review environment', ()
   assert.deepEqual(environment, { PATH: '/usr/bin' });
 });
 
-test('accepts legacy safe isolation and rejects missing core flags or an outdated version', async () => {
+test('rejects Claude CLIs with missing isolation flags or an outdated version', async () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'jalsarabose-claude-version-test-'));
   const missingFlagCli = join(fixtureRoot, 'missing-flag.mjs');
   const outdatedCli = join(fixtureRoot, 'outdated.mjs');
@@ -47,14 +47,14 @@ test('accepts legacy safe isolation and rejects missing core flags or an outdate
       missingFlagCli,
       [
         '#!/usr/bin/env node',
-        "process.stdout.write(process.argv.includes('--help') ? '--tools --permission-mode' : '2.1.220');",
+        "process.stdout.write(process.argv.includes('--help') ? '--tools --no-session-persistence' : '2.1.220');",
       ].join('\n'),
     );
     writeFileSync(
       outdatedCli,
       [
         '#!/usr/bin/env node',
-        "process.stdout.write(process.argv.includes('--help') ? '--tools --permission-mode --no-session-persistence' : '2.1.86');",
+        "process.stdout.write(process.argv.includes('--help') ? '--tools --safe-mode --no-session-persistence' : '2.1.219');",
       ].join('\n'),
     );
     chmodSync(missingFlagCli, 0o755);
@@ -66,7 +66,7 @@ test('accepts legacy safe isolation and rejects missing core flags or an outdate
     );
     await assert.rejects(
       verifyClaudeCompatibility(outdatedCli, environment),
-      /2\.1\.87 or newer is required/,
+      /2\.1\.220 or newer is required/,
     );
   } finally {
     rmSync(fixtureRoot, { recursive: true, force: true });

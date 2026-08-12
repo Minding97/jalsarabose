@@ -32,6 +32,20 @@ export function resolveNodeExecutable() {
   return existsSync(stableHomebrewPath) ? stableHomebrewPath : process.execPath;
 }
 
+export function resolveClaudeExecutable() {
+  for (const candidate of ['/opt/homebrew/bin/claude', '/usr/local/bin/claude']) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error('A current Claude CLI is required at a supported stable path.');
+}
+
+export function resolveOpenClawExecutable() {
+  for (const candidate of [resolve(homedir(), 'Library/pnpm/openclaw'), '/opt/homebrew/bin/openclaw', '/usr/local/bin/openclaw']) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error('OpenClaw CLI is required for scheduled Telegram completion notifications.');
+}
+
 function escapeXml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -50,6 +64,8 @@ export function buildLaunchAgentPlist({
   stdoutPath,
   stderrPath,
   nodeExecutable = resolveNodeExecutable(),
+  claudeExecutable = resolveClaudeExecutable(),
+  openclawExecutable = resolveOpenClawExecutable(),
 }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -71,9 +87,9 @@ export function buildLaunchAgentPlist({
     <key>CODEX_CLI_PATH</key>
     <string>/Applications/ChatGPT.app/Contents/Resources/codex</string>
     <key>CLAUDE_CLI_PATH</key>
-    <string>/opt/homebrew/bin/claude</string>
+    <string>${escapeXml(claudeExecutable)}</string>
     <key>OPENCLAW_CLI_PATH</key>
-    <string>${escapeXml(resolve(homedir(), 'Library/pnpm/openclaw'))}</string>
+    <string>${escapeXml(openclawExecutable)}</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict>
@@ -148,6 +164,9 @@ function installAgent({ label, filename, script, hour, minute, logPrefix }, root
 
 export function installSchedules() {
   const config = loadQaConfig();
+  if (!config.telegramTarget) {
+    throw new Error('Set QA_TELEGRAM_TARGET before installing required completion notifications.');
+  }
   mkdirSync(launchAgentsDirectory, { recursive: true });
   mkdirSync(stateDirectory, { recursive: true });
   const root = prepareAutomationCheckout();
