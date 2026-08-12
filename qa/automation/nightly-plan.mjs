@@ -24,8 +24,8 @@ function compareIssues(left, right) {
 
 function dependencyKeys(issue) {
   return (issue.fields?.issuelinks ?? []).flatMap((link) => {
-    if (link.inwardIssue && /blocked by/i.test(link.type?.inward ?? '')) {
-      return [link.inwardIssue.key];
+    if (link.outwardIssue && /blocked by/i.test(link.type?.inward ?? '')) {
+      return [link.outwardIssue.key];
     }
     return [];
   });

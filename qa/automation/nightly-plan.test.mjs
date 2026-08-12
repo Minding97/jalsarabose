@@ -7,7 +7,7 @@ const config = { jiraBugType: 'Bug', jiraTaskType: 'Task', nightlyPlanWebhookUrl
 const issue = (key, type, priority, created, links = []) => ({ key, fields: { summary: key, issuetype: { name: type }, priority: { name: priority }, created, issuelinks: links } });
 
 test('builds a fixed dependency-first plan, then priority and creation order', () => {
-  const blocked = issue('JAL-3', 'Bug', 'Highest', '2026-01-01', [{ type: { inward: 'is blocked by' }, inwardIssue: { key: 'JAL-1' } }]);
+  const blocked = issue('JAL-3', 'Bug', 'Highest', '2026-01-01', [{ type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-1' } }]);
   const plan = buildNightlyPlan([
     blocked,
     issue('JAL-2', 'Task', 'High', '2026-01-02'),
@@ -19,7 +19,7 @@ test('builds a fixed dependency-first plan, then priority and creation order', (
 });
 
 test('excludes dependency cycles while retaining unrelated work', () => {
-  const link = (key) => [{ type: { inward: 'is blocked by' }, inwardIssue: { key } }];
+  const link = (key) => [{ type: { inward: 'is blocked by' }, outwardIssue: { key } }];
   const plan = buildNightlyPlan([
     issue('JAL-1', 'Task', 'High', '2026-01-01', link('JAL-2')),
     issue('JAL-2', 'Bug', 'High', '2026-01-01', link('JAL-1')),
@@ -50,7 +50,7 @@ test('Jira ticket comments do not disclose unrelated ticket summaries', async ()
 
 test('holds a ticket whose blocker is outside the ready queue', () => {
   const blocked = issue('JAL-2', 'Task', 'High', '2026-01-01', [
-    { type: { inward: 'is blocked by' }, inwardIssue: { key: 'JAL-1' } },
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-1' } },
   ]);
   const plan = buildNightlyPlan([blocked], config);
   assert.deepEqual(plan.issues, []);
