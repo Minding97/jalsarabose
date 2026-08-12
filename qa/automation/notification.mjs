@@ -11,8 +11,12 @@ function lineList(values, empty = '없음') {
   return values?.length ? values.join(', ') : empty;
 }
 
-export function sanitizeNotificationFailure(value) {
-  return redactSecrets(String(value))
+export function sanitizeNotificationFailure(value, sensitiveValues = []) {
+  let safe = redactSecrets(String(value));
+  for (const sensitiveValue of sensitiveValues.filter(Boolean)) {
+    safe = safe.replaceAll(String(sensitiveValue), '[REDACTED]');
+  }
+  return safe
     .split(/\r?\n/, 1)[0]
     .replace(/https?:\/\/\S+/gi, '[URL]')
     .replace(/\/(?:Users|private|var|tmp)\/\S+/g, '[PATH]')
@@ -20,7 +24,7 @@ export function sanitizeNotificationFailure(value) {
     .slice(0, 240);
 }
 
-export function formatAutomationSummary(summary) {
+export function formatAutomationSummary(summary, sensitiveValues = []) {
   const isNightly = summary.kind === 'nightly';
   const title = isNightly ? '🌙 야간 개발 완료' : '🧪 일일 자동 테스트 완료';
   const lines = [
@@ -37,7 +41,7 @@ export function formatAutomationSummary(summary) {
     lines.push(`Jira: ${lineList(summary.reports?.map((item) => `${item.suite}=${item.issueKey || item.action}`))}`);
   }
   lines.push(`검증: ${summary.verification || '완료 데이터 없음'}`);
-  lines.push(`실패/차단: ${lineList(summary.failures?.map(sanitizeNotificationFailure))}`);
+  lines.push(`실패/차단: ${lineList(summary.failures?.map((value) => sanitizeNotificationFailure(value, sensitiveValues)))}`);
   lines.push(`남은 큐: ${lineList(summary.remainingQueue)}`);
   lines.push(`다음 조치: ${summary.nextAction || '다음 예약 실행에서 재확인'}`);
   return redactSecrets(lines.join('\n')).slice(0, 3900);
@@ -47,7 +51,13 @@ export async function notifyAutomationSummary({ summary, config, dryRun = false,
   if (!config.telegramTarget) {
     throw new Error('QA_TELEGRAM_TARGET is required for automation completion notifications.');
   }
-  const message = formatAutomationSummary(summary);
+  const message = formatAutomationSummary(summary, [
+    config.testEmail,
+    config.testPassword,
+    config.jiraEmail,
+    config.jiraApiToken,
+    config.recordingKey,
+  ]);
   const result = await runCommand(
     config.openclawCliPath || 'openclaw',
     ['message', 'send', '--channel', 'telegram', '--target', config.telegramTarget, '--message', message, '--json', ...(dryRun ? ['--dry-run'] : [])],

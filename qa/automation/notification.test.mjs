@@ -30,6 +30,14 @@ test('removes upstream URLs, local paths, and long opaque values from failure su
   assert.doesNotMatch(safe, /internal\.example|user@example\.com|\/Users\/me|abcdefghijklmnopqrstuvwxyz/);
 });
 
+test('removes configured short credentials and bare account emails from failure summaries', () => {
+  const text = formatAutomationSummary(
+    { kind: 'daily', status: '실패', startedAt: 'start', completedAt: 'end', failures: ['Jira response for qa@example.com: short-pass'] },
+    ['qa@example.com', 'short-pass'],
+  );
+  assert.doesNotMatch(text, /qa@example\.com|short-pass/);
+});
+
 test('fails closed when the required Telegram destination is not configured', async () => {
   await assert.rejects(
     notifyAutomationSummary({ config: {}, dryRun: true, summary: { kind: 'daily' } }),
