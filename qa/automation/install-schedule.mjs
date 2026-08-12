@@ -27,6 +27,11 @@ const pathValue = [
   '/bin',
 ].join(':');
 
+export function resolveNodeExecutable() {
+  const stableHomebrewPath = '/opt/homebrew/bin/node';
+  return existsSync(stableHomebrewPath) ? stableHomebrewPath : process.execPath;
+}
+
 function escapeXml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -44,6 +49,7 @@ export function buildLaunchAgentPlist({
   minute,
   stdoutPath,
   stderrPath,
+  nodeExecutable = resolveNodeExecutable(),
 }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -53,7 +59,7 @@ export function buildLaunchAgentPlist({
   <string>${escapeXml(label)}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>${escapeXml(process.execPath)}</string>
+    <string>${escapeXml(nodeExecutable)}</string>
     <string>${escapeXml(scriptPath)}</string>
   </array>
   <key>WorkingDirectory</key>

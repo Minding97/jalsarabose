@@ -23,6 +23,7 @@ import {
   waitForNightlyCompletion,
 } from './daily-regression.mjs';
 import { buildLaunchAgentPlist } from './install-schedule.mjs';
+import { shouldStopForDeadline } from './nightly-plan.mjs';
 
 const config = {
   testEmail: 'qa@example.com',
@@ -190,12 +191,24 @@ test('builds a daily launch agent at the configured time', () => {
     minute: 10,
     stdoutPath: '/tmp/out.log',
     stderrPath: '/tmp/error.log',
+    nodeExecutable: '/stable/node',
   });
 
   assert.match(plist, /com\.jalsarabose\.qa-daily/);
   assert.match(plist, /<integer>7<\/integer>/);
   assert.match(plist, /<integer>10<\/integer>/);
   assert.match(plist, /daily-regression\.mjs/);
+  assert.match(plist, /<string>\/stable\/node<\/string>/);
+});
+
+test('lets once and forced runs process one item after the nightly deadline', () => {
+  const deadline = new Date('2026-08-12T07:00:00+09:00');
+  const now = new Date('2026-08-12T08:00:00+09:00').getTime();
+
+  assert.equal(shouldStopForDeadline({ now, deadline, force: false, once: true }), false);
+  assert.equal(shouldStopForDeadline({ now, deadline, force: true, once: false, processedCount: 0 }), false);
+  assert.equal(shouldStopForDeadline({ now, deadline, force: true, once: false, processedCount: 1 }), true);
+  assert.equal(shouldStopForDeadline({ now, deadline, force: false, once: false }), true);
 });
 
 test('skips a completed same-day run unless force is enabled', () => {
