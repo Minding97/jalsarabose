@@ -4,6 +4,10 @@ const priorityOrder = new Map([
   ['highest', 0], ['high', 1], ['medium', 2], ['low', 3], ['lowest', 4],
 ]);
 
+export function shouldStopForDeadline({ now, deadline, force, once }) {
+  return now >= deadline.getTime() && !force && !once;
+}
+
 function stableRank(issue) {
   return [
     priorityOrder.get(issue.fields?.priority?.name?.toLowerCase()) ?? 99,

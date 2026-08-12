@@ -25,7 +25,7 @@ import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
-import { buildNightlyPlan, reportNightlyPlan } from './nightly-plan.mjs';
+import { buildNightlyPlan, reportNightlyPlan, shouldStopForDeadline } from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
@@ -69,10 +69,6 @@ function buildDeadline(now, endHour) {
   const deadline = new Date(now);
   deadline.setHours(endHour, 0, 0, 0);
   return deadline;
-}
-
-export function shouldStopForDeadline({ now, deadline, force, once }) {
-  return now >= deadline.getTime() && !force && !once;
 }
 
 async function createWorktree(issue, existingPullRequest, branch) {

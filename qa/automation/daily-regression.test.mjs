@@ -23,7 +23,7 @@ import {
   waitForNightlyCompletion,
 } from './daily-regression.mjs';
 import { buildLaunchAgentPlist, resolveNodeExecutable } from './install-schedule.mjs';
-import { shouldStopForDeadline } from './nightly-runner.mjs';
+import { shouldStopForDeadline } from './nightly-plan.mjs';
 
 const config = {
   testEmail: 'qa@example.com',
