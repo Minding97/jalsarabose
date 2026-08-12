@@ -25,7 +25,7 @@ import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
-import { notifyAutomationSummary } from './notification.mjs';
+import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 import {
   buildNightlyPlan,
   executePlannedIssue,
@@ -643,7 +643,10 @@ async function main() {
   const startedAt = new Date().toISOString();
   const summary = {
     kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
-    testNotification: dryRun || force || once,
+    testNotification: isTestNotificationRun({
+      dryRun,
+      explicitTestNotification: flags.has('--test-notification'),
+    }),
     status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [],
     verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
   };

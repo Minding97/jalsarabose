@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { formatAutomationSummary, notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
+import { formatAutomationSummary, isTestNotificationRun, notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
   const text = formatAutomationSummary({
@@ -27,6 +27,12 @@ test('labels manual verification notifications as test messages, never scheduled
   });
   assert.match(text, /^🧪 시험 알림 · 🌙 야간 개발 완료/);
   assert.doesNotMatch(text, /^🌙 야간 개발 완료/);
+});
+
+test('does not infer a test notification from force or once production rerun flags', () => {
+  assert.equal(isTestNotificationRun({ dryRun: false, force: true, once: true }), false);
+  assert.equal(isTestNotificationRun({ dryRun: true, force: true }), true);
+  assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
 });
 
 test('redacts secrets from notification text', () => {

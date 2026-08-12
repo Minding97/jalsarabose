@@ -19,7 +19,7 @@ import { getAutomationBugLabel, JiraClient } from '../server/jira-client.mjs';
 import { redactSecrets } from '../server/sanitize.mjs';
 import { withExpoWebServer } from './app-server.mjs';
 import { runCommand } from './command.mjs';
-import { notifyAutomationSummary } from './notification.mjs';
+import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(automationDirectory, '../..');
@@ -511,18 +511,21 @@ export function buildDailyFailureSummary({ error, runId, startedAt, completedAt,
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const flags = parseFlags(process.argv.slice(2));
   const dryRun = flags.has('--dry-run');
-  const manualRun = dryRun || flags.has('--force');
+  const testNotification = isTestNotificationRun({
+    dryRun,
+    explicitTestNotification: flags.has('--test-notification'),
+  });
   const startedAt = new Date().toISOString();
   const runId = `daily-${startedAt}-${process.pid}`;
   const config = loadQaConfig();
   let summary;
   try {
     const result = await runDailyRegression({ force: flags.has('--force'), dryRun });
-    summary = buildDailyCompletionSummary({ result, runId, startedAt, completedAt: new Date().toISOString(), testNotification: manualRun });
+    summary = buildDailyCompletionSummary({ result, runId, startedAt, completedAt: new Date().toISOString(), testNotification });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    summary = buildDailyFailureSummary({ error, runId, startedAt, completedAt: new Date().toISOString(), testNotification: manualRun });
+    summary = buildDailyFailureSummary({ error, runId, startedAt, completedAt: new Date().toISOString(), testNotification });
     process.exitCode = 1;
   }
   try {

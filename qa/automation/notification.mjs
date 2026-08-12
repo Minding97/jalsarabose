@@ -7,6 +7,10 @@ import { runCommand } from './command.mjs';
 
 const deliveryStatePath = resolve(homedir(), '.local/state/jalsarabose/qa-notification-last.json');
 
+export function isTestNotificationRun({ dryRun, explicitTestNotification = false }) {
+  return Boolean(dryRun || explicitTestNotification);
+}
+
 function lineList(values, empty = '없음') {
   return values?.length ? values.join(', ') : empty;
 }

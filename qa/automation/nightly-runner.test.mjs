@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
@@ -104,6 +105,12 @@ test('captures the fixed plan snapshot and blocked queue before an empty actiona
   assert.equal(summary.status, '보류/지연');
   assert.match(summary.verification, /큐 스냅샷 2건 확인/);
   assert.match(summary.nextAction, /JAL-47, JAL-53/);
+});
+
+test('labels only dry-runs or explicitly requested probes as test notifications', () => {
+  assert.equal(isTestNotificationRun({ dryRun: true }), true);
+  assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
+  assert.equal(isTestNotificationRun({ dryRun: false }), false);
 });
 
 test('nightly lock contention leaves the existing owner lock untouched', () => {
