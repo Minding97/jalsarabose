@@ -84,6 +84,22 @@ export function classifyNightlyStatus(ticketResults, plannedCount = ticketResult
   return '성공';
 }
 
+export function captureNightlyPlanSummary(summary, plan) {
+  summary.plannedTickets = plan.issues.map((issue) => issue.key);
+  const blocked = [...plan.externallyBlockedKeys, ...plan.cyclicKeys];
+  summary.remainingQueue = [...summary.plannedTickets, ...blocked];
+  if (plan.issues.length === 0) {
+    summary.status = blocked.length ? '보류/지연' : '성공';
+    summary.verification = plan.counts.total
+      ? `큐 스냅샷 ${plan.counts.total}건 확인 · 실행 가능 0건`
+      : '큐 스냅샷 0건 확인 · 처리 티켓 없음';
+    summary.nextAction = blocked.length
+      ? `차단/순환 티켓 ${blocked.join(', ')}의 선행조건 확인`
+      : '다음 야간 큐 대기';
+  }
+  return summary;
+}
+
 export function acquireNightlyLock(path) {
   try {
     const descriptor = openSync(path, 'wx', 0o600);
@@ -627,6 +643,7 @@ async function main() {
   const startedAt = new Date().toISOString();
   const summary = {
     kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
+    testNotification: dryRun || force || once,
     status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [],
     verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
   };
@@ -656,7 +673,7 @@ async function main() {
 
     const queueSnapshot = await jira.searchReadyIssues();
     const plan = buildNightlyPlan(queueSnapshot, config);
-    summary.plannedTickets = plan.issues.map((issue) => issue.key);
+    captureNightlyPlanSummary(summary, plan);
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
     if (plan.issues.length === 0) {

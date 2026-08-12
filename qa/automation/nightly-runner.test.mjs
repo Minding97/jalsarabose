@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
@@ -91,6 +91,19 @@ test('nightly completion status does not call an all-held queue successful', () 
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }], 2), '보류/지연');
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }]), '성공');
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '실패/미병합' }]), '일부 실패');
+});
+
+test('captures the fixed plan snapshot and blocked queue before an empty actionable-plan return', () => {
+  const summary = { plannedTickets: [], remainingQueue: [], verification: '처리 티켓 없음' };
+  captureNightlyPlanSummary(summary, {
+    issues: [], externallyBlockedKeys: ['JAL-47'], cyclicKeys: ['JAL-53'],
+    counts: { total: 2 },
+  });
+  assert.deepEqual(summary.plannedTickets, []);
+  assert.deepEqual(summary.remainingQueue, ['JAL-47', 'JAL-53']);
+  assert.equal(summary.status, '보류/지연');
+  assert.match(summary.verification, /큐 스냅샷 2건 확인/);
+  assert.match(summary.nextAction, /JAL-47, JAL-53/);
 });
 
 test('nightly lock contention leaves the existing owner lock untouched', () => {

@@ -11,8 +11,9 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 
 import {
-  buildFailureMetadata,
   buildDailyCompletionSummary,
+  buildDailyFailureSummary,
+  buildFailureMetadata,
   buildIsolatedEnvironment,
   copyEnvironmentFile,
   createFailureFingerprint,
@@ -232,6 +233,15 @@ test('builds an explicit no-duplicate-notification summary for a same-day skip',
   assert.equal(summary.status, '중복 실행 건너뜀');
   assert.deepEqual(summary.suites, []);
   assert.match(summary.verification, /중복 테스트를 건너뜀/);
+});
+
+test('marks manual daily success and failure summaries as test notifications', () => {
+  const common = { runId: 'daily-manual', startedAt: 'start', completedAt: 'end', testNotification: true };
+  const success = buildDailyCompletionSummary({ ...common, result: { passed: true, suites: [], reports: [] } });
+  const failureSummary = buildDailyFailureSummary({ ...common, error: new Error('stopped') });
+  assert.equal(success.testNotification, true);
+  assert.equal(failureSummary.testNotification, true);
+  assert.deepEqual(failureSummary.failures, ['stopped']);
 });
 
 test('rejects a concurrent run and removes its lock after failure', async () => {

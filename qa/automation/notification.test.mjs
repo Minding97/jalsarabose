@@ -20,6 +20,15 @@ test('formats a concise nightly completion report with tickets, gates, queue, an
   assert.match(text, /다음 조치: 리뷰 재시도/);
 });
 
+test('labels manual verification notifications as test messages, never scheduled completions', () => {
+  const text = formatAutomationSummary({
+    kind: 'nightly', testNotification: true, status: '성공', startedAt: 'start', completedAt: 'end',
+    plannedTickets: [], ticketResults: [], pullRequests: [], remainingQueue: [],
+  });
+  assert.match(text, /^🧪 시험 알림 · 🌙 야간 개발 완료/);
+  assert.doesNotMatch(text, /^🌙 야간 개발 완료/);
+});
+
 test('redacts secrets from notification text', () => {
   const text = formatAutomationSummary({ kind: 'daily', status: '실패', startedAt: 'start', completedAt: 'end', failures: ['Authorization: Bearer abc.def.ghi'], remainingQueue: [] });
   assert.doesNotMatch(text, /abc\.def\.ghi/);
