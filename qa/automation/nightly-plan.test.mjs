@@ -48,6 +48,16 @@ test('Jira ticket comments do not disclose unrelated ticket summaries', async ()
   assert.doesNotMatch(comments.find(([key]) => key === 'JAL-2')[1], /JAL-1/);
 });
 
+test('holds a ticket whose blocker is outside the ready queue', () => {
+  const blocked = issue('JAL-2', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, inwardIssue: { key: 'JAL-1' } },
+  ]);
+  const plan = buildNightlyPlan([blocked], config);
+  assert.deepEqual(plan.issues, []);
+  assert.deepEqual(plan.externallyBlockedKeys, ['JAL-2']);
+  assert.match(plan.ticketTexts.get('JAL-2'), /보류/);
+});
+
 test('uses configured webhook when Jira reporting fails', async () => {
   const plan = buildNightlyPlan([issue('JAL-1', 'Unknown', 'High', '2026-01-01')], config);
   let payload;

@@ -614,7 +614,9 @@ async function main() {
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
     if (plan.issues.length === 0) {
-        console.log('QA queue is empty.');
+        console.log(plan.cyclicKeys.length || plan.externallyBlockedKeys.length
+          ? 'QA queue has no actionable tickets; blocked/cyclic tickets were reported.'
+          : 'QA queue is empty.');
         return;
     }
     let processedCount = 0;
