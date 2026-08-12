@@ -36,7 +36,7 @@ test('removes QA and infrastructure credentials from the review environment', ()
   assert.deepEqual(environment, { PATH: '/usr/bin' });
 });
 
-test('rejects Claude CLIs with missing flags or an outdated version', async () => {
+test('rejects Claude CLIs with missing isolation flags or an outdated version', async () => {
   const fixtureRoot = mkdtempSync(join(tmpdir(), 'jalsarabose-claude-version-test-'));
   const missingFlagCli = join(fixtureRoot, 'missing-flag.mjs');
   const outdatedCli = join(fixtureRoot, 'outdated.mjs');
@@ -47,7 +47,7 @@ test('rejects Claude CLIs with missing flags or an outdated version', async () =
       missingFlagCli,
       [
         '#!/usr/bin/env node',
-        "process.stdout.write(process.argv.includes('--help') ? '--tools --safe-mode' : '2.1.220');",
+        "process.stdout.write(process.argv.includes('--help') ? '--tools --no-session-persistence' : '2.1.220');",
       ].join('\n'),
     );
     writeFileSync(
@@ -120,7 +120,7 @@ test('reviews a tracked-only clone with bounded noninteractive settings', async 
         '#!/usr/bin/env node',
         "import { existsSync, readFileSync, writeFileSync } from 'node:fs';",
         "if (process.argv.includes('--help')) {",
-        "  process.stdout.write('--tools --safe-mode --no-session-persistence');",
+        "  process.stdout.write('--tools --permission-mode --safe-mode --no-session-persistence');",
         '  process.exit(0);',
         '}',
         "if (process.argv.includes('--version')) {",
