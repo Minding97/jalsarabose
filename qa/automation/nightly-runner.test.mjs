@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { processIssue } from './nightly-runner.mjs';
+import { classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
@@ -79,4 +79,10 @@ test('processIssue dry-run is conservative for unprocessed work', async () => {
   assert.equal(await processIssue({
     jira: jiraWith(issue), github: {}, config, issue, dryRun: true,
   }), false);
+});
+
+test('nightly completion status does not call an all-held queue successful', () => {
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-48', result: '보류' }]), '보류/지연');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }]), '성공');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '실패/미병합' }]), '일부 실패');
 });

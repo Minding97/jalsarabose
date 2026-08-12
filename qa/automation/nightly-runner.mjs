@@ -78,6 +78,12 @@ function buildDeadline(now, endHour) {
   return deadline;
 }
 
+export function classifyNightlyStatus(ticketResults) {
+  if (ticketResults.some((item) => item.result === '실패/미병합')) return '일부 실패';
+  if (ticketResults.length > 0 && ticketResults.every((item) => item.result === '보류')) return '보류/지연';
+  return '성공';
+}
+
 async function createWorktree(issue, existingPullRequest, branch) {
   const worktree = resolve(worktreesRoot, issue.key);
   mkdirSync(worktreesRoot, { recursive: true });
@@ -620,12 +626,10 @@ async function main() {
   mkdirSync(dirname(lockPath), { recursive: true });
   let lockFile;
   try {
-    if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
-      throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
-    }
     lockFile = openSync(lockPath, 'wx', 0o600);
     writeFileSync(lockFile, String(process.pid));
-  } catch {
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw error;
     throw new Error(`Another QA nightly runner is active (${lockPath}).`);
   }
 
@@ -633,6 +637,9 @@ async function main() {
   const github = new GitHubClient(config.githubRepository);
 
   try {
+    if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
+      throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
+    }
     await github.ensureAuthenticated();
     if (!dryRun) {
       await reconcileMergedPullRequests(jira, github, config);
@@ -694,7 +701,7 @@ async function main() {
     summary.remainingQueue = plan.issues
       .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
       .map((issue) => issue.key);
-    summary.status = summary.ticketResults.some((item) => item.result === '실패/미병합') ? '일부 실패' : '성공';
+    summary.status = classifyNightlyStatus(summary.ticketResults);
     summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
     summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
   } catch (error) {
