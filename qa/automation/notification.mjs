@@ -11,6 +11,15 @@ function lineList(values, empty = '없음') {
   return values?.length ? values.join(', ') : empty;
 }
 
+export function sanitizeNotificationFailure(value) {
+  return redactSecrets(String(value))
+    .split(/\r?\n/, 1)[0]
+    .replace(/https?:\/\/\S+/gi, '[URL]')
+    .replace(/\/(?:Users|private|var|tmp)\/\S+/g, '[PATH]')
+    .replace(/\b[A-Za-z0-9_=-]{24,}\b/g, '[REDACTED]')
+    .slice(0, 240);
+}
+
 export function formatAutomationSummary(summary) {
   const isNightly = summary.kind === 'nightly';
   const title = isNightly ? '🌙 야간 개발 완료' : '🧪 일일 자동 테스트 완료';
@@ -28,7 +37,7 @@ export function formatAutomationSummary(summary) {
     lines.push(`Jira: ${lineList(summary.reports?.map((item) => `${item.suite}=${item.issueKey || item.action}`))}`);
   }
   lines.push(`검증: ${summary.verification || '완료 데이터 없음'}`);
-  lines.push(`실패/차단: ${lineList(summary.failures)}`);
+  lines.push(`실패/차단: ${lineList(summary.failures?.map(sanitizeNotificationFailure))}`);
   lines.push(`남은 큐: ${lineList(summary.remainingQueue)}`);
   lines.push(`다음 조치: ${summary.nextAction || '다음 예약 실행에서 재확인'}`);
   return redactSecrets(lines.join('\n')).slice(0, 3900);

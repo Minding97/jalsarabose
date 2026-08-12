@@ -84,6 +84,19 @@ export function classifyNightlyStatus(ticketResults, plannedCount = ticketResult
   return '성공';
 }
 
+export function acquireNightlyLock(path) {
+  try {
+    const descriptor = openSync(path, 'wx', 0o600);
+    writeFileSync(descriptor, String(process.pid));
+    return descriptor;
+  } catch (error) {
+    if (error?.code === 'EEXIST') {
+      throw new Error(`Another QA nightly runner is active (${path}).`);
+    }
+    throw error;
+  }
+}
+
 async function createWorktree(issue, existingPullRequest, branch) {
   const worktree = resolve(worktreesRoot, issue.key);
   mkdirSync(worktreesRoot, { recursive: true });
@@ -629,15 +642,7 @@ async function main() {
   const github = new GitHubClient(config.githubRepository);
 
   try {
-    try {
-      lockFile = openSync(lockPath, 'wx', 0o600);
-      writeFileSync(lockFile, String(process.pid));
-    } catch (error) {
-      if (error?.code === 'EEXIST') {
-        throw new Error(`Another QA nightly runner is active (${lockPath}).`);
-      }
-      throw error;
-    }
+    lockFile = acquireNightlyLock(lockPath);
     if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
       throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
     }
@@ -684,15 +689,17 @@ async function main() {
       }
       processedCount += 1;
       summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      let prNumber = null;
       try {
         const refreshedIssue = dryRun ? issue : await jira.getIssue(issue.key);
-        const prNumber = getPullRequestNumber(refreshedIssue);
+        prNumber = getPullRequestNumber(refreshedIssue);
         if (prNumber) {
           const pullRequest = await github.getPullRequest(prNumber);
           const merged = pullRequest.state === 'MERGED' || Boolean(pullRequest.mergedAt);
           summary.pullRequests.push(`#${prNumber} ${merged ? 'merged' : '대기'}`);
         }
       } catch (error) {
+        if (prNumber) summary.pullRequests.push(`#${prNumber} 확인 실패`);
         summary.failures.push(`${issue.key} PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
       }
       if (once || dryRun) {

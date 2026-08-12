@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { closeSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
@@ -88,4 +91,20 @@ test('nightly completion status does not call an all-held queue successful', () 
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }], 2), '보류/지연');
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }]), '성공');
   assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '실패/미병합' }]), '일부 실패');
+});
+
+test('nightly lock contention leaves the existing owner lock untouched', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-lock-test-'));
+  const path = resolve(root, 'nightly.lock');
+  try {
+    writeFileSync(path, 'existing-owner');
+    assert.throws(() => acquireNightlyLock(path), /Another QA nightly runner is active/);
+    assert.equal(readFileSync(path, 'utf8'), 'existing-owner');
+    rmSync(path);
+    const descriptor = acquireNightlyLock(path);
+    closeSync(descriptor);
+    assert.equal(existsSync(path), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

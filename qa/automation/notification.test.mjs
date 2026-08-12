@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { formatAutomationSummary, notifyAutomationSummary } from './notification.mjs';
+import { formatAutomationSummary, notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
   const text = formatAutomationSummary({
@@ -23,6 +23,11 @@ test('formats a concise nightly completion report with tickets, gates, queue, an
 test('redacts secrets from notification text', () => {
   const text = formatAutomationSummary({ kind: 'daily', status: '실패', startedAt: 'start', completedAt: 'end', failures: ['Authorization: Bearer abc.def.ghi'], remainingQueue: [] });
   assert.doesNotMatch(text, /abc\.def\.ghi/);
+});
+
+test('removes upstream URLs, local paths, and long opaque values from failure summaries', () => {
+  const safe = sanitizeNotificationFailure('Jira failed https://internal.example/path?email=user@example.com at /Users/me/project token abcdefghijklmnopqrstuvwxyz123456');
+  assert.doesNotMatch(safe, /internal\.example|user@example\.com|\/Users\/me|abcdefghijklmnopqrstuvwxyz/);
 });
 
 test('fails closed when the required Telegram destination is not configured', async () => {
