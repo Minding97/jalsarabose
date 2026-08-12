@@ -98,7 +98,10 @@ test('nightly lock contention leaves the existing owner lock untouched', () => {
   const path = resolve(root, 'nightly.lock');
   try {
     writeFileSync(path, 'existing-owner');
-    assert.throws(() => acquireNightlyLock(path), /Another QA nightly runner is active/);
+    assert.throws(
+      () => acquireNightlyLock(path),
+      (error) => error.code === 'QA_NIGHTLY_LOCKED' && /Another QA nightly runner is active/.test(error.message),
+    );
     assert.equal(readFileSync(path, 'utf8'), 'existing-owner');
     rmSync(path);
     const descriptor = acquireNightlyLock(path);

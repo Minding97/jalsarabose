@@ -91,7 +91,9 @@ export function acquireNightlyLock(path) {
     return descriptor;
   } catch (error) {
     if (error?.code === 'EEXIST') {
-      throw new Error(`Another QA nightly runner is active (${path}).`);
+      const contention = new Error(`Another QA nightly runner is active (${path}).`);
+      contention.code = 'QA_NIGHTLY_LOCKED';
+      throw contention;
     }
     throw error;
   }
@@ -714,9 +716,10 @@ async function main() {
     summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    summary.status = '실패';
-    summary.failures.push(message);
-    summary.nextAction = '야간 로그 확인 후 안전 재실행';
+    const lockContention = error?.code === 'QA_NIGHTLY_LOCKED';
+    summary.status = lockContention ? '중복 실행 건너뜀' : '실패';
+    if (!lockContention) summary.failures.push(message);
+    summary.nextAction = lockContention ? '진행 중인 야간 실행의 완료 알림 대기' : '야간 로그 확인 후 안전 재실행';
     throw error;
   } finally {
     if (lockFile !== undefined) {
