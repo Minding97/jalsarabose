@@ -27,9 +27,10 @@ import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
 import {
   buildNightlyPlan,
+  executePlannedIssue,
+  isVerifiedCompletion,
   reportNightlyPlan,
   shouldStopForDeadline,
-  unsatisfiedDependencies,
 } from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
 
@@ -419,7 +420,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       }
     }
     const completed = await jira.getIssue(issue.key);
-    return completed.fields.status?.name === config.jiraDoneStatus;
+    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
   }
   const branch =
     existingPullRequest?.headRefName ??
@@ -530,8 +531,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       jira.getIssue(issue.key),
       github.getPullRequest(pullRequest.number),
     ]);
-    return completedIssue.fields.status?.name === config.jiraDoneStatus
-      && (mergedPullRequest.state === 'MERGED' || Boolean(mergedPullRequest.mergedAt));
+    return isVerifiedCompletion(completedIssue, mergedPullRequest, config.jiraDoneStatus);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
@@ -643,19 +643,20 @@ async function main() {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
       }
-      const blockers = unsatisfiedDependencies(plan, issue.key, successfulKeys);
-      if (blockers.length > 0) {
-        const message = `야간 자동수정 보류: 같은 밤 선행 티켓 ${blockers.join(', ')}의 Jira 완료 및 PR merge가 확인되지 않았습니다. 다음 야간 큐에서 다시 확인합니다.`;
-        console.log(`${issue.key}: ${message}`);
-        if (!dryRun) {
-          await jira.addComment(issue.key, message);
-        }
-        continue;
-      }
-      const succeeded = await processIssue({ jira, github, config, issue, dryRun });
-      if (succeeded) {
-        successfulKeys.add(issue.key);
-      }
+      const result = await executePlannedIssue({
+        plan,
+        issue,
+        successfulKeys,
+        processIssue: (plannedIssue) => processIssue({
+          jira, github, config, issue: plannedIssue, dryRun,
+        }),
+        holdIssue: async (heldIssue, blockers) => {
+          const message = `야간 자동수정 보류: 같은 밤 선행 티켓 ${blockers.join(', ')}의 Jira 완료 및 PR merge가 확인되지 않았습니다. 다음 야간 큐에서 다시 확인합니다.`;
+          console.log(`${heldIssue.key}: ${message}`);
+          if (!dryRun) await jira.addComment(heldIssue.key, message);
+        },
+      });
+      if (result.held) continue;
       processedCount += 1;
       if (once || dryRun) {
         break;

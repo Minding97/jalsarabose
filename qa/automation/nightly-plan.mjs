@@ -12,6 +12,28 @@ export function unsatisfiedDependencies(plan, issueKey, successfulKeys) {
   return (plan.dependencies.get(issueKey) ?? []).filter((key) => !successfulKeys.has(key));
 }
 
+export function isVerifiedCompletion(issue, pullRequest, doneStatus) {
+  return issue?.fields?.status?.name === doneStatus
+    && (pullRequest?.state === 'MERGED' || Boolean(pullRequest?.mergedAt));
+}
+
+export async function executePlannedIssue({
+  plan,
+  issue,
+  successfulKeys,
+  processIssue,
+  holdIssue,
+}) {
+  const blockers = unsatisfiedDependencies(plan, issue.key, successfulKeys);
+  if (blockers.length > 0) {
+    await holdIssue(issue, blockers);
+    return { held: true, succeeded: false };
+  }
+  const succeeded = await processIssue(issue);
+  if (succeeded) successfulKeys.add(issue.key);
+  return { held: false, succeeded };
+}
+
 function stableRank(issue) {
   return [
     priorityOrder.get(issue.fields?.priority?.name?.toLowerCase()) ?? 99,
