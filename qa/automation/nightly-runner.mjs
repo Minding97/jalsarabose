@@ -100,6 +100,23 @@ export function captureNightlyPlanSummary(summary, plan) {
   return summary;
 }
 
+export async function finalizeNightlySummary({ summary, plan, jira }) {
+  const finalQueue = await jira.searchReadyIssues();
+  const planned = new Set(plan.reportIssues.map((issue) => issue.key));
+  summary.remainingQueue = finalQueue.map((issue) => issue.key);
+  summary.lateOutcomes = finalQueue
+    .filter((issue) => !planned.has(issue.key))
+    .map((issue) => `${issue.key}=${issue.fields?.summary ?? '새 후속 티켓'}`);
+  if (summary.lateOutcomes.length > 0) {
+    summary.failures.push(...summary.lateOutcomes.map((outcome) => `Claude 리뷰 후속 차단: ${outcome}`));
+  }
+  summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
+  if (summary.remainingQueue.length > 0 && summary.status === '성공') summary.status = '보류/지연';
+  summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인 · 최종 Jira 큐 ${summary.remainingQueue.length}건`;
+  summary.nextAction = summary.remainingQueue.length ? '최종 남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+  return summary;
+}
+
 export function acquireNightlyLock(path) {
   try {
     const descriptor = openSync(path, 'wx', 0o600);
@@ -647,7 +664,7 @@ async function main() {
       dryRun,
       explicitTestNotification: flags.has('--test-notification'),
     }),
-    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [],
+    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [], lateOutcomes: [],
     verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
   };
 
@@ -683,11 +700,10 @@ async function main() {
         console.log(plan.cyclicKeys.length || plan.externallyBlockedKeys.length
           ? 'QA queue has no actionable tickets; blocked/cyclic tickets were reported.'
           : 'QA queue is empty.');
-        return;
-    }
-    let processedCount = 0;
-    const successfulKeys = new Set();
-    for (const issue of plan.issues) {
+    } else {
+      let processedCount = 0;
+      const successfulKeys = new Set();
+      for (const issue of plan.issues) {
       if (shouldStopForDeadline({ now: Date.now(), deadline, force, once, processedCount })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
@@ -724,16 +740,12 @@ async function main() {
         if (prNumber) summary.pullRequests.push(`#${prNumber} 확인 실패`);
         summary.failures.push(`${issue.key} PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (once || dryRun) {
-        break;
+        if (once || dryRun) {
+          break;
+        }
       }
     }
-    summary.remainingQueue = plan.issues
-      .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
-      .map((issue) => issue.key);
-    summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
-    summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
-    summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+    await finalizeNightlySummary({ summary, plan, jira });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const lockContention = error?.code === 'QA_NIGHTLY_LOCKED';

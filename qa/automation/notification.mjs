@@ -1,4 +1,5 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 
@@ -6,6 +7,7 @@ import { redactSecrets } from '../server/sanitize.mjs';
 import { runCommand } from './command.mjs';
 
 const deliveryStatePath = resolve(homedir(), '.local/state/jalsarabose/qa-notification-last.json');
+const deliveryLedgerDirectory = resolve(homedir(), '.local/state/jalsarabose/qa-notification-deliveries');
 
 export function isTestNotificationRun({ dryRun, explicitTestNotification = false }) {
   return Boolean(dryRun || explicitTestNotification);
@@ -41,6 +43,7 @@ export function formatAutomationSummary(summary, sensitiveValues = []) {
     lines.push(`계획: ${lineList(summary.plannedTickets)}`);
     lines.push(`처리: ${lineList(summary.ticketResults?.map((item) => `${item.key}=${item.result}`))}`);
     lines.push(`PR/병합: ${lineList(summary.pullRequests)}`);
+    lines.push(`후속 결과: ${lineList(summary.lateOutcomes)}`);
   } else {
     lines.push(`대상: main@${summary.commitSha?.slice(0, 8) || '확인 실패'}`);
     lines.push(`테스트: ${lineList(summary.suites?.map((item) => `${item.name}=${item.passed ? 'PASS' : 'FAIL'}`))}`);
@@ -53,7 +56,32 @@ export function formatAutomationSummary(summary, sensitiveValues = []) {
   return redactSecrets(lines.join('\n')).slice(0, 3900);
 }
 
-export async function notifyAutomationSummary({ summary, config, dryRun = false, statePath = deliveryStatePath }) {
+function findMessageId(value) {
+  if (!value || typeof value !== 'object') return null;
+  for (const key of ['messageId', 'message_id', 'id']) {
+    if (typeof value[key] === 'number' || typeof value[key] === 'string') return value[key];
+  }
+  for (const child of Object.values(value)) {
+    const found = findMessageId(child);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
+function parseDeliveryEvidence(stdout) {
+  try {
+    return { messageId: findMessageId(JSON.parse(stdout)) };
+  } catch {
+    return { messageId: null };
+  }
+}
+
+function ledgerPathForRun(runId) {
+  const digest = createHash('sha256').update(runId).digest('hex');
+  return resolve(deliveryLedgerDirectory, `${digest}.json`);
+}
+
+export async function notifyAutomationSummary({ summary, config, dryRun = false, statePath }) {
   if (!config.telegramTarget) {
     throw new Error('QA_TELEGRAM_TARGET is required for automation completion notifications.');
   }
@@ -64,14 +92,41 @@ export async function notifyAutomationSummary({ summary, config, dryRun = false,
     config.jiraApiToken,
     config.recordingKey,
   ]);
-  const result = await runCommand(
-    config.openclawCliPath || 'openclaw',
-    ['message', 'send', '--channel', 'telegram', '--target', config.telegramTarget, '--message', message, '--json', ...(dryRun ? ['--dry-run'] : [])],
-    { sensitive: true, maxCaptureBytes: 256 * 1024, timeoutMs: 30_000 },
-  );
-  if (!dryRun) {
-    mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
-    writeFileSync(statePath, `${JSON.stringify({ runId: summary.runId, deliveredAt: new Date().toISOString(), channel: 'telegram', target: config.telegramTarget }, null, 2)}\n`, { mode: 0o600 });
+  const evidencePath = statePath ?? ledgerPathForRun(summary.runId);
+  const lockPath = `${evidencePath}.lock`;
+  mkdirSync(dirname(evidencePath), { recursive: true, mode: 0o700 });
+  let lock;
+  try {
+    lock = openSync(lockPath, 'wx', 0o600);
+  } catch (error) {
+    if (error?.code === 'EEXIST') return 'already-in-progress';
+    throw error;
   }
-  return result.stdout;
+  try {
+    if (existsSync(evidencePath)) {
+      const prior = JSON.parse(readFileSync(evidencePath, 'utf8'));
+      if (prior.runId === summary.runId && prior.status === 'delivered') return 'already-delivered';
+    }
+    const result = await runCommand(
+      config.openclawCliPath || 'openclaw',
+      ['message', 'send', '--channel', 'telegram', '--target', config.telegramTarget, '--message', message, '--json', ...(dryRun ? ['--dry-run'] : [])],
+      { sensitive: true, maxCaptureBytes: 256 * 1024, timeoutMs: 30_000 },
+    );
+    if (!dryRun) {
+      const evidence = {
+        runId: summary.runId,
+        status: 'delivered',
+        deliveredAt: new Date().toISOString(),
+        channel: 'telegram',
+        target: config.telegramTarget,
+        ...parseDeliveryEvidence(result.stdout),
+      };
+      writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+      if (!statePath) writeFileSync(deliveryStatePath, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+    }
+    return result.stdout;
+  } finally {
+    if (lock !== undefined) closeSync(lock);
+    rmSync(lockPath, { force: true });
+  }
 }

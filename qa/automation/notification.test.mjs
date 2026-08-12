@@ -67,8 +67,9 @@ test('fails closed when the required Telegram destination is not configured', as
 test('records a successful delivery even when the state directory does not exist yet', async () => {
   const root = mkdtempSync(resolve(tmpdir(), 'qa-notification-test-'));
   const cli = resolve(root, 'openclaw');
+  const callsPath = resolve(root, 'calls');
   const statePath = resolve(root, 'new/state/delivery.json');
-  writeFileSync(cli, `#!/bin/sh\nprintf '{"ok":true}'\n`);
+  writeFileSync(cli, `#!/bin/sh\nprintf x >> "${callsPath}"\nprintf '{"ok":true,"result":{"message_id":917}}'\n`);
   chmodSync(cli, 0o755);
   try {
     await notifyAutomationSummary({
@@ -79,6 +80,15 @@ test('records a successful delivery even when the state directory does not exist
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
     assert.equal(state.runId, 'daily-test');
     assert.equal(state.target, '-5376954524');
+    assert.equal(state.messageId, 917);
+    assert.equal(state.status, 'delivered');
+    await notifyAutomationSummary({
+      config: { telegramTarget: '-5376954524', openclawCliPath: cli },
+      summary: { kind: 'daily', runId: 'daily-test', startedAt: 'start', completedAt: 'end', status: '성공' },
+      statePath,
+    });
+    assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).messageId, 917);
+    assert.equal(readFileSync(callsPath, 'utf8'), 'x');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

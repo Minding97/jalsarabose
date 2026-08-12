@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, finalizeNightlySummary, processIssue } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -105,6 +105,30 @@ test('captures the fixed plan snapshot and blocked queue before an empty actiona
   assert.equal(summary.status, '보류/지연');
   assert.match(summary.verification, /큐 스냅샷 2건 확인/);
   assert.match(summary.nextAction, /JAL-47, JAL-53/);
+});
+
+test('waits for recovered review follow-ups before building the one final summary', async () => {
+  const summary = {
+    plannedTickets: [], ticketResults: [{ key: 'JAL-47', result: '실패/미병합' }],
+    pullRequests: ['#17 대기'], failures: [], remainingQueue: [], lateOutcomes: [],
+  };
+  const plan = { issues: [{ key: 'JAL-47' }], reportIssues: [{ key: 'JAL-47' }] };
+  let reviewFinished = false;
+  const jira = {
+    searchReadyIssues: async () => {
+      assert.equal(reviewFinished, true, 'final queue must be read after Claude/Jira recovery finishes');
+      return [
+        { key: 'JAL-55', fields: { summary: 'P2 first blocker' } },
+        { key: 'JAL-56', fields: { summary: 'P2 second blocker' } },
+      ];
+    },
+  };
+  await Promise.resolve().then(() => { reviewFinished = true; });
+  await finalizeNightlySummary({ summary, plan, jira });
+  assert.deepEqual(summary.remainingQueue, ['JAL-55', 'JAL-56']);
+  assert.deepEqual(summary.lateOutcomes, ['JAL-55=P2 first blocker', 'JAL-56=P2 second blocker']);
+  assert.match(summary.failures.join('\n'), /JAL-55/);
+  assert.match(summary.failures.join('\n'), /JAL-56/);
 });
 
 test('labels only dry-runs or explicitly requested probes as test notifications', () => {
