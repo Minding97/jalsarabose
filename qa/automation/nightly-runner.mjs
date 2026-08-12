@@ -14,7 +14,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 
 import { loadQaConfig } from '../server/config.mjs';
@@ -25,7 +25,13 @@ import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
-import { buildNightlyPlan, reportNightlyPlan, shouldStopForDeadline } from './nightly-plan.mjs';
+import {
+  buildNightlyPlan,
+  executePlannedIssue,
+  isVerifiedCompletion,
+  reportNightlyPlan,
+  shouldStopForDeadline,
+} from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
@@ -369,11 +375,22 @@ async function reviewAndGate({
   return { needsHuman: false, merged };
 }
 
-async function processIssue({ jira, github, config, issue, dryRun }) {
+export async function processIssue({ jira, github, config, issue, dryRun }) {
   const issueDetails = await jira.getIssue(issue.key);
   const parentKey = issueDetails.fields.parent?.key ?? issue.key;
   const parentDetails =
     parentKey === issue.key ? issueDetails : await jira.getIssue(parentKey);
+  const existingPullRequestNumber = getPullRequestNumber(issueDetails)
+    ?? (issue.key !== parentKey ? getPullRequestNumber(parentDetails) : null);
+  let existingPullRequest = null;
+  try {
+    existingPullRequest = existingPullRequestNumber
+      ? await github.getPullRequest(existingPullRequestNumber)
+      : null;
+  } catch (error) {
+    console.error(`${issue.key} PR lookup failed:`, error instanceof Error ? error.message : String(error));
+    return false;
+  }
 
   if (issue.key !== parentKey && parentDetails.fields.status?.name === config.jiraDoneStatus) {
     if (dryRun) {
@@ -381,7 +398,8 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
     } else {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
-    return;
+    const completed = await jira.getIssue(issue.key);
+    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
   }
 
   if (
@@ -393,13 +411,9 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
     } else {
       await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
     }
-    return;
+    return false;
   }
 
-  const existingPullRequestNumber = getPullRequestNumber(issueDetails);
-  const existingPullRequest = existingPullRequestNumber
-    ? await github.getPullRequest(existingPullRequestNumber)
-    : null;
   if (
     existingPullRequest &&
     (existingPullRequest.state === 'MERGED' || existingPullRequest.mergedAt)
@@ -412,7 +426,8 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
         await jira.transitionIssue(issue.key, config.jiraDoneStatus);
       }
     }
-    return;
+    const completed = await jira.getIssue(issue.key);
+    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
   }
   const branch =
     existingPullRequest?.headRefName ??
@@ -422,7 +437,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
     console.log(
       `[dry-run] ${issue.key}: ${existingPullRequest ? `update PR #${existingPullRequest.number}` : `create ${branch}`}`,
     );
-    return;
+    return false;
   }
 
   await jira.transitionIssue(issue.key, config.jiraInProgressStatus);
@@ -505,7 +520,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       await jira.addLabel(issue.key, `pr-${pullRequest.number}`);
     }
     await jira.transitionIssue(parentKey, config.jiraReviewStatus);
-    await reviewAndGate({
+    const reviewResult = await reviewAndGate({
       jira,
       github,
       config,
@@ -516,6 +531,14 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       pullRequest,
       sha,
     });
+    if (!reviewResult.merged) {
+      return false;
+    }
+    const [completedIssue, mergedPullRequest] = await Promise.all([
+      jira.getIssue(issue.key),
+      github.getPullRequest(pullRequest.number),
+    ]);
+    return isVerifiedCompletion(completedIssue, mergedPullRequest, config.jiraDoneStatus);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
@@ -529,6 +552,7 @@ async function processIssue({ jira, github, config, issue, dryRun }) {
       console.error(`${issue.key} failure transition failed:`, jiraError);
     }
     console.error(`${issue.key} failed:`, message);
+    return false;
   } finally {
     if (worktree) {
       rmSync(resolve(worktree, '.qa'), { recursive: true, force: true });
@@ -620,12 +644,26 @@ async function main() {
         return;
     }
     let processedCount = 0;
+    const successfulKeys = new Set();
     for (const issue of plan.issues) {
       if (shouldStopForDeadline({ now: Date.now(), deadline, force, once, processedCount })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
       }
-      await processIssue({ jira, github, config, issue, dryRun });
+      const result = await executePlannedIssue({
+        plan,
+        issue,
+        successfulKeys,
+        processIssue: (plannedIssue) => processIssue({
+          jira, github, config, issue: plannedIssue, dryRun,
+        }),
+        holdIssue: async (heldIssue, blockers) => {
+          const message = `야간 자동수정 보류: 같은 밤 선행 티켓 ${blockers.join(', ')}의 Jira 완료 및 PR merge가 확인되지 않았습니다. 다음 야간 큐에서 다시 확인합니다.`;
+          console.log(`${heldIssue.key}: ${message}`);
+          if (!dryRun) await jira.addComment(heldIssue.key, message);
+        },
+      });
+      if (result.held) continue;
       processedCount += 1;
       if (once || dryRun) {
         break;
@@ -639,11 +677,13 @@ async function main() {
   }
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(
-    `QA nightly runner stopped: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(
+      `QA nightly runner stopped: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+  }
 }

@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildNightlyPlan, reportNightlyPlan } from './nightly-plan.mjs';
+import {
+  buildNightlyPlan,
+  executePlannedIssue,
+  isVerifiedCompletion,
+  reportNightlyPlan,
+  unsatisfiedDependencies,
+} from './nightly-plan.mjs';
 
 const config = { jiraBugType: 'Bug', jiraTaskType: 'Task', nightlyPlanWebhookUrl: '', nightlyPlanCommand: '' };
 const issue = (key, type, priority, created, links = []) => ({ key, fields: { summary: key, issuetype: { name: type }, priority: { name: priority }, created, issuelinks: links } });
@@ -56,6 +62,54 @@ test('holds a ticket whose blocker is outside the ready queue', () => {
   assert.deepEqual(plan.issues, []);
   assert.deepEqual(plan.externallyBlockedKeys, ['JAL-2']);
   assert.match(plan.ticketTexts.get('JAL-2'), /보류/);
+});
+
+test('holds downstream after an unsuccessful blocker while independent work remains runnable', () => {
+  const link = (key) => [{ type: { inward: 'is blocked by', outward: 'blocks' }, outwardIssue: { key } }];
+  const plan = buildNightlyPlan([
+    issue('JAL-47', 'Task', 'High', '2026-01-01'),
+    issue('JAL-48', 'Task', 'High', '2026-01-02', link('JAL-47')),
+    issue('JAL-53', 'Task', 'Low', '2026-01-03'),
+  ], config);
+  const successful = new Set();
+  assert.deepEqual(unsatisfiedDependencies(plan, 'JAL-48', successful), ['JAL-47']);
+  assert.deepEqual(unsatisfiedDependencies(plan, 'JAL-53', successful), []);
+  successful.add('JAL-47');
+  assert.deepEqual(unsatisfiedDependencies(plan, 'JAL-48', successful), []);
+  assert.match(plan.text, /Jira 완료 상태이고 PR merge까지 확인/);
+});
+
+test('executes only dependency-satisfied tickets and records verified successes', async () => {
+  const link = (key) => [{ type: { inward: 'is blocked by', outward: 'blocks' }, outwardIssue: { key } }];
+  const blocker = issue('JAL-47', 'Task', 'High', '2026-01-01');
+  const downstream = issue('JAL-48', 'Task', 'High', '2026-01-02', link('JAL-47'));
+  const independent = issue('JAL-53', 'Task', 'Low', '2026-01-03');
+  const plan = buildNightlyPlan([blocker, downstream, independent], config);
+  const successfulKeys = new Set();
+  const processed = [];
+  const held = [];
+  const execute = (plannedIssue) => executePlannedIssue({
+    plan,
+    issue: plannedIssue,
+    successfulKeys,
+    processIssue: async ({ key }) => { processed.push(key); return key === 'JAL-53'; },
+    holdIssue: async ({ key }, blockers) => held.push([key, blockers]),
+  });
+
+  await execute(blocker);
+  await execute(downstream);
+  await execute(independent);
+  assert.deepEqual(processed, ['JAL-47', 'JAL-53']);
+  assert.deepEqual(held, [['JAL-48', ['JAL-47']]]);
+  assert.deepEqual([...successfulKeys], ['JAL-53']);
+});
+
+test('trusts completion only when Jira is done and GitHub reports the PR merged', () => {
+  const done = { fields: { status: { name: '완료' } } };
+  const open = { fields: { status: { name: '코드 리뷰' } } };
+  assert.equal(isVerifiedCompletion(done, { state: 'MERGED' }, '완료'), true);
+  assert.equal(isVerifiedCompletion(done, { state: 'OPEN' }, '완료'), false);
+  assert.equal(isVerifiedCompletion(open, { state: 'MERGED' }, '완료'), false);
 });
 
 test('does not treat a Jira blocker as depending on the ticket it blocks', () => {
