@@ -80,8 +80,7 @@ function buildDeadline(now, endHour) {
 
 export function classifyNightlyStatus(ticketResults, plannedCount = ticketResults.length) {
   if (ticketResults.some((item) => item.result === '실패/미병합')) return '일부 실패';
-  if (plannedCount > 0 && ticketResults.length === 0) return '보류/지연';
-  if (ticketResults.length > 0 && ticketResults.every((item) => item.result === '보류')) return '보류/지연';
+  if (plannedCount > ticketResults.filter((item) => item.result === '성공').length) return '보류/지연';
   return '성공';
 }
 
@@ -626,18 +625,19 @@ async function main() {
 
   mkdirSync(dirname(lockPath), { recursive: true });
   let lockFile;
-  try {
-    lockFile = openSync(lockPath, 'wx', 0o600);
-    writeFileSync(lockFile, String(process.pid));
-  } catch (error) {
-    if (error?.code !== 'EEXIST') throw error;
-    throw new Error(`Another QA nightly runner is active (${lockPath}).`);
-  }
-
   const jira = new JiraClient(config);
   const github = new GitHubClient(config.githubRepository);
 
   try {
+    try {
+      lockFile = openSync(lockPath, 'wx', 0o600);
+      writeFileSync(lockFile, String(process.pid));
+    } catch (error) {
+      if (error?.code === 'EEXIST') {
+        throw new Error(`Another QA nightly runner is active (${lockPath}).`);
+      }
+      throw error;
+    }
     if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
       throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
     }
@@ -715,7 +715,7 @@ async function main() {
     if (lockFile !== undefined) {
       closeSync(lockFile);
     }
-    rmSync(lockPath, { force: true });
+    if (lockFile !== undefined) rmSync(lockPath, { force: true });
     summary.completedAt = new Date().toISOString();
     try {
       await notifyAutomationSummary({ summary, config, dryRun });

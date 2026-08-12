@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
 import { formatAutomationSummary, notifyAutomationSummary } from './notification.mjs';
@@ -27,4 +30,24 @@ test('fails closed when the required Telegram destination is not configured', as
     notifyAutomationSummary({ config: {}, dryRun: true, summary: { kind: 'daily' } }),
     /QA_TELEGRAM_TARGET is required/,
   );
+});
+
+test('records a successful delivery even when the state directory does not exist yet', async () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'qa-notification-test-'));
+  const cli = resolve(root, 'openclaw');
+  const statePath = resolve(root, 'new/state/delivery.json');
+  writeFileSync(cli, `#!/bin/sh\nprintf '{"ok":true}'\n`);
+  chmodSync(cli, 0o755);
+  try {
+    await notifyAutomationSummary({
+      config: { telegramTarget: '-5376954524', openclawCliPath: cli },
+      summary: { kind: 'daily', runId: 'daily-test', startedAt: 'start', completedAt: 'end', status: '성공' },
+      statePath,
+    });
+    const state = JSON.parse(readFileSync(statePath, 'utf8'));
+    assert.equal(state.runId, 'daily-test');
+    assert.equal(state.target, '-5376954524');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

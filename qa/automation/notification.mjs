@@ -1,6 +1,6 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 import { redactSecrets } from '../server/sanitize.mjs';
 import { runCommand } from './command.mjs';
@@ -45,6 +45,7 @@ export async function notifyAutomationSummary({ summary, config, dryRun = false,
     { sensitive: true, maxCaptureBytes: 256 * 1024, timeoutMs: 30_000 },
   );
   if (!dryRun) {
+    mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
     writeFileSync(statePath, `${JSON.stringify({ runId: summary.runId, deliveredAt: new Date().toISOString(), channel: 'telegram', target: config.telegramTarget }, null, 2)}\n`, { mode: 0o600 });
   }
   return result.stdout;
