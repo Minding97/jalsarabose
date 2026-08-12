@@ -4,8 +4,8 @@ const priorityOrder = new Map([
   ['highest', 0], ['high', 1], ['medium', 2], ['low', 3], ['lowest', 4],
 ]);
 
-export function shouldStopForDeadline({ now, deadline, force, once }) {
-  return now >= deadline.getTime() && !force && !once;
+export function shouldStopForDeadline({ now, deadline, force, once, processedCount = 0 }) {
+  return now >= deadline.getTime() && !once && (!force || processedCount > 0);
 }
 
 function stableRank(issue) {
@@ -39,13 +39,15 @@ export function buildNightlyPlan(issues, config) {
   );
   const remaining = new Set(byKey.keys());
   const ordered = [];
+  let cyclicKeys = [];
   while (remaining.size > 0) {
     const ready = [...remaining]
       .filter((key) => dependencies.get(key).every((dependency) => !remaining.has(dependency)))
       .map((key) => byKey.get(key))
       .sort(compareIssues);
     if (ready.length === 0) {
-      throw new Error(`Dependency cycle in nightly queue: ${[...remaining].sort().join(', ')}`);
+      cyclicKeys = [...remaining].sort();
+      break;
     }
     for (const issue of ready) {
       ordered.push(issue);
@@ -81,11 +83,21 @@ export function buildNightlyPlan(issues, config) {
       `   구현/검증: 티켓 설명·첨부 녹화를 재현하고 근본 원인을 수정한 뒤 회귀 테스트, qa:test, verify, 사후 녹화 재생을 수행합니다.`,
     ]),
     '',
-    `제외/보류: ${issues.length ? '현재 없음. 의존 순환이 발견되면 무계획 실행하지 않고 전체를 안전 중단합니다.' : '큐가 비어 있어 처리 항목 없음.'}`,
+    `제외/보류: ${cyclicKeys.length ? `의존 순환 ${cyclicKeys.join(', ')}. 비순환 항목만 실행합니다.` : issues.length ? '현재 없음.' : '큐가 비어 있어 처리 항목 없음.'}`,
     '예상 위험: 불완전한 티켓 설명/녹화, 외부 서비스 불안정, 테스트 비결정성, 의존 링크 누락, 야간 종료시각 도달로 인한 미처리.',
     '이 보고 후 별도 승인 대기 없이 위 고정 순서대로 실행합니다.',
   ];
-  return { issues: ordered, text: lines.join('\n'), counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
+  const text = lines.join('\n');
+  const ticketTexts = new Map(classifications.map(({ issue, kind, basis, dependencies: deps }, index) => [
+    issue.key,
+    [
+      `야간 자동수정 고정 계획에서 ${index + 1}/${ordered.length} 순서로 배정되었습니다.`,
+      `${issue.key} [${kind}] ${issue.fields?.summary ?? ''}`,
+      `근거: ${basis}; 우선순위 ${issue.fields?.priority?.name ?? '미지정'}${deps.length ? `; 선행 ${deps.join(', ')}` : ''}`,
+      '실행 중 새 티켓은 오늘 계획에 추가하지 않으며, 구현 후 회귀 테스트·qa:test·verify·사후 녹화 재생을 수행합니다.',
+    ].join('\n'),
+  ]));
+  return { issues: ordered, text, ticketTexts, cyclicKeys, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
 }
 
 function runReportCommand(command, text) {
@@ -106,7 +118,7 @@ export async function reportNightlyPlan({ jira, plan, config, dryRun = false, fe
   }
   const failures = [];
   try {
-    await Promise.all(plan.issues.map((issue) => jira.addComment(issue.key, plan.text)));
+    await Promise.all(plan.issues.map((issue) => jira.addComment(issue.key, plan.ticketTexts.get(issue.key))));
     console.log(`Nightly plan reported to ${plan.issues.length} Jira ticket(s).`);
     return 'jira';
   } catch (error) {

@@ -617,12 +617,14 @@ async function main() {
         console.log('QA queue is empty.');
         return;
     }
+    let processedCount = 0;
     for (const issue of plan.issues) {
-      if (shouldStopForDeadline({ now: Date.now(), deadline, force, once })) {
+      if (shouldStopForDeadline({ now: Date.now(), deadline, force, once, processedCount })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
       }
       await processIssue({ jira, github, config, issue, dryRun });
+      processedCount += 1;
       if (once || dryRun) {
         break;
       }

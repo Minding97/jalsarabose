@@ -18,12 +18,15 @@ test('builds a fixed dependency-first plan, then priority and creation order', (
   assert.match(plan.text, /전체 3건 · Task 2건 · Bug 1건/);
 });
 
-test('rejects dependency cycles instead of running without a plan', () => {
+test('excludes dependency cycles while retaining unrelated work', () => {
   const link = (key) => [{ type: { inward: 'is blocked by' }, inwardIssue: { key } }];
-  assert.throws(() => buildNightlyPlan([
+  const plan = buildNightlyPlan([
     issue('JAL-1', 'Task', 'High', '2026-01-01', link('JAL-2')),
     issue('JAL-2', 'Bug', 'High', '2026-01-01', link('JAL-1')),
-  ], config), /Dependency cycle/);
+    issue('JAL-3', 'Task', 'Low', '2026-01-02'),
+  ], config);
+  assert.deepEqual(plan.issues.map(({ key }) => key), ['JAL-3']);
+  assert.deepEqual(plan.cyclicKeys, ['JAL-1', 'JAL-2']);
 });
 
 test('reports to Jira without invoking fallback', async () => {
@@ -32,6 +35,17 @@ test('reports to Jira without invoking fallback', async () => {
   const channel = await reportNightlyPlan({ jira: { addComment: async (...args) => comments.push(args) }, plan, config });
   assert.equal(channel, 'jira');
   assert.equal(comments.length, 1);
+});
+
+test('Jira ticket comments do not disclose unrelated ticket summaries', async () => {
+  const comments = [];
+  const plan = buildNightlyPlan([
+    issue('JAL-1', 'Task', 'High', '2026-01-01'),
+    issue('JAL-2', 'Bug', 'Low', '2026-01-02'),
+  ], config);
+  await reportNightlyPlan({ jira: { addComment: async (...args) => comments.push(args) }, plan, config });
+  assert.doesNotMatch(comments.find(([key]) => key === 'JAL-1')[1], /JAL-2/);
+  assert.doesNotMatch(comments.find(([key]) => key === 'JAL-2')[1], /JAL-1/);
 });
 
 test('uses configured webhook when Jira reporting fails', async () => {
