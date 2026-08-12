@@ -135,25 +135,29 @@ export async function reportNightlyPlan({ jira, plan, config, dryRun = false, fe
     return 'dry-run';
   }
   const failures = [];
-  try {
-    await Promise.all(plan.reportIssues.map((issue) => jira.addComment(issue.key, plan.ticketTexts.get(issue.key))));
+  const commentResults = await Promise.allSettled(
+    plan.reportIssues.map((issue) => jira.addComment(issue.key, plan.ticketTexts.get(issue.key))),
+  );
+  const failedIssues = plan.reportIssues.filter((_issue, index) => commentResults[index].status === 'rejected');
+  if (failedIssues.length === 0) {
     console.log(`Nightly plan reported to ${plan.reportIssues.length} Jira ticket(s).`);
     return 'jira';
-  } catch (error) {
-    failures.push(`Jira: ${error.message}`);
-    console.error('Nightly plan Jira report failed; trying configured fallback:', error.message);
   }
+  const succeededCount = plan.reportIssues.length - failedIssues.length;
+  failures.push(`Jira: ${failedIssues.map(({ key }) => key).join(', ')} failed`);
+  console.error(`Nightly plan Jira report partially failed (${succeededCount} succeeded, ${failedIssues.length} failed); trying configured fallback.`);
+  const fallbackText = failedIssues.map((issue) => plan.ticketTexts.get(issue.key)).join('\n\n---\n\n');
   if (config.nightlyPlanWebhookUrl) {
     try {
       const response = await fetchImpl(config.nightlyPlanWebhookUrl, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: plan.text }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: fallbackText }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return 'webhook';
     } catch (error) { failures.push(`webhook: ${error.message}`); }
   }
   if (config.nightlyPlanCommand) {
-    try { await runReportCommand(config.nightlyPlanCommand, plan.text); return 'command'; }
+    try { await runReportCommand(config.nightlyPlanCommand, fallbackText); return 'command'; }
     catch (error) { failures.push(`command: ${error.message}`); }
   }
   console.error(`Nightly plan external reporting exhausted: ${failures.join('; ')}. Continuing with the locally logged fixed plan.`);

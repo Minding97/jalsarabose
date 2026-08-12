@@ -67,5 +67,22 @@ test('uses configured webhook when Jira reporting fails', async () => {
     fetchImpl: async (_url, init) => { payload = JSON.parse(init.body); return { ok: true }; },
   });
   assert.equal(channel, 'webhook');
-  assert.match(payload.text, /기타\/불명확 1건/);
+  assert.match(payload.text, /JAL-1/);
+});
+
+test('fallback reports only Jira tickets whose scoped comment failed', async () => {
+  const plan = buildNightlyPlan([
+    issue('JAL-1', 'Task', 'High', '2026-01-01'),
+    issue('JAL-2', 'Task', 'Low', '2026-01-02'),
+  ], config);
+  let payload;
+  const channel = await reportNightlyPlan({
+    jira: { addComment: async (key) => { if (key === 'JAL-2') throw new Error('denied'); } },
+    plan,
+    config: { ...config, nightlyPlanWebhookUrl: 'https://example.invalid/hook' },
+    fetchImpl: async (_url, init) => { payload = JSON.parse(init.body); return { ok: true }; },
+  });
+  assert.equal(channel, 'webhook');
+  assert.match(payload.text, /JAL-2/);
+  assert.doesNotMatch(payload.text, /JAL-1/);
 });
