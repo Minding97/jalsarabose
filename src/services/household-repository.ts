@@ -27,6 +27,7 @@ import {
   fridgeItemFromDoc,
   householdFromDoc,
   memberFromDoc,
+  monthlyBudgetFromDoc,
   userProfileFromDoc,
 } from '@/services/firestore-mappers';
 import { requireAuth, requireDb } from '@/services/firebase';
@@ -37,6 +38,7 @@ import {
   Household,
   HouseholdMember,
   HouseholdSnapshot,
+  MonthlyBudget,
   UserProfile,
 } from '@/domain/types';
 import { todayIso } from '@/utils/dates';
@@ -196,6 +198,7 @@ export function subscribeHouseholdSnapshot(
   const db = requireDb();
   let household: Household | null = null;
   let members: HouseholdMember[] = [];
+  let monthlyBudgets: MonthlyBudget[] = [];
   let expenses: Expense[] = [];
   let chores: Chore[] = [];
   let fridgeItems: FridgeItem[] = [];
@@ -205,7 +208,7 @@ export function subscribeHouseholdSnapshot(
       return;
     }
 
-    callback({ household, members, expenses, chores, fridgeItems });
+    callback({ household, members, monthlyBudgets, expenses, chores, fridgeItems });
   };
 
   const unsubs = [
@@ -225,6 +228,14 @@ export function subscribeHouseholdSnapshot(
       collection(db, 'households', householdId, 'members'),
       (snapshot) => {
         members = snapshot.docs.map(memberFromDoc);
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
+      query(collection(db, 'households', householdId, 'monthlyBudgets'), orderBy('month', 'desc')),
+      (snapshot) => {
+        monthlyBudgets = snapshot.docs.map(monthlyBudgetFromDoc);
         emit();
       },
       onError,
@@ -256,6 +267,13 @@ export function subscribeHouseholdSnapshot(
   ];
 
   return () => unsubs.forEach((unsubscribe) => unsubscribe());
+}
+
+export function saveMonthlyBudget(householdId: string, budget: Omit<MonthlyBudget, 'id'>) {
+  return setDoc(
+    doc(requireDb(), 'households', householdId, 'monthlyBudgets', budget.month),
+    omitUndefined(budget),
+  );
 }
 
 export function addExpense(householdId: string, expense: Omit<Expense, 'id'>) {

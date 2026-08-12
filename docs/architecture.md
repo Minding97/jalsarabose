@@ -30,6 +30,8 @@ Firebase Auth + Firestore를 MVP 백엔드로 사용한다.
 - `src/services`가 Auth/Firestore 접근을 담당한다.
 - `src/store/household-store.ts`가 인증 상태, 가구 상태, 실시간 구독, mock 모드를 관리한다.
 - `src/utils/dashboard.ts`는 Firestore에서 온 데이터와 mock 데이터를 같은 방식으로 계산한다.
+- `src/domain/monthly-budget.ts`는 2인 부담금 검증, 월 이동, 기존 지출 기반 잔액 계산을 담당한다.
+- `monthlyBudgets/{YYYY-MM}` 구독을 가구 스냅샷에 포함해 같은 가구의 두 구성원이 동일한 월 예산과 부담금을 실시간으로 받는다.
 
 ## 배포 전 필수 작업
 

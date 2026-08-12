@@ -14,8 +14,11 @@ import {
   FridgeItemInput,
   FridgeStatus,
   HouseholdSnapshot,
+  MonthlyBudget,
+  MonthlyBudgetInput,
   UserProfile,
 } from '@/domain/types';
+import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
 import {
   addChore,
   addExpense,
@@ -25,6 +28,7 @@ import {
   deleteExpense,
   deleteFridgeItem,
   joinHouseholdByInviteCode,
+  saveMonthlyBudget,
   signIn,
   signOutCurrentUser,
   signUp,
@@ -59,6 +63,7 @@ type HouseholdActions = {
   signOut: () => Promise<void>;
   createNewHousehold: (name: string) => Promise<void>;
   joinHousehold: (code: string) => Promise<void>;
+  saveMonthlyBudgetItem: (input: MonthlyBudgetInput) => Promise<void>;
   addExpenseItem: (input: ExpenseInput) => Promise<void>;
   updateExpenseItem: (expenseId: string, input: ExpenseInput) => Promise<void>;
   deleteExpenseItem: (expenseId: string) => Promise<void>;
@@ -88,6 +93,7 @@ const emptySnapshot: HouseholdSnapshot = {
     createdAt: todayIso(),
   },
   members: [],
+  monthlyBudgets: [],
   expenses: [],
   chores: [],
   fridgeItems: [],
@@ -260,6 +266,33 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
     try {
       await joinHouseholdByInviteCode(code, user);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  saveMonthlyBudgetItem: async (input) => {
+    const state = get();
+    const validationMessage = validateMonthlyBudgetInput(input, state.members);
+
+    if (validationMessage) {
+      throw new Error(validationMessage);
+    }
+
+    const budget = createMonthlyBudgetPayload(state, input);
+    if (useMocks) {
+      set((current) => ({
+        monthlyBudgets: [
+          ...current.monthlyBudgets.filter((item) => item.month !== input.month),
+          { ...budget, id: input.month },
+        ].sort((a, b) => b.month.localeCompare(a.month)),
+      }));
+      return;
+    }
+
+    try {
+      await saveMonthlyBudget(requireHouseholdId(state), budget);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
       throw error;
@@ -519,6 +552,24 @@ function createExpensePayload(state: StoreState, input: ExpenseInput): Omit<Expe
     householdId: requireHouseholdId(state),
     createdBy: user.uid,
     createdAt: todayIso(),
+  };
+}
+
+function createMonthlyBudgetPayload(
+  state: StoreState,
+  input: MonthlyBudgetInput,
+): Omit<MonthlyBudget, 'id'> {
+  const user = requireCurrentUser(state);
+  const existing = state.monthlyBudgets.find((budget) => budget.month === input.month);
+  const updatedAt = todayIso();
+
+  return {
+    ...input,
+    householdId: requireHouseholdId(state),
+    createdBy: existing?.createdBy ?? user.uid,
+    createdAt: existing?.createdAt ?? updatedAt,
+    updatedBy: user.uid,
+    updatedAt,
   };
 }
 

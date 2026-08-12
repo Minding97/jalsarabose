@@ -7,6 +7,7 @@ import {
   Household,
   HouseholdMember,
   ISODate,
+  MonthlyBudget,
   UserProfile,
 } from '@/domain/types';
 import { toIsoDate } from '@/utils/dates';
@@ -93,6 +94,31 @@ export function expenseFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Expens
     createdBy: String(data.createdBy ?? ''),
     createdAt: data.createdAt as ISODate,
     notificationEnabled: data.notificationEnabled !== false,
+  };
+}
+
+export function monthlyBudgetFromDoc(
+  doc: QueryDocumentSnapshot<DocumentData>,
+): MonthlyBudget {
+  const data = withIsoDates(doc.data(), ['createdAt', 'updatedAt']);
+  const rawContributions =
+    data.memberContributions && typeof data.memberContributions === 'object'
+      ? (data.memberContributions as Record<string, unknown>)
+      : {};
+
+  return {
+    id: doc.id,
+    householdId: String(data.householdId ?? ''),
+    month: String(data.month ?? doc.id),
+    totalAmount: Number(data.totalAmount ?? 0),
+    contributionMode: data.contributionMode === 'custom' ? 'custom' : 'equal',
+    memberContributions: Object.fromEntries(
+      Object.entries(rawContributions).map(([memberId, amount]) => [memberId, Number(amount)]),
+    ),
+    createdBy: String(data.createdBy ?? ''),
+    createdAt: data.createdAt as ISODate,
+    updatedBy: String(data.updatedBy ?? data.createdBy ?? ''),
+    updatedAt: data.updatedAt as ISODate,
   };
 }
 

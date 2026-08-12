@@ -105,6 +105,18 @@ service cloud.firestore {
         allow delete: if isHouseholdMember(householdId) && existingItemBelongsToHousehold(householdId);
       }
 
+      match /monthlyBudgets/{month} {
+        allow read: if isHouseholdMember(householdId);
+        allow create: if isHouseholdMember(householdId)
+          && itemBelongsToHousehold(householdId)
+          && request.resource.data.month == month;
+        allow update: if isHouseholdMember(householdId)
+          && itemStaysInHousehold(householdId)
+          && request.resource.data.month == month
+          && resource.data.month == month;
+        allow delete: if false;
+      }
+
       match /chores/{choreId} {
         allow read: if isHouseholdMember(householdId);
         allow create: if isHouseholdMember(householdId) && itemBelongsToHousehold(householdId);
