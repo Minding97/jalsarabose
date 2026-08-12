@@ -38,6 +38,10 @@ test('removes configured short credentials and bare account emails from failure 
   assert.doesNotMatch(text, /qa@example\.com|short-pass/);
 });
 
+test('removes arbitrary unconfigured email addresses from failure summaries', () => {
+  assert.equal(sanitizeNotificationFailure('Jira mentioned outsider@example.org'), 'Jira mentioned [EMAIL]');
+});
+
 test('fails closed when the required Telegram destination is not configured', async () => {
   await assert.rejects(
     notifyAutomationSummary({ config: {}, dryRun: true, summary: { kind: 'daily' } }),

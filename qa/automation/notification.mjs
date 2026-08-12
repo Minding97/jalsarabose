@@ -18,6 +18,7 @@ export function sanitizeNotificationFailure(value, sensitiveValues = []) {
   }
   return safe
     .split(/\r?\n/, 1)[0]
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[EMAIL]')
     .replace(/https?:\/\/\S+/gi, '[URL]')
     .replace(/\/(?:Users|private|var|tmp)\/\S+/g, '[PATH]')
     .replace(/\b[A-Za-z0-9_=-]{24,}\b/g, '[REDACTED]')
