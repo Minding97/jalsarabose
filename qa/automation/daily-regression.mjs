@@ -19,6 +19,7 @@ import { getAutomationBugLabel, JiraClient } from '../server/jira-client.mjs';
 import { redactSecrets } from '../server/sanitize.mjs';
 import { withExpoWebServer } from './app-server.mjs';
 import { runCommand } from './command.mjs';
+import { notifyAutomationSummary } from './notification.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(automationDirectory, '../..');
@@ -447,7 +448,7 @@ export async function runDailyRegression({ force = false, dryRun = false } = {})
   const previous = readState();
   if (shouldSkipDailyRegression(previous, today, force)) {
     console.log(`Daily regression already ran on ${today}; skipping.`);
-    return previous;
+    return { ...previous, skipped: true };
   }
 
   return withExclusiveLock(lockPath, () =>
@@ -479,13 +480,45 @@ export async function runDailyRegression({ force = false, dryRun = false } = {})
   );
 }
 
+export function buildDailyCompletionSummary({ result, runId, startedAt, completedAt }) {
+  const skipped = Boolean(result?.skipped);
+  return {
+    kind: 'daily', runId, startedAt, completedAt,
+    status: skipped ? '중복 실행 건너뜀' : result?.passed === false ? '실패' : '성공',
+    commitSha: result?.commitSha,
+    suites: skipped ? [] : result?.suites ?? [],
+    reports: skipped ? [] : result?.reports ?? [],
+    verification: skipped
+      ? '오늘 실행은 이미 완료되어 중복 테스트를 건너뜀'
+      : result?.suites?.length
+        ? `${result.suites.filter((suite) => suite.passed).length}/${result.suites.length} 통과`
+        : '실행된 테스트 없음',
+    failures: skipped ? [] : result?.suites?.filter((suite) => !suite.passed).map((suite) => suite.name) ?? [],
+    remainingQueue: [],
+    nextAction: skipped ? '다음 예약 실행 대기' : result?.passed === false ? '생성/연결된 Jira 버그 확인' : '다음 일일 회귀 테스트',
+  };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const flags = parseFlags(process.argv.slice(2));
-  runDailyRegression({
-    force: flags.has('--force'),
-    dryRun: flags.has('--dry-run'),
-  }).catch((error) => {
+  const dryRun = flags.has('--dry-run');
+  const startedAt = new Date().toISOString();
+  const runId = `daily-${startedAt}-${process.pid}`;
+  const config = loadQaConfig();
+  let summary;
+  try {
+    const result = await runDailyRegression({ force: flags.has('--force'), dryRun });
+    summary = buildDailyCompletionSummary({ result, runId, startedAt, completedAt: new Date().toISOString() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    process.exit(1);
-  });
+    summary = { kind: 'daily', runId, startedAt, completedAt: new Date().toISOString(), status: '실패', suites: [], reports: [], verification: '실행 중단', failures: [message], remainingQueue: [], nextAction: '로그와 환경 설정 확인 후 재실행' };
+    process.exitCode = 1;
+  }
+  try {
+    await notifyAutomationSummary({ summary, config, dryRun });
+  } catch (error) {
+    console.error(`Daily Telegram notification failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 }

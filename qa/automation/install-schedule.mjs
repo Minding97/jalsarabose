@@ -32,6 +32,32 @@ export function resolveNodeExecutable() {
   return existsSync(stableHomebrewPath) ? stableHomebrewPath : process.execPath;
 }
 
+export function resolveClaudeExecutable(
+  pathExists = existsSync,
+  candidates = ['/opt/homebrew/bin/claude', '/usr/local/bin/claude'],
+) {
+  for (const candidate of candidates) {
+    if (pathExists(candidate)) return candidate;
+  }
+  throw new Error('A current Claude CLI is required at a supported stable path.');
+}
+
+export function resolveOpenClawExecutable(
+  pathExists = existsSync,
+  candidates = [resolve(homedir(), 'Library/pnpm/openclaw'), '/opt/homebrew/bin/openclaw', '/usr/local/bin/openclaw'],
+) {
+  for (const candidate of candidates) {
+    if (pathExists(candidate)) return candidate;
+  }
+  throw new Error('OpenClaw CLI is required for scheduled Telegram completion notifications.');
+}
+
+export function validateScheduleConfig(config) {
+  if (!config.telegramTarget) {
+    throw new Error('Set QA_TELEGRAM_TARGET before installing required completion notifications.');
+  }
+}
+
 function escapeXml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -50,6 +76,8 @@ export function buildLaunchAgentPlist({
   stdoutPath,
   stderrPath,
   nodeExecutable = resolveNodeExecutable(),
+  claudeExecutable = resolveClaudeExecutable(),
+  openclawExecutable = resolveOpenClawExecutable(),
 }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -70,6 +98,10 @@ export function buildLaunchAgentPlist({
     <string>${escapeXml(pathValue)}</string>
     <key>CODEX_CLI_PATH</key>
     <string>/Applications/ChatGPT.app/Contents/Resources/codex</string>
+    <key>CLAUDE_CLI_PATH</key>
+    <string>${escapeXml(claudeExecutable)}</string>
+    <key>OPENCLAW_CLI_PATH</key>
+    <string>${escapeXml(openclawExecutable)}</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict>
@@ -144,6 +176,7 @@ function installAgent({ label, filename, script, hour, minute, logPrefix }, root
 
 export function installSchedules() {
   const config = loadQaConfig();
+  validateScheduleConfig(config);
   mkdirSync(launchAgentsDirectory, { recursive: true });
   mkdirSync(stateDirectory, { recursive: true });
   const root = prepareAutomationCheckout();
