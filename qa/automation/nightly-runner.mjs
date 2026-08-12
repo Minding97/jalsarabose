@@ -380,10 +380,17 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
   const parentKey = issueDetails.fields.parent?.key ?? issue.key;
   const parentDetails =
     parentKey === issue.key ? issueDetails : await jira.getIssue(parentKey);
-  const existingPullRequestNumber = getPullRequestNumber(issueDetails);
-  const existingPullRequest = existingPullRequestNumber
-    ? await github.getPullRequest(existingPullRequestNumber)
-    : null;
+  const existingPullRequestNumber = getPullRequestNumber(issueDetails)
+    ?? (issue.key !== parentKey ? getPullRequestNumber(parentDetails) : null);
+  let existingPullRequest = null;
+  try {
+    existingPullRequest = existingPullRequestNumber
+      ? await github.getPullRequest(existingPullRequestNumber)
+      : null;
+  } catch (error) {
+    console.error(`${issue.key} PR lookup failed:`, error instanceof Error ? error.message : String(error));
+    return false;
+  }
 
   if (issue.key !== parentKey && parentDetails.fields.status?.name === config.jiraDoneStatus) {
     if (dryRun) {

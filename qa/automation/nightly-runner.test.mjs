@@ -56,6 +56,21 @@ test('processIssue requires a merged PR when a completed parent closes its subta
   assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), false);
 });
 
+test('processIssue uses a completed parent merged PR for a subtask without its own PR label', async () => {
+  const issue = { key: 'JAL-48', fields: { parent: { key: 'JAL-47' }, summary: 'child', labels: [], status: { name: '해야 할 일' } } };
+  const parent = { key: 'JAL-47', fields: { labels: ['pr-16'], status: { name: '완료' } } };
+  const jira = jiraWith(issue, parent);
+  jira.getIssue = async (key) => key === 'JAL-47' ? parent : { ...issue, fields: { ...issue.fields, status: { name: '완료' } } };
+  const github = { getPullRequest: async () => ({ number: 16, state: 'MERGED' }) };
+  assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), true);
+});
+
+test('processIssue contains PR lookup failures to the affected ticket', async () => {
+  const issue = { key: 'JAL-47', fields: { summary: 'blocker', labels: ['pr-16'], status: { name: '해야 할 일' } } };
+  const github = { getPullRequest: async () => { throw new Error('offline'); } };
+  assert.equal(await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false }), false);
+});
+
 test('processIssue dry-run is conservative for unprocessed work', async () => {
   const issue = {
     key: 'JAL-47',
