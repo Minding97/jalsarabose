@@ -133,7 +133,7 @@ async function createWorktree(issue, existingPullRequest, branch) {
     await runCommand('git', ['fetch', 'origin', branch], { cwd: repositoryRoot });
     await runCommand(
       'git',
-      ['worktree', 'add', '--force', '-B', branch, worktree, `origin/${branch}`],
+      buildWorktreeAddArgs(worktree, `origin/${branch}`),
       { cwd: repositoryRoot },
     );
   } else {
@@ -158,6 +158,12 @@ async function createWorktree(issue, existingPullRequest, branch) {
   }
 
   return worktree;
+}
+
+export function buildWorktreeAddArgs(worktree, startPoint) {
+  // A PR branch may already be checked out in an operator worktree.  A detached
+  // automation worktree avoids resetting or claiming that shared local branch.
+  return ['worktree', 'add', '--force', '--detach', worktree, startPoint];
 }
 
 async function downloadRecordings(jira, issue, issueArtifacts, config) {
@@ -281,7 +287,7 @@ async function commitAndPush(issue, worktree, branch) {
   await runCommand('git', ['commit', '-m', `fix: ${issue.key} ${issue.fields.summary}`], {
     cwd: worktree,
   });
-  await runCommand('git', ['push', '-u', 'origin', branch], {
+  await runCommand('git', ['push', 'origin', `HEAD:refs/heads/${branch}`], {
     cwd: worktree,
     timeoutMs: 10 * 60 * 1000,
   });
