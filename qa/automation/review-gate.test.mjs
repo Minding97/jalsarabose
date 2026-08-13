@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ClaudeReviewFailure, classifyClaudeFailure } from './claude-review.mjs';
-import { redactReviewEvidence } from './codex-fallback-review.mjs';
+import { buildCodexExecArguments, redactReviewEvidence, redactReviewValue,
+  verifyCodexAuthentication, verifyCodexCompatibility } from './codex-fallback-review.mjs';
 import { finalizeReviewGate, runReviewGate } from './review-gate.mjs';
 
 test('only exact structured 429 and quota codes authorize fallback', () => {
@@ -58,4 +59,55 @@ test('fallback failure and blockers fail aggregate gate; success passes it idemp
 test('evidence redaction removes common credential forms', () => {
   const safe = redactReviewEvidence('Authorization: Bearer abcdef token=secretvalue sk-abcdefghijklmnop');
   assert.doesNotMatch(safe, /abcdef|secretvalue|abcdefghijklmnop/);
+});
+
+test('redacts adversarial secrets recursively before findings can be persisted or published', () => {
+  const raw = {
+    summary: 'Bearer top-secret-value',
+    findings: [{ title: 'token=raw-token', evidence: 'Authorization: Bearer nested-secret',
+      acceptanceCriteria: 'password=hunter2', file: 'safe.mjs', fingerprint: 'sk-abcdefghijklmnop' }],
+  };
+  const safe = redactReviewValue(raw);
+  const serialized = JSON.stringify(safe);
+  assert.doesNotMatch(serialized, /top-secret-value|raw-token|nested-secret|hunter2|abcdefghijklmnop/);
+  assert.match(serialized, /REDACTED/);
+  assert.match(JSON.stringify(raw), /nested-secret/, 'redaction must not mutate the parsed source object');
+});
+
+test('constructs exact isolated Codex argv and rejects unsupported combinations', () => {
+  const argv = buildCodexExecArguments({ workspacePath: '/review', resultPath: '/review/result.json' });
+  assert.deepEqual(argv, ['exec', '--model', 'gpt-5.6-sol', '--config',
+    'model_reasoning_effort="high"', '--sandbox', 'read-only', '--ephemeral',
+    '--ignore-user-config', '--ignore-rules', '--output-schema',
+    '/review/qa/automation/review-schema.json', '--output-last-message', '/review/result.json',
+    '--cd', '/review', '-']);
+  for (const override of [{ model: 'other' }, { effort: 'medium' }, { sandbox: 'workspace-write' },
+    { ephemeral: false }, { ignoreUserConfig: false }, { ignoreRules: false }]) {
+    assert.throws(() => buildCodexExecArguments({ workspacePath: '/r', resultPath: '/r/o', ...override }),
+      /isolation policy/);
+  }
+});
+
+test('checks every required Codex exec flag and fails on an unsupported CLI', async () => {
+  const expected = ['--model', '--config', '--sandbox', '--ephemeral', '--ignore-user-config',
+    '--ignore-rules', '--output-schema', '--output-last-message', '--cd'].join(' ');
+  await verifyCodexCompatibility('codex', {}, async (_command, args) => {
+    assert.deepEqual(args, ['exec', '--help']);
+    return { stdout: expected, stderr: '', exitCode: 0, timedOut: false };
+  });
+  await assert.rejects(verifyCodexCompatibility('codex', {}, async () => ({
+    stdout: '--model --sandbox', stderr: '', exitCode: 0, timedOut: false,
+  })), /missing required fallback flags/);
+});
+
+test('Codex authentication accepts an exact positive and fails closed for negatives', async () => {
+  const run = (stdout, exitCode = 0, timedOut = false) => async () => ({
+    stdout, stderr: '', exitCode, timedOut,
+  });
+  await verifyCodexAuthentication('codex', {}, run('Logged in using ChatGPT'));
+  for (const sample of ['Not logged in', 'logged in', 'User is logged in', '', 'Not Logged In\nLogged in']) {
+    await assert.rejects(verifyCodexAuthentication('codex', {}, run(sample)), /authentication unavailable/);
+  }
+  await assert.rejects(verifyCodexAuthentication('codex', {}, run('Logged in', 1)), /authentication unavailable/);
+  await assert.rejects(verifyCodexAuthentication('codex', {}, run('Logged in', 0, true)), /authentication unavailable/);
 });

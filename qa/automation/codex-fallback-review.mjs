@@ -9,6 +9,10 @@ import { runCommand } from './command.mjs';
 
 const MODEL = 'gpt-5.6-sol';
 const EFFORT = 'high';
+const REQUIRED_EXEC_FLAGS = [
+  '--model', '--config', '--sandbox', '--ephemeral', '--ignore-user-config', '--ignore-rules',
+  '--output-schema', '--output-last-message', '--cd',
+];
 const reviewSchema = z.object({
   summary: z.string().min(1).max(4000),
   findings: z.array(z.object({
@@ -27,11 +31,44 @@ export function redactReviewEvidence(value) {
     .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]');
 }
 
+export function redactReviewValue(value) {
+  if (typeof value === 'string') return redactReviewEvidence(value);
+  if (Array.isArray(value)) return value.map(redactReviewValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactReviewValue(item)]));
+  }
+  return value;
+}
+
+export function buildCodexExecArguments({ workspacePath, resultPath, model = MODEL, effort = EFFORT,
+  sandbox = 'read-only', ephemeral = true, ignoreUserConfig = true, ignoreRules = true }) {
+  if (model !== MODEL || effort !== EFFORT || sandbox !== 'read-only'
+      || !ephemeral || !ignoreUserConfig || !ignoreRules) {
+    throw new Error('Unsupported Codex fallback configuration; isolation policy is mandatory.');
+  }
+  return [
+    'exec', '--model', model, '--config', `model_reasoning_effort="${effort}"`,
+    '--sandbox', sandbox, '--ephemeral', '--ignore-user-config', '--ignore-rules',
+    '--output-schema', resolve(workspacePath, 'qa/automation/review-schema.json'),
+    '--output-last-message', resultPath, '--cd', workspacePath, '-',
+  ];
+}
+
+export async function verifyCodexCompatibility(codexPath, environment, runner = runCommand) {
+  const help = await runner(codexPath, ['exec', '--help'], {
+    sensitive: true, inheritEnv: false, env: environment, timeoutMs: 15_000,
+  });
+  const missing = REQUIRED_EXEC_FLAGS.filter((flag) => !help.stdout.includes(flag));
+  if (missing.length) throw new Error(`Codex CLI is missing required fallback flags: ${missing.join(', ')}`);
+}
+
 export async function verifyCodexAuthentication(codexPath, environment, runner = runCommand) {
   const status = await runner(codexPath, ['login', 'status'], {
     sensitive: true, inheritEnv: false, env: environment, allowFailure: true, timeoutMs: 15_000,
   });
-  if (status.timedOut || status.exitCode !== 0 || !/logged in/i.test(status.stdout + status.stderr)) {
+  const output = `${status.stdout}\n${status.stderr}`.trim();
+  if (status.timedOut || status.exitCode !== 0 || !/^Logged in using (?:ChatGPT|an API key|API key)\.?$/im.test(output)
+      || /\bnot logged in\b/i.test(output)) {
     throw new Error('Codex fallback authentication unavailable.');
   }
 }
@@ -44,6 +81,7 @@ export async function reviewWithCodexFallback({
     throw new Error('Codex fallback requires a verified Claude quota reason code.');
   }
   const environment = buildReviewEnvironment();
+  await verifyCodexCompatibility(codexPath, environment, runner);
   await verifyCodexAuthentication(codexPath, environment, runner);
   const version = await runner(codexPath, ['--version'], { sensitive: true, inheritEnv: false, env: environment });
   const workspace = await createReviewWorkspace(worktree, baseBranch);
@@ -58,20 +96,17 @@ export async function reviewWithCodexFallback({
       `Jira ticket: ${issueKey}. Pull request: #${pullRequestNumber}.`,
       'Do not edit files. P0-P2 findings block merge. Return only the required JSON.',
     ].join('\n');
-    const response = await runner(codexPath, [
-      'exec', '--model', MODEL, '-c', `model_reasoning_effort="${EFFORT}"`, '--sandbox', 'read-only',
-      '--ephemeral', '--ignore-user-config', '--ignore-rules', '--output-schema',
-      resolve(workspace.path, 'qa/automation/review-schema.json'), '--output-last-message', resultPath,
-      '--cd', workspace.path, '-',
-    ], { input: prompt, sensitive: true, timeoutMs: 30 * 60 * 1000, maxCaptureBytes: 1024 * 1024,
+    const response = await runner(codexPath, buildCodexExecArguments({
+      workspacePath: workspace.path, resultPath,
+    }), { input: prompt, sensitive: true, timeoutMs: 30 * 60 * 1000, maxCaptureBytes: 1024 * 1024,
       inheritEnv: false, env: environment });
     void response;
     const review = reviewSchema.parse(JSON.parse(readFileSync(resultPath, 'utf8')));
-    const evidence = {
+    const evidence = redactReviewValue({
       provider: 'codex', label: 'Codex fallback review', model: MODEL,
-      cliVersion: redactReviewEvidence(version.stdout.trim()), effort: EFFORT, fallbackReasonCode: reasonCode,
+      cliVersion: version.stdout.trim(), effort: EFFORT, fallbackReasonCode: reasonCode,
       commitSha: sha, diffSha256: diffHash, reviewedAt: now().toISOString(), result: review,
-    };
+    });
     writeFileSync(outputPath || resolve(worktree, 'qa-artifacts/codex-fallback-review.json'), `${JSON.stringify(evidence, null, 2)}\n`);
     return evidence;
   } finally {
