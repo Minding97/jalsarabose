@@ -306,13 +306,25 @@ async function commitAndPush(issue, worktree, branch) {
   return sha.stdout.trim();
 }
 
-function formatReviewComment(review, cycle, label = 'Claude QA Review') {
+function formatReviewComment(review, cycle, label = 'Claude QA Review', evidence = null) {
   const findings = review.findings
     .map(
       (finding) =>
         `- **${finding.severity} ${finding.title}** (${finding.file}:${finding.line ?? '-'})\n  ${finding.evidence}`,
     )
     .join('\n');
+  const audit = evidence ? [
+    '',
+    '### Fallback audit evidence',
+    `- Provider: ${evidence.provider}`,
+    `- Model: ${evidence.model}`,
+    `- CLI: ${evidence.cliVersion}`,
+    `- Reasoning effort: ${evidence.effort}`,
+    `- Fallback reason: ${evidence.fallbackReasonCode}`,
+    `- Commit: ${evidence.commitSha}`,
+    `- Diff SHA-256: ${evidence.diffSha256}`,
+    `- Reviewed at: ${evidence.reviewedAt}`,
+  ] : [];
   return [
     `<!-- qa-review-cycle:${cycle} -->`,
     `## ${label} ${cycle}/${maxReviewCycles}`,
@@ -320,6 +332,7 @@ function formatReviewComment(review, cycle, label = 'Claude QA Review') {
     review.summary,
     '',
     findings || '차단 또는 권고 사항이 없습니다.',
+    ...audit,
   ].join('\n');
 }
 
@@ -352,7 +365,7 @@ async function reviewAndGate({
   const gate = await runReviewGate({ github, sha, targetUrl, worktree, issueKey: parentKey,
     pullRequestNumber: pullRequest.number, issueArtifacts, cycle });
   const review = gate.review;
-  await github.comment(pullRequest.number, formatReviewComment(review, cycle, gate.label));
+  await github.comment(pullRequest.number, formatReviewComment(review, cycle, gate.label, gate.evidence));
 
   const blockers = review.findings.filter((finding) =>
     ['P0', 'P1', 'P2'].includes(finding.severity),
