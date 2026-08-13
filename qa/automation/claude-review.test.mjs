@@ -140,7 +140,7 @@ test('reviews a tracked-only clone with bounded noninteractive settings', async 
         '  passwordVisible: Boolean(process.env.QA_TEST_PASSWORD),',
         '};',
         `writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify(payload));`,
-        "const review = { summary: 'ok', findings: [] };",
+        "const review = { summary: 'Authorization: Bearer claude-primary-secret AKIAIOSFODNN7EXAMPLE', findings: [{ severity: 'P3', title: 'token=title-secret', evidence: 'password=evidence-secret postgres://db-user:db-password@db.example.com/app', file: 'safe.mjs', line: 1, acceptanceCriteria: 'api_key=acceptance-secret -----BEGIN PRIVATE KEY-----\\nprivate-material\\n-----END PRIVATE KEY-----', fingerprint: 'sk-abcdefghijklmnop' }] };",
         "process.stdout.write(JSON.stringify({ padding: 'x'.repeat(2.2 * 1024 * 1024), result: JSON.stringify(review) }));",
       ].join('\n'),
     );
@@ -159,7 +159,11 @@ test('reviews a tracked-only clone with bounded noninteractive settings', async 
     const maxTurnsIndex = invocation.args.indexOf('--max-turns');
     const permissionModeIndex = invocation.args.indexOf('--permission-mode');
 
-    assert.deepEqual(review, { summary: 'ok', findings: [] });
+    const serializedReview = JSON.stringify(review);
+    const persistedReview = readFileSync(outputPath, 'utf8');
+    assert.doesNotMatch(serializedReview, /claude-primary-secret|title-secret|evidence-secret|acceptance-secret|abcdefghijklmnop|AKIAIOSFODNN7EXAMPLE|db-password|private-material/);
+    assert.doesNotMatch(persistedReview, /claude-primary-secret|title-secret|evidence-secret|acceptance-secret|abcdefghijklmnop|AKIAIOSFODNN7EXAMPLE|db-password|private-material/);
+    assert.match(serializedReview, /REDACTED/);
     assert.equal(invocation.args[maxTurnsIndex + 1], '24');
     assert.equal(invocation.args[permissionModeIndex + 1], 'dontAsk');
     assert.equal(invocation.args.includes('--safe-mode'), true);

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, finalizeNightlySummary, processIssue, reviewAndGate } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -20,6 +20,33 @@ function jiraWith(issue, parent = issue) {
     transitionIssue: async (key, status) => transitions.push([key, status]),
   };
 }
+
+test('escalates a clean Codex fallback while the legacy required check is still active', async () => {
+  const transitions = [];
+  const comments = [];
+  let autoMergeAttempted = false;
+  const jira = {
+    transitionIssue: async (...args) => transitions.push(args),
+    addComment: async (...args) => comments.push(args),
+  };
+  const github = {
+    getReviewCycle: async () => 0,
+    comment: async () => {},
+    getRequiredStatusContexts: async () => ['verify', 'claude-review'],
+    enableAutoMerge: async () => { autoMergeAttempted = true; },
+  };
+  const result = await reviewAndGate({
+    jira, github, config: { ...config, jiraBaseUrl: 'https://jira.example' },
+    issue: { key: 'JAL-1' }, parentKey: 'JAL-1', worktree: '.', issueArtifacts: '.',
+    pullRequest: { number: 21 }, sha: 'abc',
+    runGate: async () => ({ provider: 'codex', label: 'Codex fallback review', review: { summary: 'clean', findings: [] } }),
+    finalizeGate: async () => {},
+  });
+  assert.deepEqual(result, { needsHuman: true, merged: false });
+  assert.deepEqual(transitions, [['JAL-1', '사람 확인 필요']]);
+  assert.match(comments[0][1], /required-check migration/);
+  assert.equal(autoMergeAttempted, false);
+});
 
 test('processIssue verifies an existing merged PR and Jira Done before success', async () => {
   const issue = {
@@ -105,6 +132,42 @@ test('captures the fixed plan snapshot and blocked queue before an empty actiona
   assert.equal(summary.status, '보류/지연');
   assert.match(summary.verification, /큐 스냅샷 2건 확인/);
   assert.match(summary.nextAction, /JAL-47, JAL-53/);
+});
+
+test('preserves blocked and cyclic ticket detail after the empty-plan final queue refresh', async () => {
+  const summary = { plannedTickets: [], ticketResults: [], failures: [], remainingQueue: [], lateOutcomes: [] };
+  const plan = { issues: [], reportIssues: [], externallyBlockedKeys: ['JAL-47'], cyclicKeys: ['JAL-53'], counts: { total: 2 } };
+  captureNightlyPlanSummary(summary, plan);
+  await finalizeNightlySummary({ summary, plan, jira: { searchReadyIssues: async () => [
+    { key: 'JAL-47', fields: { summary: 'blocked' } }, { key: 'JAL-53', fields: { summary: 'cycle' } },
+  ] } });
+  assert.match(summary.nextAction, /JAL-47, JAL-53/);
+});
+
+test('waits for recovered review follow-ups before building the one final summary', async () => {
+  const summary = {
+    plannedTickets: [], ticketResults: [{ key: 'JAL-47', result: '실패/미병합' }],
+    pullRequests: ['#17 대기'], failures: [], remainingQueue: [], lateOutcomes: [],
+  };
+  const plan = { issues: [{ key: 'JAL-47' }], reportIssues: [{ key: 'JAL-47' }] };
+  let reviewFinished = false;
+  const jira = {
+    searchReadyIssues: async () => {
+      assert.equal(reviewFinished, true, 'final queue must be read after Claude/Jira recovery finishes');
+      return [
+        { key: 'JAL-55', fields: { summary: 'P2 first blocker', labels: ['qa-review-followup'] } },
+        { key: 'JAL-56', fields: { summary: 'P2 second blocker', labels: ['qa-review-followup'] } },
+        { key: 'JAL-57', fields: { summary: 'unrelated new work', labels: [] } },
+      ];
+    },
+  };
+  await Promise.resolve().then(() => { reviewFinished = true; });
+  await finalizeNightlySummary({ summary, plan, jira });
+  assert.deepEqual(summary.remainingQueue, ['JAL-55', 'JAL-56', 'JAL-57']);
+  assert.deepEqual(summary.lateOutcomes, ['JAL-55=P2 first blocker', 'JAL-56=P2 second blocker', 'JAL-57=unrelated new work']);
+  assert.match(summary.failures.join('\n'), /JAL-55/);
+  assert.match(summary.failures.join('\n'), /JAL-56/);
+  assert.doesNotMatch(summary.failures.join('\n'), /JAL-57/);
 });
 
 test('labels only dry-runs or explicitly requested probes as test notifications', () => {

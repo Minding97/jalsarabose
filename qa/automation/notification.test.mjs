@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { formatAutomationSummary, isTestNotificationRun, notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
+import { buildNotificationDeliveryKey, formatAutomationSummary, isTestNotificationRun,
+  notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
   const text = formatAutomationSummary({
@@ -12,10 +13,12 @@ test('formats a concise nightly completion report with tickets, gates, queue, an
     plannedTickets: ['JAL-47', 'JAL-53'],
     ticketResults: [{ key: 'JAL-47', result: '성공' }, { key: 'JAL-53', result: '실패/미병합' }],
     pullRequests: ['#17 merged', '#18 대기'], verification: '1/2 완료', failures: ['JAL-53 review'],
+    reviewGates: ['JAL-47=Claude primary review / PASS', 'JAL-53=Codex fallback review / BLOCKED'],
     remainingQueue: ['JAL-53'], nextAction: '리뷰 재시도',
   });
   assert.match(text, /JAL-47=성공/);
   assert.match(text, /#18 대기/);
+  assert.match(text, /Codex fallback review \/ BLOCKED/);
   assert.match(text, /남은 큐: JAL-53/);
   assert.match(text, /다음 조치: 리뷰 재시도/);
 });
@@ -33,6 +36,23 @@ test('does not infer a test notification from force or once production rerun fla
   assert.equal(isTestNotificationRun({ dryRun: false, force: true, once: true }), false);
   assert.equal(isTestNotificationRun({ dryRun: true, force: true }), true);
   assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
+});
+
+test('delivery identity is stable within one run and distinct across identical scheduled runs', () => {
+  const base = { kind: 'nightly', status: '성공', ticketResults: [{ key: 'JAL-1', result: '성공' }] };
+  assert.equal(
+    buildNotificationDeliveryKey({ ...base, runId: 'first', startedAt: 'one', completedAt: 'two' }),
+    buildNotificationDeliveryKey({ ...base, runId: 'first', startedAt: 'three', completedAt: 'four', status: '실패' }),
+  );
+  assert.notEqual(
+    buildNotificationDeliveryKey({ ...base, runId: 'first' }),
+    buildNotificationDeliveryKey({ ...base, runId: 'second' }),
+  );
+  assert.notEqual(
+    buildNotificationDeliveryKey({ ...base, runId: 'first' }),
+    buildNotificationDeliveryKey({ ...base, runId: 'first', testNotification: true }),
+  );
+  assert.throws(() => buildNotificationDeliveryKey(base), /non-empty runId/);
 });
 
 test('redacts secrets from notification text', () => {
@@ -67,8 +87,9 @@ test('fails closed when the required Telegram destination is not configured', as
 test('records a successful delivery even when the state directory does not exist yet', async () => {
   const root = mkdtempSync(resolve(tmpdir(), 'qa-notification-test-'));
   const cli = resolve(root, 'openclaw');
+  const callsPath = resolve(root, 'calls');
   const statePath = resolve(root, 'new/state/delivery.json');
-  writeFileSync(cli, `#!/bin/sh\nprintf '{"ok":true}'\n`);
+  writeFileSync(cli, `#!/bin/sh\nprintf x >> "${callsPath}"\nprintf '{"ok":true,"result":{"message_id":917}}'\n`);
   chmodSync(cli, 0o755);
   try {
     await notifyAutomationSummary({
@@ -78,7 +99,31 @@ test('records a successful delivery even when the state directory does not exist
     });
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
     assert.equal(state.runId, 'daily-test');
+    assert.equal(typeof state.deliveryKey, 'string');
     assert.equal(state.target, '-5376954524');
+    assert.equal(state.messageId, 917);
+    assert.equal(state.status, 'delivered');
+    await notifyAutomationSummary({
+      config: { telegramTarget: '-5376954524', openclawCliPath: cli },
+      summary: { kind: 'daily', runId: 'daily-test', startedAt: 'start', completedAt: 'end', status: '성공' },
+      statePath,
+    });
+    assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).messageId, 917);
+    assert.equal(readFileSync(callsPath, 'utf8'), 'x');
+
+    await notifyAutomationSummary({
+      config: { telegramTarget: '-5376954524', openclawCliPath: cli },
+      summary: { kind: 'daily', runId: 'daily-test-2', startedAt: 'later', completedAt: 'later', status: '성공' },
+      statePath,
+    });
+    assert.equal(readFileSync(callsPath, 'utf8'), 'xx', 'identical outcomes from different runs must both notify');
+
+    await notifyAutomationSummary({
+      config: { telegramTarget: '-5376954524', openclawCliPath: cli }, dryRun: true,
+      summary: { kind: 'daily', runId: 'probe', startedAt: 'later', completedAt: 'later', status: '성공' },
+      statePath,
+    });
+    assert.equal(readFileSync(callsPath, 'utf8'), 'xxx');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

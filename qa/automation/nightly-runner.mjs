@@ -21,7 +21,7 @@ import { loadQaConfig } from '../server/config.mjs';
 import { decryptRecording } from '../server/crypto.mjs';
 import { issueMatchesReviewFindings, JiraClient } from '../server/jira-client.mjs';
 import { withExpoWebServer } from './app-server.mjs';
-import { reviewWithClaude } from './claude-review.mjs';
+import { finalizeReviewGate, runReviewGate } from './review-gate.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
@@ -97,6 +97,27 @@ export function captureNightlyPlanSummary(summary, plan) {
       ? `차단/순환 티켓 ${blocked.join(', ')}의 선행조건 확인`
       : '다음 야간 큐 대기';
   }
+  return summary;
+}
+
+export async function finalizeNightlySummary({ summary, plan, jira }) {
+  const priorNextAction = summary.nextAction;
+  const finalQueue = await jira.searchReadyIssues();
+  const planned = new Set(plan.reportIssues.map((issue) => issue.key));
+  summary.remainingQueue = finalQueue.map((issue) => issue.key);
+  summary.lateOutcomes = finalQueue
+    .filter((issue) => !planned.has(issue.key))
+    .map((issue) => `${issue.key}=${issue.fields?.summary ?? '새 후속 티켓'}`);
+  const reviewFollowups = finalQueue.filter((issue) => !planned.has(issue.key)
+    && issue.fields?.labels?.includes('qa-review-followup'));
+  summary.failures.push(...reviewFollowups.map((issue) =>
+    `Claude 리뷰 후속 차단: ${issue.key}=${issue.fields?.summary ?? '리뷰 후속 티켓'}`));
+  summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
+  if (summary.remainingQueue.length > 0 && summary.status === '성공') summary.status = '보류/지연';
+  summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인 · 최종 Jira 큐 ${summary.remainingQueue.length}건`;
+  summary.nextAction = plan.issues.length === 0 && (plan.externallyBlockedKeys.length || plan.cyclicKeys.length)
+    ? priorNextAction
+    : summary.remainingQueue.length ? '최종 남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
   return summary;
 }
 
@@ -289,20 +310,33 @@ async function commitAndPush(issue, worktree, branch) {
   return sha.stdout.trim();
 }
 
-function formatReviewComment(review, cycle) {
+function formatReviewComment(review, cycle, label = 'Claude QA Review', evidence = null) {
   const findings = review.findings
     .map(
       (finding) =>
         `- **${finding.severity} ${finding.title}** (${finding.file}:${finding.line ?? '-'})\n  ${finding.evidence}`,
     )
     .join('\n');
+  const audit = evidence ? [
+    '',
+    '### Fallback audit evidence',
+    `- Provider: ${evidence.provider}`,
+    `- Model: ${evidence.model}`,
+    `- CLI: ${evidence.cliVersion}`,
+    `- Reasoning effort: ${evidence.effort}`,
+    `- Fallback reason: ${evidence.fallbackReasonCode}`,
+    `- Commit: ${evidence.commitSha}`,
+    `- Diff SHA-256: ${evidence.diffSha256}`,
+    `- Reviewed at: ${evidence.reviewedAt}`,
+  ] : [];
   return [
     `<!-- qa-review-cycle:${cycle} -->`,
-    `## Claude QA Review ${cycle}/${maxReviewCycles}`,
+    `## ${label} ${cycle}/${maxReviewCycles}`,
     '',
     review.summary,
     '',
     findings || '차단 또는 권고 사항이 없습니다.',
+    ...audit,
   ].join('\n');
 }
 
@@ -318,7 +352,7 @@ async function waitForMerge(github, pullRequestNumber) {
   return false;
 }
 
-async function reviewAndGate({
+export async function reviewAndGate({
   jira,
   github,
   config,
@@ -328,35 +362,38 @@ async function reviewAndGate({
   issueArtifacts,
   pullRequest,
   sha,
+  runGate = runReviewGate,
+  finalizeGate = finalizeReviewGate,
 }) {
   const previousCycle = await github.getReviewCycle(pullRequest.number);
   const cycle = previousCycle + 1;
-  await github.setCommitStatus(
-    sha,
-    'pending',
-    `Claude review ${cycle}/${maxReviewCycles} running`,
-    `${config.jiraBaseUrl}/browse/${parentKey}`,
-  );
-  const review = await reviewWithClaude({
-    worktree,
-    issueKey: parentKey,
-    pullRequestNumber: pullRequest.number,
-    outputPath: resolve(issueArtifacts, `claude-review-${cycle}.json`),
-  });
-  await github.comment(pullRequest.number, formatReviewComment(review, cycle));
+  const targetUrl = `${config.jiraBaseUrl}/browse/${parentKey}`;
+  const gate = await runGate({ github, sha, targetUrl, worktree, issueKey: parentKey,
+    pullRequestNumber: pullRequest.number, issueArtifacts, cycle });
+  const review = gate.review;
+  await github.comment(pullRequest.number, formatReviewComment(review, cycle, gate.label, gate.evidence));
 
   const blockers = review.findings.filter((finding) =>
     ['P0', 'P1', 'P2'].includes(finding.severity),
   );
+  await finalizeGate({ github, sha, targetUrl, provider: gate.provider, blockers });
+
+  if (gate.provider === 'codex' && blockers.length === 0) {
+    const requiredContexts = await github.getRequiredStatusContexts();
+    if (requiredContexts.includes('claude-review')) {
+      await jira.transitionIssue(parentKey, config.jiraNeedsHumanStatus);
+      if (issue.key !== parentKey) {
+        await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
+      }
+      await jira.addComment(
+        parentKey,
+        'Codex fallback review는 통과했지만 required-check migration이 완료되지 않아 사람 확인으로 전환합니다.',
+      );
+      return { needsHuman: true, merged: false };
+    }
+  }
 
   if (blockers.length > 0) {
-    await github.setCommitStatus(
-      sha,
-      'failure',
-      `${blockers.length} blocking Claude finding(s)`,
-      `${config.jiraBaseUrl}/browse/${parentKey}`,
-    );
-
     if (cycle >= maxReviewCycles) {
       await jira.transitionIssue(parentKey, config.jiraNeedsHumanStatus);
       if (issue.key !== parentKey) {
@@ -364,7 +401,7 @@ async function reviewAndGate({
       }
       await jira.addComment(
         parentKey,
-        `Claude 리뷰 ${cycle}회 후에도 차단 항목 ${blockers.length}건이 남아 사람 확인이 필요합니다.`,
+        `${gate.label} ${cycle}회 후에도 차단 항목 ${blockers.length}건이 남아 사람 확인이 필요합니다.`,
       );
       return { needsHuman: true, merged: false };
     }
@@ -396,12 +433,6 @@ async function reviewAndGate({
     return { needsHuman: false, merged: false };
   }
 
-  await github.setCommitStatus(
-    sha,
-    'success',
-    'Claude review passed',
-    `${config.jiraBaseUrl}/browse/${parentKey}`,
-  );
   await github.enableAutoMerge(pullRequest.number);
   const merged = await waitForMerge(github, pullRequest.number);
   if (merged) {
@@ -647,7 +678,7 @@ async function main() {
       dryRun,
       explicitTestNotification: flags.has('--test-notification'),
     }),
-    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [],
+    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [], reviewGates: [], lateOutcomes: [],
     verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
   };
 
@@ -683,11 +714,10 @@ async function main() {
         console.log(plan.cyclicKeys.length || plan.externallyBlockedKeys.length
           ? 'QA queue has no actionable tickets; blocked/cyclic tickets were reported.'
           : 'QA queue is empty.');
-        return;
-    }
-    let processedCount = 0;
-    const successfulKeys = new Set();
-    for (const issue of plan.issues) {
+    } else {
+      let processedCount = 0;
+      const successfulKeys = new Set();
+      for (const issue of plan.issues) {
       if (shouldStopForDeadline({ now: Date.now(), deadline, force, once, processedCount })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
@@ -711,6 +741,10 @@ async function main() {
       }
       processedCount += 1;
       summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      if (github.lastReviewOutcome) {
+        summary.reviewGates.push(`${issue.key}=${github.lastReviewOutcome.label} / ${result.succeeded ? 'PASS' : 'BLOCKED'}`);
+        github.lastReviewOutcome = null;
+      }
       let prNumber = null;
       try {
         const refreshedIssue = dryRun ? issue : await jira.getIssue(issue.key);
@@ -724,16 +758,12 @@ async function main() {
         if (prNumber) summary.pullRequests.push(`#${prNumber} 확인 실패`);
         summary.failures.push(`${issue.key} PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (once || dryRun) {
-        break;
+        if (once || dryRun) {
+          break;
+        }
       }
     }
-    summary.remainingQueue = plan.issues
-      .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
-      .map((issue) => issue.key);
-    summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
-    summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
-    summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+    await finalizeNightlySummary({ summary, plan, jira });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const lockContention = error?.code === 'QA_NIGHTLY_LOCKED';

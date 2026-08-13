@@ -78,6 +78,7 @@ export function buildLaunchAgentPlist({
   nodeExecutable = resolveNodeExecutable(),
   claudeExecutable = resolveClaudeExecutable(),
   openclawExecutable = resolveOpenClawExecutable(),
+  scriptArguments = [],
 }) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -89,6 +90,7 @@ export function buildLaunchAgentPlist({
   <array>
     <string>${escapeXml(nodeExecutable)}</string>
     <string>${escapeXml(scriptPath)}</string>
+${scriptArguments.map((argument) => `    <string>${escapeXml(argument)}</string>`).join('\n')}
   </array>
   <key>WorkingDirectory</key>
   <string>${escapeXml(workingDirectory)}</string>
@@ -151,11 +153,12 @@ function prepareAutomationCheckout() {
   return automationRoot;
 }
 
-function installAgent({ label, filename, script, hour, minute, logPrefix }, root) {
+function installAgent({ label, filename, target, hour, minute, logPrefix }, root) {
   const plistPath = resolve(launchAgentsDirectory, filename);
   const plist = buildLaunchAgentPlist({
     label,
-    scriptPath: resolve(root, script),
+    scriptPath: resolve(root, 'qa/automation/operational-entrypoint.mjs'),
+    scriptArguments: [target],
     workingDirectory: root,
     hour,
     minute,
@@ -184,7 +187,7 @@ export function installSchedules() {
     {
       label: 'com.jalsarabose.qa-nightly',
       filename: 'com.jalsarabose.qa-nightly.plist',
-      script: 'qa/automation/nightly-runner.mjs',
+      target: 'nightly-runner.mjs',
       hour: 0,
       minute: 30,
       logPrefix: 'qa-nightly',
@@ -195,7 +198,7 @@ export function installSchedules() {
     {
       label: 'com.jalsarabose.qa-daily',
       filename: 'com.jalsarabose.qa-daily.plist',
-      script: 'qa/automation/daily-regression.mjs',
+      target: 'daily-regression.mjs',
       hour: config.dailyQaHour,
       minute: config.dailyQaMinute,
       logPrefix: 'qa-daily',
