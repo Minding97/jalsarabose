@@ -21,7 +21,7 @@ import { loadQaConfig } from '../server/config.mjs';
 import { decryptRecording } from '../server/crypto.mjs';
 import { issueMatchesReviewFindings, JiraClient } from '../server/jira-client.mjs';
 import { withExpoWebServer } from './app-server.mjs';
-import { reviewWithClaude } from './claude-review.mjs';
+import { finalizeReviewGate, runReviewGate } from './review-gate.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
@@ -306,7 +306,7 @@ async function commitAndPush(issue, worktree, branch) {
   return sha.stdout.trim();
 }
 
-function formatReviewComment(review, cycle) {
+function formatReviewComment(review, cycle, label = 'Claude QA Review') {
   const findings = review.findings
     .map(
       (finding) =>
@@ -315,7 +315,7 @@ function formatReviewComment(review, cycle) {
     .join('\n');
   return [
     `<!-- qa-review-cycle:${cycle} -->`,
-    `## Claude QA Review ${cycle}/${maxReviewCycles}`,
+    `## ${label} ${cycle}/${maxReviewCycles}`,
     '',
     review.summary,
     '',
@@ -348,32 +348,18 @@ async function reviewAndGate({
 }) {
   const previousCycle = await github.getReviewCycle(pullRequest.number);
   const cycle = previousCycle + 1;
-  await github.setCommitStatus(
-    sha,
-    'pending',
-    `Claude review ${cycle}/${maxReviewCycles} running`,
-    `${config.jiraBaseUrl}/browse/${parentKey}`,
-  );
-  const review = await reviewWithClaude({
-    worktree,
-    issueKey: parentKey,
-    pullRequestNumber: pullRequest.number,
-    outputPath: resolve(issueArtifacts, `claude-review-${cycle}.json`),
-  });
-  await github.comment(pullRequest.number, formatReviewComment(review, cycle));
+  const targetUrl = `${config.jiraBaseUrl}/browse/${parentKey}`;
+  const gate = await runReviewGate({ github, sha, targetUrl, worktree, issueKey: parentKey,
+    pullRequestNumber: pullRequest.number, issueArtifacts, cycle });
+  const review = gate.review;
+  await github.comment(pullRequest.number, formatReviewComment(review, cycle, gate.label));
 
   const blockers = review.findings.filter((finding) =>
     ['P0', 'P1', 'P2'].includes(finding.severity),
   );
+  await finalizeReviewGate({ github, sha, targetUrl, provider: gate.provider, blockers });
 
   if (blockers.length > 0) {
-    await github.setCommitStatus(
-      sha,
-      'failure',
-      `${blockers.length} blocking Claude finding(s)`,
-      `${config.jiraBaseUrl}/browse/${parentKey}`,
-    );
-
     if (cycle >= maxReviewCycles) {
       await jira.transitionIssue(parentKey, config.jiraNeedsHumanStatus);
       if (issue.key !== parentKey) {
@@ -381,7 +367,7 @@ async function reviewAndGate({
       }
       await jira.addComment(
         parentKey,
-        `Claude 리뷰 ${cycle}회 후에도 차단 항목 ${blockers.length}건이 남아 사람 확인이 필요합니다.`,
+        `${gate.label} ${cycle}회 후에도 차단 항목 ${blockers.length}건이 남아 사람 확인이 필요합니다.`,
       );
       return { needsHuman: true, merged: false };
     }
@@ -413,12 +399,6 @@ async function reviewAndGate({
     return { needsHuman: false, merged: false };
   }
 
-  await github.setCommitStatus(
-    sha,
-    'success',
-    'Claude review passed',
-    `${config.jiraBaseUrl}/browse/${parentKey}`,
-  );
   await github.enableAutoMerge(pullRequest.number);
   const merged = await waitForMerge(github, pullRequest.number);
   if (merged) {
@@ -664,7 +644,7 @@ async function main() {
       dryRun,
       explicitTestNotification: flags.has('--test-notification'),
     }),
-    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [], lateOutcomes: [],
+    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [], reviewGates: [], lateOutcomes: [],
     verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
   };
 
@@ -727,6 +707,10 @@ async function main() {
       }
       processedCount += 1;
       summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      if (github.lastReviewOutcome) {
+        summary.reviewGates.push(`${issue.key}=${github.lastReviewOutcome.label} / ${result.succeeded ? 'PASS' : 'BLOCKED'}`);
+        github.lastReviewOutcome = null;
+      }
       let prNumber = null;
       try {
         const refreshedIssue = dryRun ? issue : await jira.getIssue(issue.key);

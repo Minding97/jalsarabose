@@ -43,6 +43,7 @@ export function formatAutomationSummary(summary, sensitiveValues = []) {
     lines.push(`계획: ${lineList(summary.plannedTickets)}`);
     lines.push(`처리: ${lineList(summary.ticketResults?.map((item) => `${item.key}=${item.result}`))}`);
     lines.push(`PR/병합: ${lineList(summary.pullRequests)}`);
+    lines.push(`리뷰 제공자/게이트: ${lineList(summary.reviewGates)}`);
     lines.push(`후속 결과: ${lineList(summary.lateOutcomes)}`);
   } else {
     lines.push(`대상: main@${summary.commitSha?.slice(0, 8) || '확인 실패'}`);

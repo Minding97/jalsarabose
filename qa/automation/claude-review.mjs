@@ -152,6 +152,31 @@ function extractJson(value) {
   return JSON.parse(source);
 }
 
+export function classifyClaudeFailure({ exitCode, timedOut, stdout = '', stderr = '' }) {
+  if (timedOut) return { eligible: false, reasonCode: 'claude_timeout' };
+  const combined = `${stdout}\n${stderr}`;
+  try {
+    const parsed = JSON.parse(stdout || stderr);
+    const status = parsed?.status ?? parsed?.statusCode ?? parsed?.error?.status;
+    const code = parsed?.code ?? parsed?.error?.code;
+    if (status === 429) return { eligible: true, reasonCode: 'claude_http_429' };
+    if (['quota_exhausted', 'insufficient_quota', 'rate_limit_exceeded'].includes(code)) {
+      return { eligible: true, reasonCode: 'claude_quota_exhausted' };
+    }
+  } catch { /* Non-JSON text is intentionally not enough to authorize fallback. */ }
+  if (/\b(authentication|unauthorized|forbidden|login required)\b/i.test(combined)) {
+    return { eligible: false, reasonCode: 'claude_authentication' };
+  }
+  return { eligible: false, reasonCode: exitCode ? 'claude_execution_failure' : 'claude_ambiguous_failure' };
+}
+
+export class ClaudeReviewFailure extends Error {
+  constructor(classification) {
+    super(`Claude review failed: ${classification.reasonCode}`);
+    this.classification = classification;
+  }
+}
+
 export async function reviewWithClaude({
   worktree,
   baseBranch = 'origin/main',
@@ -202,8 +227,13 @@ export async function reviewWithClaude({
         maxCaptureBytes: 16 * 1024 * 1024,
         inheritEnv: false,
         env: reviewEnvironment,
+        allowFailure: true,
       },
     );
+
+    if (response.exitCode !== 0 || response.timedOut) {
+      throw new ClaudeReviewFailure(classifyClaudeFailure(response));
+    }
 
     const outer = JSON.parse(response.stdout);
     const review = reviewSchema.parse(extractJson(outer.result ?? response.stdout));

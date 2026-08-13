@@ -4,6 +4,10 @@ import { runCommand } from './command.mjs';
 const config = loadQaConfig();
 const repositoryPath = `repos/${config.githubRepository}`;
 
+if (process.env.QA_APPROVE_REVIEW_GATE_MIGRATION !== 'yes') {
+  throw new Error('Owner approval required: set QA_APPROVE_REVIEW_GATE_MIGRATION=yes to replace required claude-review with independent-review-gate.');
+}
+
 await runCommand('gh', ['auth', 'status']);
 await runCommand('gh', [
   'api',
@@ -25,7 +29,7 @@ await runCommand('gh', [
 const protection = {
   required_status_checks: {
     strict: true,
-    contexts: ['verify', 'claude-review'],
+    contexts: ['verify', 'independent-review-gate'],
   },
   enforce_admins: false,
   required_pull_request_reviews: {

@@ -41,6 +41,10 @@ export class GitHubClient {
   }
 
   async setCommitStatus(sha, state, description, targetUrl = '') {
+    return this.setReviewStatus(sha, 'claude-review', state, description, targetUrl);
+  }
+
+  async setReviewStatus(sha, context, state, description, targetUrl = '') {
     const args = [
       'api',
       `repos/${this.repository}/statuses/${sha}`,
@@ -49,7 +53,7 @@ export class GitHubClient {
       '-f',
       `state=${state}`,
       '-f',
-      'context=claude-review',
+      `context=${context}`,
       '-f',
       `description=${description.slice(0, 140)}`,
     ];
@@ -97,4 +101,3 @@ export class GitHubClient {
     }, 0);
   }
 }
-

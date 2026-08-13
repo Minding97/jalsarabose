@@ -12,10 +12,12 @@ test('formats a concise nightly completion report with tickets, gates, queue, an
     plannedTickets: ['JAL-47', 'JAL-53'],
     ticketResults: [{ key: 'JAL-47', result: '성공' }, { key: 'JAL-53', result: '실패/미병합' }],
     pullRequests: ['#17 merged', '#18 대기'], verification: '1/2 완료', failures: ['JAL-53 review'],
+    reviewGates: ['JAL-47=Claude primary review / PASS', 'JAL-53=Codex fallback review / BLOCKED'],
     remainingQueue: ['JAL-53'], nextAction: '리뷰 재시도',
   });
   assert.match(text, /JAL-47=성공/);
   assert.match(text, /#18 대기/);
+  assert.match(text, /Codex fallback review \/ BLOCKED/);
   assert.match(text, /남은 큐: JAL-53/);
   assert.match(text, /다음 조치: 리뷰 재시도/);
 });
