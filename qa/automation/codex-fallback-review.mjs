@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { buildReviewEnvironment, createReviewWorkspace } from './claude-review.mjs';
 import { runCommand } from './command.mjs';
+import { redactReviewValue } from './review-redaction.mjs';
 
 const MODEL = 'gpt-5.6-sol';
 const EFFORT = 'high';
@@ -22,23 +23,6 @@ const reviewSchema = z.object({
     fingerprint: z.string().min(1).max(200),
   })).max(20),
 });
-
-export function redactReviewEvidence(value) {
-  return String(value)
-    .replace(/authorization\s*:\s*Bearer\s+\S+/gi, 'Authorization: Bearer [REDACTED]')
-    .replace(/(authorization|api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,}]+/gi, '$1=[REDACTED]')
-    .replace(/\b(sk|gh[op]|xox[baprs])-[-A-Za-z0-9_]{12,}\b/g, '[REDACTED]')
-    .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]');
-}
-
-export function redactReviewValue(value) {
-  if (typeof value === 'string') return redactReviewEvidence(value);
-  if (Array.isArray(value)) return value.map(redactReviewValue);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactReviewValue(item)]));
-  }
-  return value;
-}
 
 export function buildCodexExecArguments({ workspacePath, resultPath, model = MODEL, effort = EFFORT,
   sandbox = 'read-only', ephemeral = true, ignoreUserConfig = true, ignoreRules = true }) {

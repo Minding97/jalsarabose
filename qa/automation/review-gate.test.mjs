@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ClaudeReviewFailure, classifyClaudeFailure } from './claude-review.mjs';
-import { buildCodexExecArguments, redactReviewEvidence, redactReviewValue,
-  verifyCodexAuthentication, verifyCodexCompatibility } from './codex-fallback-review.mjs';
+import { buildCodexExecArguments, verifyCodexAuthentication,
+  verifyCodexCompatibility } from './codex-fallback-review.mjs';
 import { finalizeReviewGate, runReviewGate } from './review-gate.mjs';
+import { redactReviewEvidence, redactReviewValue } from './review-redaction.mjs';
 
 test('only exact structured 429 and quota codes authorize fallback', () => {
   assert.deepEqual(classifyClaudeFailure({ exitCode: 1, stdout: '{"status":429}' }), { eligible: true, reasonCode: 'claude_http_429' });
@@ -18,6 +19,23 @@ function harness() {
   const calls = [];
   return { calls, github: { setReviewStatus: async (...args) => calls.push(args) } };
 }
+
+test('Claude success completes the primary path without invoking Codex', async () => {
+  const { calls, github } = harness();
+  let codexInvoked = false;
+  const review = { summary: 'clean', findings: [] };
+  const result = await runReviewGate({ github, sha: 'abc', targetUrl: 'jira', worktree: '.', issueKey: 'JAL-1',
+    pullRequestNumber: 21, issueArtifacts: '.', cycle: 1, claudeReview: async () => review,
+    codexReview: async () => { codexInvoked = true; },
+  });
+  assert.equal(result.provider, 'claude');
+  assert.equal(result.review, review);
+  assert.equal(codexInvoked, false);
+  assert.deepEqual(calls.map((call) => `${call[1]}:${call[2]}`), [
+    'review/claude-primary:pending', 'independent-review-gate:pending',
+    'review/claude-primary:success', 'review/codex-fallback:success',
+  ]);
+});
 
 test('verified quota failure invokes fallback and preserves notification/status ordering', async () => {
   const { calls, github } = harness();
@@ -54,6 +72,18 @@ test('fallback failure and blockers fail aggregate gate; success passes it idemp
   await finalizeReviewGate({ github: gate.github, sha: 'a', targetUrl: '', provider: 'codex', blockers: [] });
   assert.deepEqual(gate.calls.filter((call) => call[1] === 'independent-review-gate').map((call) => call[2]), ['failure', 'success']);
   assert.ok(gate.calls.filter((call) => call[1] === 'claude-review').every((call) => call[2] === 'failure'));
+});
+
+test('structured quota fallback propagates blocker findings to a failing aggregate gate', async () => {
+  const gate = harness();
+  const outcome = await runReviewGate({ github: gate.github, sha: 'a', targetUrl: '', worktree: '.', issueKey: 'J',
+    pullRequestNumber: 21, issueArtifacts: '.', cycle: 1,
+    claudeReview: async () => { throw new ClaudeReviewFailure({ eligible: true, reasonCode: 'claude_quota_exhausted' }); },
+    codexReview: async () => ({ result: { summary: 'blocked', findings: [{ severity: 'P2' }] } }),
+  });
+  await finalizeReviewGate({ github: gate.github, sha: 'a', targetUrl: '', provider: outcome.provider,
+    blockers: outcome.review.findings });
+  assert.ok(gate.calls.some((call) => call[1] === 'independent-review-gate' && call[2] === 'failure'));
 });
 
 test('surfaces a clean fallback held only by the legacy required-check migration', async () => {

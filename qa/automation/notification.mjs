@@ -83,8 +83,15 @@ function ledgerPathForRun(deliveryKey) {
 }
 
 export function buildNotificationDeliveryKey(summary) {
-  const { runId: _runId, startedAt: _startedAt, completedAt: _completedAt, ...stable } = summary;
-  return createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+  if (typeof summary.runId !== 'string' || !summary.runId.trim()) {
+    throw new Error('Automation notification delivery requires a non-empty runId.');
+  }
+  const runIdentity = {
+    kind: summary.kind,
+    runId: summary.runId,
+    testNotification: Boolean(summary.testNotification),
+  };
+  return createHash('sha256').update(JSON.stringify(runIdentity)).digest('hex');
 }
 
 export async function notifyAutomationSummary({ summary, config, dryRun = false, statePath }) {

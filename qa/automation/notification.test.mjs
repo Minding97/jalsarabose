@@ -38,14 +38,21 @@ test('does not infer a test notification from force or once production rerun fla
   assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
 });
 
-test('dedup fingerprint ignores retry metadata but changes for distinct outcomes and test probes', () => {
+test('delivery identity is stable within one run and distinct across identical scheduled runs', () => {
   const base = { kind: 'nightly', status: '성공', ticketResults: [{ key: 'JAL-1', result: '성공' }] };
   assert.equal(
     buildNotificationDeliveryKey({ ...base, runId: 'first', startedAt: 'one', completedAt: 'two' }),
-    buildNotificationDeliveryKey({ ...base, runId: 'retry', startedAt: 'three', completedAt: 'four' }),
+    buildNotificationDeliveryKey({ ...base, runId: 'first', startedAt: 'three', completedAt: 'four', status: '실패' }),
   );
-  assert.notEqual(buildNotificationDeliveryKey(base), buildNotificationDeliveryKey({ ...base, status: '실패' }));
-  assert.notEqual(buildNotificationDeliveryKey(base), buildNotificationDeliveryKey({ ...base, testNotification: true }));
+  assert.notEqual(
+    buildNotificationDeliveryKey({ ...base, runId: 'first' }),
+    buildNotificationDeliveryKey({ ...base, runId: 'second' }),
+  );
+  assert.notEqual(
+    buildNotificationDeliveryKey({ ...base, runId: 'first' }),
+    buildNotificationDeliveryKey({ ...base, runId: 'first', testNotification: true }),
+  );
+  assert.throws(() => buildNotificationDeliveryKey(base), /non-empty runId/);
 });
 
 test('redacts secrets from notification text', () => {
@@ -105,11 +112,18 @@ test('records a successful delivery even when the state directory does not exist
     assert.equal(readFileSync(callsPath, 'utf8'), 'x');
 
     await notifyAutomationSummary({
+      config: { telegramTarget: '-5376954524', openclawCliPath: cli },
+      summary: { kind: 'daily', runId: 'daily-test-2', startedAt: 'later', completedAt: 'later', status: '성공' },
+      statePath,
+    });
+    assert.equal(readFileSync(callsPath, 'utf8'), 'xx', 'identical outcomes from different runs must both notify');
+
+    await notifyAutomationSummary({
       config: { telegramTarget: '-5376954524', openclawCliPath: cli }, dryRun: true,
       summary: { kind: 'daily', runId: 'probe', startedAt: 'later', completedAt: 'later', status: '성공' },
       statePath,
     });
-    assert.equal(readFileSync(callsPath, 'utf8'), 'xx');
+    assert.equal(readFileSync(callsPath, 'utf8'), 'xxx');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

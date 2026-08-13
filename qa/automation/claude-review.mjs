@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 
 import { runCommand } from './command.mjs';
+import { redactReviewValue } from './review-redaction.mjs';
 
 const findingSchema = z.object({
   severity: z.enum(['P0', 'P1', 'P2', 'P3']),
@@ -236,7 +237,7 @@ export async function reviewWithClaude({
     }
 
     const outer = JSON.parse(response.stdout);
-    const review = reviewSchema.parse(extractJson(outer.result ?? response.stdout));
+    const review = redactReviewValue(reviewSchema.parse(extractJson(outer.result ?? response.stdout)));
     const destination = outputPath || resolve(worktree, 'qa-artifacts/claude-review.json');
     writeFileSync(destination, `${JSON.stringify(review, null, 2)}\n`);
     return review;
