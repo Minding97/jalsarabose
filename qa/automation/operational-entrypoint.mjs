@@ -20,6 +20,26 @@ function runChecked(command, args, options = {}) {
   return result.stdout?.trim() ?? '';
 }
 
+export function verifyOperationalCommitGate(target, run = runChecked) {
+  const repository = run('gh', ['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']);
+  const pullRequests = JSON.parse(run('gh', [
+    'api', `repos/${repository}/commits/${target}/pulls`,
+  ]) || '[]');
+  const mergedPullRequest = pullRequests.find((pullRequest) =>
+    pullRequest.merged_at && pullRequest.base?.ref === 'main' && pullRequest.head?.sha);
+  if (!mergedPullRequest) {
+    throw new Error(`Operational activation refused: ${target} is not associated with a merged main pull request.`);
+  }
+  const combined = JSON.parse(run('gh', [
+    'api', `repos/${repository}/commits/${mergedPullRequest.head.sha}/status`,
+  ]) || '{}');
+  const passed = combined.statuses?.some((status) =>
+    status.context === 'independent-review-gate' && status.state === 'success');
+  if (!passed) {
+    throw new Error(`Operational activation refused: ${target} lacks a passing independent-review-gate.`);
+  }
+}
+
 export function activateOperationalCheckout({ root = repositoryRoot, run = runChecked } = {}) {
   const status = run('git', ['status', '--porcelain'], { cwd: root });
   if (status) {
@@ -31,6 +51,7 @@ export function activateOperationalCheckout({ root = repositoryRoot, run = runCh
     : null;
   run('git', ['fetch', '--quiet', 'origin', 'main'], { cwd: root });
   const target = run('git', ['rev-parse', '--verify', 'origin/main^{commit}'], { cwd: root });
+  verifyOperationalCommitGate(target, run);
   run('git', ['checkout', '--quiet', '--detach', target], { cwd: root });
   const activated = run('git', ['rev-parse', 'HEAD'], { cwd: root });
   if (activated !== target) {

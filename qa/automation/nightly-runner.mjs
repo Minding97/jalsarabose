@@ -352,7 +352,7 @@ async function waitForMerge(github, pullRequestNumber) {
   return false;
 }
 
-async function reviewAndGate({
+export async function reviewAndGate({
   jira,
   github,
   config,
@@ -362,11 +362,13 @@ async function reviewAndGate({
   issueArtifacts,
   pullRequest,
   sha,
+  runGate = runReviewGate,
+  finalizeGate = finalizeReviewGate,
 }) {
   const previousCycle = await github.getReviewCycle(pullRequest.number);
   const cycle = previousCycle + 1;
   const targetUrl = `${config.jiraBaseUrl}/browse/${parentKey}`;
-  const gate = await runReviewGate({ github, sha, targetUrl, worktree, issueKey: parentKey,
+  const gate = await runGate({ github, sha, targetUrl, worktree, issueKey: parentKey,
     pullRequestNumber: pullRequest.number, issueArtifacts, cycle });
   const review = gate.review;
   await github.comment(pullRequest.number, formatReviewComment(review, cycle, gate.label, gate.evidence));
@@ -374,7 +376,22 @@ async function reviewAndGate({
   const blockers = review.findings.filter((finding) =>
     ['P0', 'P1', 'P2'].includes(finding.severity),
   );
-  await finalizeReviewGate({ github, sha, targetUrl, provider: gate.provider, blockers });
+  await finalizeGate({ github, sha, targetUrl, provider: gate.provider, blockers });
+
+  if (gate.provider === 'codex' && blockers.length === 0) {
+    const requiredContexts = await github.getRequiredStatusContexts();
+    if (requiredContexts.includes('claude-review')) {
+      await jira.transitionIssue(parentKey, config.jiraNeedsHumanStatus);
+      if (issue.key !== parentKey) {
+        await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
+      }
+      await jira.addComment(
+        parentKey,
+        'Codex fallback review는 통과했지만 required-check migration이 완료되지 않아 사람 확인으로 전환합니다.',
+      );
+      return { needsHuman: true, merged: false };
+    }
+  }
 
   if (blockers.length > 0) {
     if (cycle >= maxReviewCycles) {

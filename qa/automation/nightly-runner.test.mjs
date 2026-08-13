@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, finalizeNightlySummary, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, finalizeNightlySummary, processIssue, reviewAndGate } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -20,6 +20,33 @@ function jiraWith(issue, parent = issue) {
     transitionIssue: async (key, status) => transitions.push([key, status]),
   };
 }
+
+test('escalates a clean Codex fallback while the legacy required check is still active', async () => {
+  const transitions = [];
+  const comments = [];
+  let autoMergeAttempted = false;
+  const jira = {
+    transitionIssue: async (...args) => transitions.push(args),
+    addComment: async (...args) => comments.push(args),
+  };
+  const github = {
+    getReviewCycle: async () => 0,
+    comment: async () => {},
+    getRequiredStatusContexts: async () => ['verify', 'claude-review'],
+    enableAutoMerge: async () => { autoMergeAttempted = true; },
+  };
+  const result = await reviewAndGate({
+    jira, github, config: { ...config, jiraBaseUrl: 'https://jira.example' },
+    issue: { key: 'JAL-1' }, parentKey: 'JAL-1', worktree: '.', issueArtifacts: '.',
+    pullRequest: { number: 21 }, sha: 'abc',
+    runGate: async () => ({ provider: 'codex', label: 'Codex fallback review', review: { summary: 'clean', findings: [] } }),
+    finalizeGate: async () => {},
+  });
+  assert.deepEqual(result, { needsHuman: true, merged: false });
+  assert.deepEqual(transitions, [['JAL-1', '사람 확인 필요']]);
+  assert.match(comments[0][1], /required-check migration/);
+  assert.equal(autoMergeAttempted, false);
+});
 
 test('processIssue verifies an existing merged PR and Jira Done before success', async () => {
   const issue = {

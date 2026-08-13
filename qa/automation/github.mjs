@@ -88,6 +88,13 @@ export class GitHubClient {
     ]);
   }
 
+  async getRequiredStatusContexts(branch = 'main') {
+    const response = await runCommand('gh', [
+      'api', `repos/${this.repository}/branches/${branch}/protection/required_status_checks`,
+    ]);
+    return JSON.parse(response.stdout).contexts ?? [];
+  }
+
   async getReviewCycle(pullRequestNumber) {
     const response = await runCommand('gh', [
       'api',
