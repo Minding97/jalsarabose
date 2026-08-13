@@ -107,6 +107,16 @@ test('captures the fixed plan snapshot and blocked queue before an empty actiona
   assert.match(summary.nextAction, /JAL-47, JAL-53/);
 });
 
+test('preserves blocked and cyclic ticket detail after the empty-plan final queue refresh', async () => {
+  const summary = { plannedTickets: [], ticketResults: [], failures: [], remainingQueue: [], lateOutcomes: [] };
+  const plan = { issues: [], reportIssues: [], externallyBlockedKeys: ['JAL-47'], cyclicKeys: ['JAL-53'], counts: { total: 2 } };
+  captureNightlyPlanSummary(summary, plan);
+  await finalizeNightlySummary({ summary, plan, jira: { searchReadyIssues: async () => [
+    { key: 'JAL-47', fields: { summary: 'blocked' } }, { key: 'JAL-53', fields: { summary: 'cycle' } },
+  ] } });
+  assert.match(summary.nextAction, /JAL-47, JAL-53/);
+});
+
 test('waits for recovered review follow-ups before building the one final summary', async () => {
   const summary = {
     plannedTickets: [], ticketResults: [{ key: 'JAL-47', result: '실패/미병합' }],

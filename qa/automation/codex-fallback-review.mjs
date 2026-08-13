@@ -83,7 +83,9 @@ export async function reviewWithCodexFallback({
   const environment = buildReviewEnvironment();
   await verifyCodexCompatibility(codexPath, environment, runner);
   await verifyCodexAuthentication(codexPath, environment, runner);
-  const version = await runner(codexPath, ['--version'], { sensitive: true, inheritEnv: false, env: environment });
+  const version = await runner(codexPath, ['--version'], {
+    sensitive: true, inheritEnv: false, env: environment, timeoutMs: 15_000,
+  });
   const workspace = await createReviewWorkspace(worktree, baseBranch);
   const resultPath = resolve(workspace.path, '.codex-fallback-result.json');
   try {

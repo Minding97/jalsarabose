@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { formatAutomationSummary, isTestNotificationRun, notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
+import { buildStableNotificationRunId, formatAutomationSummary, isTestNotificationRun,
+  notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
   const text = formatAutomationSummary({
@@ -35,6 +36,13 @@ test('does not infer a test notification from force or once production rerun fla
   assert.equal(isTestNotificationRun({ dryRun: false, force: true, once: true }), false);
   assert.equal(isTestNotificationRun({ dryRun: true, force: true }), true);
   assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
+});
+
+test('uses one stable delivery ledger key across separate retries of a logical scheduled run', () => {
+  assert.equal(buildStableNotificationRunId('nightly', '2026-08-13T00:30:00.000Z'), 'nightly-2026-08-13');
+  assert.equal(buildStableNotificationRunId('nightly', '2026-08-13T06:59:59.000Z'), 'nightly-2026-08-13');
+  assert.equal(buildStableNotificationRunId('daily', '2026-08-13T09:00:00.000Z'), 'daily-2026-08-13');
+  assert.throws(() => buildStableNotificationRunId('other', '2026-08-13'), /supported kind/);
 });
 
 test('redacts secrets from notification text', () => {

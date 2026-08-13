@@ -51,4 +51,8 @@ export async function finalizeReviewGate({ github, sha, targetUrl, provider, blo
   // Keep the legacy required context truthful during the owner-approved migration window.
   await github.setReviewStatus(sha, 'claude-review', provider === 'claude' ? state : 'failure',
     provider === 'claude' ? description : 'Claude unavailable; Codex fallback is not this check', targetUrl);
+  if (provider === 'codex' && blockers.length === 0 && github.lastReviewOutcome) {
+    github.lastReviewOutcome.label = 'Codex fallback review (required-check migration pending)';
+    github.lastReviewOutcome.reasonCode = 'blocked_pending_migration';
+  }
 }

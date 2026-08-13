@@ -25,7 +25,7 @@ import { finalizeReviewGate, runReviewGate } from './review-gate.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
-import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
+import { buildStableNotificationRunId, isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 import {
   buildNightlyPlan,
   executePlannedIssue,
@@ -101,6 +101,7 @@ export function captureNightlyPlanSummary(summary, plan) {
 }
 
 export async function finalizeNightlySummary({ summary, plan, jira }) {
+  const priorNextAction = summary.nextAction;
   const finalQueue = await jira.searchReadyIssues();
   const planned = new Set(plan.reportIssues.map((issue) => issue.key));
   summary.remainingQueue = finalQueue.map((issue) => issue.key);
@@ -113,7 +114,9 @@ export async function finalizeNightlySummary({ summary, plan, jira }) {
   summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
   if (summary.remainingQueue.length > 0 && summary.status === '성공') summary.status = '보류/지연';
   summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인 · 최종 Jira 큐 ${summary.remainingQueue.length}건`;
-  summary.nextAction = summary.remainingQueue.length ? '최종 남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+  summary.nextAction = plan.issues.length === 0 && (plan.externallyBlockedKeys.length || plan.cyclicKeys.length)
+    ? priorNextAction
+    : summary.remainingQueue.length ? '최종 남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
   return summary;
 }
 
@@ -652,7 +655,7 @@ async function main() {
   const config = loadQaConfig();
   const startedAt = new Date().toISOString();
   const summary = {
-    kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
+    kind: 'nightly', runId: buildStableNotificationRunId('nightly', startedAt), startedAt,
     testNotification: isTestNotificationRun({
       dryRun,
       explicitTestNotification: flags.has('--test-notification'),

@@ -56,6 +56,14 @@ test('fallback failure and blockers fail aggregate gate; success passes it idemp
   assert.ok(gate.calls.filter((call) => call[1] === 'claude-review').every((call) => call[2] === 'failure'));
 });
 
+test('surfaces a clean fallback held only by the legacy required-check migration', async () => {
+  const gate = harness();
+  gate.github.lastReviewOutcome = { label: 'Codex fallback review' };
+  await finalizeReviewGate({ github: gate.github, sha: 'a', targetUrl: '', provider: 'codex', blockers: [] });
+  assert.equal(gate.github.lastReviewOutcome.reasonCode, 'blocked_pending_migration');
+  assert.match(gate.github.lastReviewOutcome.label, /migration pending/);
+});
+
 test('evidence redaction removes common credential forms', () => {
   const safe = redactReviewEvidence('Authorization: Bearer abcdef token=secretvalue sk-abcdefghijklmnop');
   assert.doesNotMatch(safe, /abcdef|secretvalue|abcdefghijklmnop/);

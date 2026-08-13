@@ -82,6 +82,14 @@ function ledgerPathForRun(runId) {
   return resolve(deliveryLedgerDirectory, `${digest}.json`);
 }
 
+export function buildStableNotificationRunId(kind, startedAt) {
+  const day = String(startedAt).slice(0, 10);
+  if (!['nightly', 'daily'].includes(kind) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    throw new Error('Notification run IDs require a supported kind and ISO start date.');
+  }
+  return `${kind}-${day}`;
+}
+
 export async function notifyAutomationSummary({ summary, config, dryRun = false, statePath }) {
   if (!config.telegramTarget) {
     throw new Error('QA_TELEGRAM_TARGET is required for automation completion notifications.');
