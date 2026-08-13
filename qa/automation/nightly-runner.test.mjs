@@ -4,13 +4,20 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('checks out an existing PR head without claiming its local branch', () => {
+  assert.deepEqual(
+    buildWorktreeAddArgs('/tmp/JAL-55', 'origin/codex/JAL-47-p0'),
+    ['worktree', 'add', '--force', '--detach', '/tmp/JAL-55', 'origin/codex/JAL-47-p0'],
+  );
+});
 
 function jiraWith(issue, parent = issue) {
   const transitions = [];
