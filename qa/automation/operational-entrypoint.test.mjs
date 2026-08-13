@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { activateOperationalCheckout, runOperationalTarget } from './operational-entrypoint.mjs';
+import { acquireActivationLock, activateOperationalCheckout, runOperationalTarget } from './operational-entrypoint.mjs';
 
 test('activates the exact fetched origin/main commit before starting the target', () => {
   const root = mkdtempSync(resolve(tmpdir(), 'jalsarabose-activation-'));
@@ -38,4 +38,23 @@ test('refuses activation when the operational checkout contains local changes', 
 
 test('rejects arbitrary executable targets', () => {
   assert.throws(() => runOperationalTarget('../../other.mjs'), /Unsupported operational target/);
+});
+
+test('holds the activation lock until the operational target exits', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'jalsarabose-activation-lock-'));
+  const lockPath = resolve(root, 'activation.lock');
+  writeFileSync(resolve(root, 'package-lock.json'), 'same');
+  const run = (_command, args) => {
+    if (args[0] === 'status') return '';
+    if (args[0] === 'rev-parse' && args[1] === '--verify') return 'abc123';
+    if (args[0] === 'rev-parse') return 'abc123';
+    if (args[0]?.endsWith('nightly-runner.mjs')) {
+      assert.throws(() => acquireActivationLock(lockPath), /Another operational activation is active/);
+    }
+    return '';
+  };
+  runOperationalTarget('nightly-runner.mjs', [], { root, run, lockPath });
+  const descriptor = acquireActivationLock(lockPath);
+  closeSync(descriptor);
+  unlinkSync(lockPath);
 });

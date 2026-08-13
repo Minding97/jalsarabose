@@ -46,17 +46,25 @@ export function activateOperationalCheckout({ root = repositoryRoot, run = runCh
   return activated;
 }
 
-export function runOperationalTarget(target, args = [], { root = repositoryRoot, run = runChecked } = {}) {
+export function runOperationalTarget(target, args = [], {
+  root = repositoryRoot, run = runChecked, lockPath = activationLockPath,
+} = {}) {
   if (!allowedTargets.has(target)) {
     throw new Error(`Unsupported operational target: ${target}`);
   }
-  const activated = activateOperationalCheckout({ root, run });
-  console.log(`Operational checkout activated at ${activated}.`);
-  run(process.execPath, [resolve(root, 'qa/automation', target), ...args], {
-    cwd: root,
-    stdio: 'inherit',
-    encoding: undefined,
-  });
+  const descriptor = acquireActivationLock(lockPath);
+  try {
+    const activated = activateOperationalCheckout({ root, run });
+    console.log(`Operational checkout activated at ${activated}.`);
+    run(process.execPath, [resolve(root, 'qa/automation', target), ...args], {
+      cwd: root,
+      stdio: 'inherit',
+      encoding: undefined,
+    });
+  } finally {
+    closeSync(descriptor);
+    unlinkSync(lockPath);
+  }
 }
 
 export function acquireActivationLock(path = activationLockPath) {
@@ -80,28 +88,11 @@ export function acquireActivationLock(path = activationLockPath) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  let descriptor;
   try {
-    descriptor = acquireActivationLock();
     const [target, ...args] = process.argv.slice(2);
-    if (!allowedTargets.has(target)) {
-      throw new Error(`Unsupported operational target: ${target}`);
-    }
-    const activated = activateOperationalCheckout();
-    closeSync(descriptor);
-    descriptor = undefined;
-    unlinkSync(activationLockPath);
-    console.log(`Operational checkout activated at ${activated}.`);
-    runChecked(process.execPath, [resolve(repositoryRoot, 'qa/automation', target), ...args], {
-      cwd: repositoryRoot,
-      stdio: 'inherit',
-      encoding: undefined,
-    });
+    runOperationalTarget(target, args);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
-  } finally {
-    if (descriptor !== undefined) closeSync(descriptor);
-    if (descriptor !== undefined) unlinkSync(activationLockPath);
   }
 }

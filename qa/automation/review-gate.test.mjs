@@ -112,6 +112,17 @@ test('redacts adversarial secrets recursively before findings can be persisted o
   assert.match(JSON.stringify(raw), /nested-secret/, 'redaction must not mutate the parsed source object');
 });
 
+test('redacts a credential value without destroying finding evidence context', () => {
+  const safe = redactReviewValue({
+    severity: 'P1',
+    file: 'config.mjs',
+    evidence: 'At config.mjs:12, const password=short-dummy-value; is committed.',
+  });
+  assert.equal(safe.file, 'config.mjs');
+  assert.match(safe.evidence, /At config\.mjs:12, const password=\[REDACTED\]; is committed\./);
+  assert.doesNotMatch(safe.evidence, /short-dummy-value/);
+});
+
 test('constructs exact isolated Codex argv and rejects unsupported combinations', () => {
   const argv = buildCodexExecArguments({ workspacePath: '/review', resultPath: '/review/result.json' });
   assert.deepEqual(argv, ['exec', '--model', 'gpt-5.6-sol', '--config',
@@ -143,6 +154,8 @@ test('Codex authentication accepts an exact positive and fails closed for negati
     stdout, stderr: '', exitCode, timedOut,
   });
   await verifyCodexAuthentication('codex', {}, run('Logged in using ChatGPT'));
+  await verifyCodexAuthentication('codex', {}, run('Codex CLI\nLogged in using ChatGPT (account@example.com)'));
+  await verifyCodexAuthentication('codex', {}, run('Logged in using an API key.'));
   for (const sample of ['Not logged in', 'logged in', 'User is logged in', '', 'Not Logged In\nLogged in']) {
     await assert.rejects(verifyCodexAuthentication('codex', {}, run(sample)), /authentication unavailable/);
   }

@@ -51,7 +51,7 @@ export async function verifyCodexAuthentication(codexPath, environment, runner =
     sensitive: true, inheritEnv: false, env: environment, allowFailure: true, timeoutMs: 15_000,
   });
   const output = `${status.stdout}\n${status.stderr}`.trim();
-  if (status.timedOut || status.exitCode !== 0 || !/^Logged in using (?:ChatGPT|an API key|API key)\.?$/im.test(output)
+  if (status.timedOut || status.exitCode !== 0 || !/^Logged in using (?:ChatGPT|an API key|API key)\b/im.test(output)
       || /\bnot logged in\b/i.test(output)) {
     throw new Error('Codex fallback authentication unavailable.');
   }
