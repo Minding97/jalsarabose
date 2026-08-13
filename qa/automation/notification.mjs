@@ -77,17 +77,14 @@ function parseDeliveryEvidence(stdout) {
   }
 }
 
-function ledgerPathForRun(runId) {
-  const digest = createHash('sha256').update(runId).digest('hex');
+function ledgerPathForRun(deliveryKey) {
+  const digest = createHash('sha256').update(deliveryKey).digest('hex');
   return resolve(deliveryLedgerDirectory, `${digest}.json`);
 }
 
-export function buildStableNotificationRunId(kind, startedAt) {
-  const day = String(startedAt).slice(0, 10);
-  if (!['nightly', 'daily'].includes(kind) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
-    throw new Error('Notification run IDs require a supported kind and ISO start date.');
-  }
-  return `${kind}-${day}`;
+export function buildNotificationDeliveryKey(summary) {
+  const { runId: _runId, startedAt: _startedAt, completedAt: _completedAt, ...stable } = summary;
+  return createHash('sha256').update(JSON.stringify(stable)).digest('hex');
 }
 
 export async function notifyAutomationSummary({ summary, config, dryRun = false, statePath }) {
@@ -101,7 +98,8 @@ export async function notifyAutomationSummary({ summary, config, dryRun = false,
     config.jiraApiToken,
     config.recordingKey,
   ]);
-  const evidencePath = statePath ?? ledgerPathForRun(summary.runId);
+  const deliveryKey = buildNotificationDeliveryKey(summary);
+  const evidencePath = statePath ?? ledgerPathForRun(deliveryKey);
   const lockPath = `${evidencePath}.lock`;
   mkdirSync(dirname(evidencePath), { recursive: true, mode: 0o700 });
   let lock;
@@ -112,9 +110,9 @@ export async function notifyAutomationSummary({ summary, config, dryRun = false,
     throw error;
   }
   try {
-    if (existsSync(evidencePath)) {
+    if (!dryRun && existsSync(evidencePath)) {
       const prior = JSON.parse(readFileSync(evidencePath, 'utf8'));
-      if (prior.runId === summary.runId && prior.status === 'delivered') return 'already-delivered';
+      if (prior.deliveryKey === deliveryKey && prior.status === 'delivered') return 'already-delivered';
     }
     const result = await runCommand(
       config.openclawCliPath || 'openclaw',
@@ -124,6 +122,7 @@ export async function notifyAutomationSummary({ summary, config, dryRun = false,
     if (!dryRun) {
       const evidence = {
         runId: summary.runId,
+        deliveryKey,
         status: 'delivered',
         deliveredAt: new Date().toISOString(),
         channel: 'telegram',

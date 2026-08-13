@@ -19,7 +19,7 @@ import { getAutomationBugLabel, JiraClient } from '../server/jira-client.mjs';
 import { redactSecrets } from '../server/sanitize.mjs';
 import { withExpoWebServer } from './app-server.mjs';
 import { runCommand } from './command.mjs';
-import { buildStableNotificationRunId, isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
+import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(automationDirectory, '../..');
@@ -516,7 +516,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     explicitTestNotification: flags.has('--test-notification'),
   });
   const startedAt = new Date().toISOString();
-  const runId = buildStableNotificationRunId('daily', startedAt);
+  const runId = `daily-${startedAt}-${process.pid}`;
   const config = loadQaConfig();
   let summary;
   try {

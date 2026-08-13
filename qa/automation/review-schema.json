@@ -35,7 +35,8 @@
             "type": "string"
           },
           "line": {
-            "type": ["integer", "null"]
+            "type": ["integer", "null"],
+            "minimum": 1
           },
           "acceptanceCriteria": {
             "type": "string"
@@ -48,4 +49,3 @@
     }
   }
 }
-

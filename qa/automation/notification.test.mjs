@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { buildStableNotificationRunId, formatAutomationSummary, isTestNotificationRun,
+import { buildNotificationDeliveryKey, formatAutomationSummary, isTestNotificationRun,
   notifyAutomationSummary, sanitizeNotificationFailure } from './notification.mjs';
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
@@ -38,11 +38,14 @@ test('does not infer a test notification from force or once production rerun fla
   assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
 });
 
-test('uses one stable delivery ledger key across separate retries of a logical scheduled run', () => {
-  assert.equal(buildStableNotificationRunId('nightly', '2026-08-13T00:30:00.000Z'), 'nightly-2026-08-13');
-  assert.equal(buildStableNotificationRunId('nightly', '2026-08-13T06:59:59.000Z'), 'nightly-2026-08-13');
-  assert.equal(buildStableNotificationRunId('daily', '2026-08-13T09:00:00.000Z'), 'daily-2026-08-13');
-  assert.throws(() => buildStableNotificationRunId('other', '2026-08-13'), /supported kind/);
+test('dedup fingerprint ignores retry metadata but changes for distinct outcomes and test probes', () => {
+  const base = { kind: 'nightly', status: '성공', ticketResults: [{ key: 'JAL-1', result: '성공' }] };
+  assert.equal(
+    buildNotificationDeliveryKey({ ...base, runId: 'first', startedAt: 'one', completedAt: 'two' }),
+    buildNotificationDeliveryKey({ ...base, runId: 'retry', startedAt: 'three', completedAt: 'four' }),
+  );
+  assert.notEqual(buildNotificationDeliveryKey(base), buildNotificationDeliveryKey({ ...base, status: '실패' }));
+  assert.notEqual(buildNotificationDeliveryKey(base), buildNotificationDeliveryKey({ ...base, testNotification: true }));
 });
 
 test('redacts secrets from notification text', () => {
@@ -89,6 +92,7 @@ test('records a successful delivery even when the state directory does not exist
     });
     const state = JSON.parse(readFileSync(statePath, 'utf8'));
     assert.equal(state.runId, 'daily-test');
+    assert.equal(typeof state.deliveryKey, 'string');
     assert.equal(state.target, '-5376954524');
     assert.equal(state.messageId, 917);
     assert.equal(state.status, 'delivered');
@@ -99,6 +103,13 @@ test('records a successful delivery even when the state directory does not exist
     });
     assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).messageId, 917);
     assert.equal(readFileSync(callsPath, 'utf8'), 'x');
+
+    await notifyAutomationSummary({
+      config: { telegramTarget: '-5376954524', openclawCliPath: cli }, dryRun: true,
+      summary: { kind: 'daily', runId: 'probe', startedAt: 'later', completedAt: 'later', status: '성공' },
+      statePath,
+    });
+    assert.equal(readFileSync(callsPath, 'utf8'), 'xx');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

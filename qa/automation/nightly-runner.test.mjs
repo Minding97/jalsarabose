@@ -128,17 +128,19 @@ test('waits for recovered review follow-ups before building the one final summar
     searchReadyIssues: async () => {
       assert.equal(reviewFinished, true, 'final queue must be read after Claude/Jira recovery finishes');
       return [
-        { key: 'JAL-55', fields: { summary: 'P2 first blocker' } },
-        { key: 'JAL-56', fields: { summary: 'P2 second blocker' } },
+        { key: 'JAL-55', fields: { summary: 'P2 first blocker', labels: ['qa-review-followup'] } },
+        { key: 'JAL-56', fields: { summary: 'P2 second blocker', labels: ['qa-review-followup'] } },
+        { key: 'JAL-57', fields: { summary: 'unrelated new work', labels: [] } },
       ];
     },
   };
   await Promise.resolve().then(() => { reviewFinished = true; });
   await finalizeNightlySummary({ summary, plan, jira });
-  assert.deepEqual(summary.remainingQueue, ['JAL-55', 'JAL-56']);
-  assert.deepEqual(summary.lateOutcomes, ['JAL-55=P2 first blocker', 'JAL-56=P2 second blocker']);
+  assert.deepEqual(summary.remainingQueue, ['JAL-55', 'JAL-56', 'JAL-57']);
+  assert.deepEqual(summary.lateOutcomes, ['JAL-55=P2 first blocker', 'JAL-56=P2 second blocker', 'JAL-57=unrelated new work']);
   assert.match(summary.failures.join('\n'), /JAL-55/);
   assert.match(summary.failures.join('\n'), /JAL-56/);
+  assert.doesNotMatch(summary.failures.join('\n'), /JAL-57/);
 });
 
 test('labels only dry-runs or explicitly requested probes as test notifications', () => {

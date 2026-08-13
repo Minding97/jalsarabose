@@ -25,7 +25,7 @@ import { finalizeReviewGate, runReviewGate } from './review-gate.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
-import { buildStableNotificationRunId, isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
+import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 import {
   buildNightlyPlan,
   executePlannedIssue,
@@ -108,9 +108,10 @@ export async function finalizeNightlySummary({ summary, plan, jira }) {
   summary.lateOutcomes = finalQueue
     .filter((issue) => !planned.has(issue.key))
     .map((issue) => `${issue.key}=${issue.fields?.summary ?? '새 후속 티켓'}`);
-  if (summary.lateOutcomes.length > 0) {
-    summary.failures.push(...summary.lateOutcomes.map((outcome) => `Claude 리뷰 후속 차단: ${outcome}`));
-  }
+  const reviewFollowups = finalQueue.filter((issue) => !planned.has(issue.key)
+    && issue.fields?.labels?.includes('qa-review-followup'));
+  summary.failures.push(...reviewFollowups.map((issue) =>
+    `Claude 리뷰 후속 차단: ${issue.key}=${issue.fields?.summary ?? '리뷰 후속 티켓'}`));
   summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
   if (summary.remainingQueue.length > 0 && summary.status === '성공') summary.status = '보류/지연';
   summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인 · 최종 Jira 큐 ${summary.remainingQueue.length}건`;
@@ -655,7 +656,7 @@ async function main() {
   const config = loadQaConfig();
   const startedAt = new Date().toISOString();
   const summary = {
-    kind: 'nightly', runId: buildStableNotificationRunId('nightly', startedAt), startedAt,
+    kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
     testNotification: isTestNotificationRun({
       dryRun,
       explicitTestNotification: flags.has('--test-notification'),
