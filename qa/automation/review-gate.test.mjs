@@ -95,8 +95,16 @@ test('surfaces a clean fallback held only by the legacy required-check migration
 });
 
 test('evidence redaction removes common credential forms', () => {
-  const safe = redactReviewEvidence('Authorization: Bearer abcdef token=secretvalue sk-abcdefghijklmnop');
-  assert.doesNotMatch(safe, /abcdef|secretvalue|abcdefghijklmnop/);
+  const unsafe = [
+    'Authorization: Bearer abcdef token=secretvalue sk-abcdefghijklmnop',
+    'AKIAIOSFODNN7EXAMPLE',
+    'postgres://database-user:database-password@db.example.com/app',
+    '-----BEGIN PRIVATE KEY-----\nprivate-material\n-----END PRIVATE KEY-----',
+    'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCD',
+  ].join('\n');
+  const safe = redactReviewEvidence(unsafe);
+  assert.doesNotMatch(safe, /abcdef|secretvalue|abcdefghijklmnop|AKIAIOSFODNN7EXAMPLE|database-password|private-material|AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ABCD/i);
+  assert.match(safe, /postgres:\/\/\[REDACTED\]@db\.example\.com\/app/);
 });
 
 test('redacts adversarial secrets recursively before findings can be persisted or published', () => {
