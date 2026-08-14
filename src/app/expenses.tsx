@@ -25,6 +25,7 @@ import {
   ExpenseStatus,
   YearMonth,
 } from '@/domain/types';
+import { getExpenseOverview } from '@/domain/settlement';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
 import { getExpenseSummary, getMemberName } from '@/utils/dashboard';
@@ -64,9 +65,14 @@ export default function ExpensesScreen() {
   const [budgetSubmitting, setBudgetSubmitting] = useState(false);
 
   const selectedBudget = snapshot.monthlyBudgets.find((budget) => budget.month === selectedMonth);
-  const selectedExpenses = useMemo(
-    () => snapshot.expenses.filter((expense) => expense.dueDate.slice(0, 7) === selectedMonth),
-    [selectedMonth, snapshot.expenses],
+  const { monthlyExpenses: selectedExpenses, settlement } = useMemo(
+    () =>
+      getExpenseOverview(
+        snapshot.expenses,
+        selectedMonth,
+        snapshot.members.map((member) => member.id),
+      ),
+    [selectedMonth, snapshot.expenses, snapshot.members],
   );
   const budgetSummary = getMonthlyBudgetSummary(selectedBudget, snapshot.expenses, selectedMonth);
 
@@ -81,7 +87,6 @@ export default function ExpensesScreen() {
   }, [selectedExpenses]);
 
   const maxCategoryAmount = Math.max(...summary.byCategory.map((item) => item.amount), 1);
-  const settlement = getSettlement(selectedExpenses, snapshot.members.map((member) => member.id));
 
   const resetForm = () => {
     setFormOpen(false);
@@ -729,26 +734,6 @@ function ProgressRow({
       </View>
     </View>
   );
-}
-
-function getSettlement(expenses: Expense[], memberIds: string[]) {
-  if (memberIds.length !== 2 || expenses.length === 0) {
-    return null;
-  }
-  const paid = Object.fromEntries(memberIds.map((id) => [id, 0])) as Record<string, number>;
-  expenses.forEach((expense) => {
-    if (expense.payerId && paid[expense.payerId] !== undefined) {
-      paid[expense.payerId] += expense.amount;
-    }
-  });
-  const total = Object.values(paid).reduce((sum, value) => sum + value, 0);
-  const target = total / 2;
-  const from = memberIds.find((id) => paid[id] < target);
-  const to = memberIds.find((id) => paid[id] > target);
-  if (!from || !to) {
-    return null;
-  }
-  return { from, to, amount: Math.round(target - paid[from]) };
 }
 
 function parseWon(value: string) {
