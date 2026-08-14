@@ -91,6 +91,7 @@ const emptySnapshot: HouseholdSnapshot = {
     inviteCode: '',
     createdBy: '',
     createdAt: todayIso(),
+    memberIds: [],
   },
   members: [],
   monthlyBudgets: [],

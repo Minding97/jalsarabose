@@ -121,6 +121,7 @@ export async function createHousehold({ name, owner }: CreateHouseholdInput) {
       inviteCode,
       createdBy: owner.uid,
       createdAt: today,
+      memberIds: [owner.uid],
     });
     transaction.set(doc(db, 'households', householdRef.id, 'members', owner.uid), {
       householdId: householdRef.id,
@@ -163,10 +164,26 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   const today = todayIso();
 
   await runTransaction(db, async (transaction) => {
+    const householdRef = doc(db, 'households', householdId);
     const memberRef = doc(db, 'households', householdId, 'members', user.uid);
+    const householdSnapshot = await transaction.get(householdRef);
     const memberSnapshot = await transaction.get(memberRef);
 
+    if (!householdSnapshot.exists()) {
+      throw new Error('초대할 가구를 찾을 수 없어요.');
+    }
+
     if (!memberSnapshot.exists()) {
+      const rawMemberIds = householdSnapshot.data().memberIds;
+      const memberIds = Array.isArray(rawMemberIds)
+        ? rawMemberIds.map(String)
+        : [String(householdSnapshot.data().createdBy ?? '')];
+
+      if (memberIds.length !== 1 || !memberIds[0] || memberIds.includes(user.uid)) {
+        throw new Error('공동생활비 가구에는 두 명까지만 참여할 수 있어요.');
+      }
+
+      transaction.update(householdRef, { memberIds: [...memberIds, user.uid] });
       transaction.set(memberRef, {
         householdId,
         userId: user.uid,
@@ -208,7 +225,22 @@ export function subscribeHouseholdSnapshot(
       return;
     }
 
-    callback({ household, members, monthlyBudgets, expenses, chores, fridgeItems });
+    const effectiveMemberIds = household.memberIds.length
+      ? household.memberIds
+      : [
+          household.createdBy,
+          ...members
+            .filter((member) => member.id !== household?.createdBy)
+            .map((member) => member.id),
+        ];
+    const memberOrder = new Map(effectiveMemberIds.map((memberId, index) => [memberId, index]));
+    const orderedMembers = [...members].sort((left, right) => {
+      const leftIndex = memberOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = memberOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      return leftIndex - rightIndex || left.id.localeCompare(right.id);
+    });
+
+    callback({ household, members: orderedMembers, monthlyBudgets, expenses, chores, fridgeItems });
   };
 
   const unsubs = [
@@ -269,11 +301,29 @@ export function subscribeHouseholdSnapshot(
   return () => unsubs.forEach((unsubscribe) => unsubscribe());
 }
 
-export function saveMonthlyBudget(householdId: string, budget: Omit<MonthlyBudget, 'id'>) {
-  return setDoc(
-    doc(requireDb(), 'households', householdId, 'monthlyBudgets', budget.month),
-    omitUndefined(budget),
-  );
+export async function saveMonthlyBudget(
+  householdId: string,
+  budget: Omit<MonthlyBudget, 'id'>,
+) {
+  const db = requireDb();
+  const householdRef = doc(db, 'households', householdId);
+  const budgetRef = doc(db, 'households', householdId, 'monthlyBudgets', budget.month);
+
+  await runTransaction(db, async (transaction) => {
+    const householdSnapshot = await transaction.get(householdRef);
+
+    if (!householdSnapshot.exists()) {
+      throw new Error('가구 정보를 찾을 수 없어요.');
+    }
+
+    if (!Array.isArray(householdSnapshot.data().memberIds)) {
+      transaction.update(householdRef, {
+        memberIds: Object.keys(budget.memberContributions),
+      });
+    }
+
+    transaction.set(budgetRef, omitUndefined(budget));
+  });
 }
 
 export function addExpense(householdId: string, expense: Omit<Expense, 'id'>) {

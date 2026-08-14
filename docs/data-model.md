@@ -14,7 +14,7 @@ PRD의 모델을 TypeScript 타입과 Firestore 컬렉션으로 옮긴 기준 �
 ## Firestore 컬렉션
 
 - `users/{uid}`: 이메일, 표시 이름, 현재 활성 가구 ID
-- `households/{householdId}`: 가구 이름, 초대 코드, 생성자
+- `households/{householdId}`: 가구 이름, 초대 코드, 생성자, 가입 순서의 구성원 ID 2개 이하(`memberIds`)
 - `households/{householdId}/members/{uid}`: 가구원 이름, 역할, 참여일
 - `households/{householdId}/expenses/{expenseId}`: 공동 지출
 - `households/{householdId}/monthlyBudgets/{YYYY-MM}`: 월별 공동생활비와 구성원 부담금

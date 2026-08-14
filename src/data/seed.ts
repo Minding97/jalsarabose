@@ -25,6 +25,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
       inviteCode: 'JALSAL-24',
       createdBy: minseoId,
       createdAt: today,
+      memberIds: [minseoId, jihoonId],
     },
     members: [
       {

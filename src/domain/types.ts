@@ -22,6 +22,7 @@ export type Household = {
   inviteCode: string;
   createdBy: ID;
   createdAt: ISODate;
+  memberIds: ID[];
 };
 
 export type HouseholdMember = {

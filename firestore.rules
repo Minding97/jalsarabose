@@ -62,6 +62,87 @@ service cloud.firestore {
         && get(memberPath(householdId, request.auth.uid)).data.role == 'admin';
     }
 
+    function createsInitialHouseholdMemberIndex() {
+      return request.resource.data.memberIds is list
+        && request.resource.data.memberIds.size() == 1
+        && request.resource.data.memberIds[0] == request.auth.uid;
+    }
+
+    function householdMemberIndexStaysSame() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['memberIds']);
+    }
+
+    function addsRequesterToHouseholdMemberIndex(householdId) {
+      let previousMemberIds = 'memberIds' in resource.data
+        ? resource.data.memberIds
+        : [resource.data.createdBy];
+      return signedIn()
+        && previousMemberIds is list
+        && previousMemberIds.size() == 1
+        && previousMemberIds[0] == resource.data.createdBy
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
+        && request.resource.data.memberIds == previousMemberIds.concat([request.auth.uid])
+        && exists(memberPath(householdId, previousMemberIds[0]))
+        && !exists(memberPath(householdId, request.auth.uid))
+        && existsAfter(memberPath(householdId, request.auth.uid));
+    }
+
+    function initializesLegacyHouseholdMemberIndex(householdId) {
+      let memberIds = request.resource.data.memberIds;
+      return signedIn()
+        && !('memberIds' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
+        && memberIds is list
+        && memberIds.size() == 2
+        && memberIds[0] == resource.data.createdBy
+        && memberIds[0] != memberIds[1]
+        && exists(memberPath(householdId, memberIds[0]))
+        && exists(memberPath(householdId, memberIds[1]))
+        && (
+          request.auth.uid == memberIds[1]
+          || requesterIsHouseholdAdmin(householdId)
+        );
+    }
+
+    function requesterIsIndexedAfterWrite(householdId) {
+      let memberIds = getAfter(householdPath(householdId)).data.memberIds;
+      return memberIds is list
+        && memberIds.size() <= 2
+        && memberIds.hasAny([request.auth.uid]);
+    }
+
+    function validMonthlyBudget(householdId) {
+      let memberIds = getAfter(householdPath(householdId)).data.memberIds;
+      let contributions = request.resource.data.memberContributions;
+      let firstContribution = contributions[memberIds[0]];
+      let secondContribution = contributions[memberIds[1]];
+      return memberIds is list
+        && memberIds.size() == 2
+        && memberIds[0] is string
+        && memberIds[1] is string
+        && memberIds[0] != memberIds[1]
+        && exists(memberPath(householdId, memberIds[0]))
+        && exists(memberPath(householdId, memberIds[1]))
+        && request.resource.data.totalAmount is int
+        && request.resource.data.totalAmount > 0
+        && request.resource.data.contributionMode in ['equal', 'custom']
+        && contributions is map
+        && contributions.keys().size() == 2
+        && contributions.keys().hasAll(memberIds)
+        && firstContribution is int
+        && secondContribution is int
+        && firstContribution >= 0
+        && secondContribution >= 0
+        && firstContribution + secondContribution == request.resource.data.totalAmount
+        && (
+          request.resource.data.contributionMode != 'equal'
+          || (
+            firstContribution >= secondContribution
+            && firstContribution - secondContribution <= 1
+          )
+        );
+    }
+
     match /users/{uid} {
       allow read, create, update: if isSelf(uid);
       allow delete: if false;
@@ -77,8 +158,15 @@ service cloud.firestore {
     }
 
     match /households/{householdId} {
-      allow read, update: if isHouseholdMember(householdId);
-      allow create: if signedIn() && request.resource.data.createdBy == request.auth.uid;
+      allow read: if isHouseholdMember(householdId);
+      allow update: if (
+        isHouseholdMember(householdId) && householdMemberIndexStaysSame()
+      )
+        || initializesLegacyHouseholdMemberIndex(householdId)
+        || addsRequesterToHouseholdMemberIndex(householdId);
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && createsInitialHouseholdMemberIndex();
       allow delete: if false;
 
       match /members/{uid} {
@@ -86,6 +174,7 @@ service cloud.firestore {
         allow create: if isSelf(uid)
           && request.resource.data.userId == request.auth.uid
           && request.resource.data.householdId == householdId
+          && requesterIsIndexedAfterWrite(householdId)
           && (
             householdCreatorAfterWrite(householdId)
             || inviteMatchesHousehold(householdId)
@@ -109,11 +198,13 @@ service cloud.firestore {
         allow read: if isHouseholdMember(householdId);
         allow create: if isHouseholdMember(householdId)
           && itemBelongsToHousehold(householdId)
-          && request.resource.data.month == month;
+          && request.resource.data.month == month
+          && validMonthlyBudget(householdId);
         allow update: if isHouseholdMember(householdId)
           && itemStaysInHousehold(householdId)
           && request.resource.data.month == month
-          && resource.data.month == month;
+          && resource.data.month == month
+          && validMonthlyBudget(householdId);
         allow delete: if false;
       }
 
