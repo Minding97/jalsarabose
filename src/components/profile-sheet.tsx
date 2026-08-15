@@ -1,4 +1,4 @@
-import { X } from 'lucide-react-native';
+import { Pencil, ShieldCheck, ShieldMinus, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
@@ -18,7 +18,10 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const theme = useTheme();
   const members = useHouseholdStore((state) => state.members);
   const household = useHouseholdStore((state) => state.household);
+  const currentUser = useHouseholdStore((state) => state.currentUser);
   const joinHousehold = useHouseholdStore((state) => state.joinHousehold);
+  const renameHousehold = useHouseholdStore((state) => state.renameHousehold);
+  const changeMemberRole = useHouseholdStore((state) => state.changeMemberRole);
   const signOut = useHouseholdStore((state) => state.signOut);
   const scheduleNotifications = useHouseholdStore((state) => state.scheduleNotifications);
   const cancelNotifications = useHouseholdStore((state) => state.cancelNotifications);
@@ -28,6 +31,16 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const [inviteCode, setInviteCode] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [submittingSwitch, setSubmittingSwitch] = useState(false);
+  const [editingHouseholdName, setEditingHouseholdName] = useState(false);
+  const [householdName, setHouseholdName] = useState(household.name);
+  const [householdError, setHouseholdError] = useState<string | null>(null);
+  const [householdMessage, setHouseholdMessage] = useState<string | null>(null);
+  const [submittingHousehold, setSubmittingHousehold] = useState(false);
+  const [roleMemberId, setRoleMemberId] = useState<string | null>(null);
+  const currentMember = members.find(
+    (member) => member.id === currentUser?.uid || member.userId === currentUser?.uid,
+  );
+  const isAdmin = currentMember?.role === 'admin';
 
   const updateExpiryReminder = (enabled: boolean) => {
     setExpiryEnabled(enabled);
@@ -46,6 +59,10 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
       setSwitchError('초대 코드는 6~8자리 대문자와 숫자로 입력해주세요.');
       return;
     }
+    if (normalizedCode === household.inviteCode) {
+      setSwitchError('현재 참여 중인 가구의 초대 코드예요.');
+      return;
+    }
 
     setSubmittingSwitch(true);
     setSwitchError(null);
@@ -58,6 +75,41 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
       setSwitchError(error instanceof Error ? error.message : '가구를 변경하지 못했어요.');
     } finally {
       setSubmittingSwitch(false);
+    }
+  };
+
+  const saveHouseholdName = async () => {
+    const normalizedName = householdName.trim();
+    if (normalizedName.length < 2 || normalizedName.length > 30) {
+      setHouseholdError('가구 이름은 2~30자로 입력해주세요.');
+      return;
+    }
+
+    setSubmittingHousehold(true);
+    setHouseholdError(null);
+    setHouseholdMessage(null);
+    try {
+      await renameHousehold(normalizedName);
+      setEditingHouseholdName(false);
+      setHouseholdMessage('가구 이름을 변경했어요.');
+    } catch (error) {
+      setHouseholdError(error instanceof Error ? error.message : '가구 이름을 변경하지 못했어요.');
+    } finally {
+      setSubmittingHousehold(false);
+    }
+  };
+
+  const toggleMemberRole = async (memberId: string, role: 'admin' | 'member') => {
+    setRoleMemberId(memberId);
+    setHouseholdError(null);
+    setHouseholdMessage(null);
+    try {
+      await changeMemberRole(memberId, role === 'admin' ? 'member' : 'admin');
+      setHouseholdMessage(role === 'admin' ? '일반 가구원으로 변경했어요.' : '관리자로 지정했어요.');
+    } catch (error) {
+      setHouseholdError(error instanceof Error ? error.message : '멤버 역할을 변경하지 못했어요.');
+    } finally {
+      setRoleMemberId(null);
     }
   };
 
@@ -96,21 +148,120 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
                 styles.panel,
                 { backgroundColor: theme.backgroundElement, borderColor: theme.border },
               ]}>
+              <View style={[styles.householdHeader, { borderBottomColor: theme.border }]}>
+                <View style={styles.householdHeaderText}>
+                  <Text
+                    testID="profile-household-name"
+                    style={[styles.householdName, { color: theme.text }]}>
+                    {household.name}
+                  </Text>
+                  <Text style={[styles.householdCount, { color: theme.textSecondary }]}>
+                    가구원 {members.length}명
+                  </Text>
+                </View>
+                {isAdmin ? (
+                  <Pressable
+                    testID="profile-household-name-edit-button"
+                    accessibilityRole="button"
+                    accessibilityLabel="가구 이름 수정"
+                    onPress={() => {
+                      setHouseholdName(household.name);
+                      setEditingHouseholdName(true);
+                      setHouseholdError(null);
+                      setHouseholdMessage(null);
+                    }}
+                    style={styles.iconButton}>
+                    <Pencil size={17} color={theme.textSecondary} strokeWidth={2} />
+                  </Pressable>
+                ) : null}
+              </View>
+              {editingHouseholdName ? (
+                <View style={[styles.householdNameForm, { borderBottomColor: theme.border }]}>
+                  <FormField
+                    label="가구 이름"
+                    value={householdName}
+                    onChangeText={(value) => {
+                      setHouseholdName(value);
+                      setHouseholdError(null);
+                    }}
+                    placeholder="예: 우리집"
+                    testID="profile-household-name-input"
+                  />
+                  <View style={styles.switchActions}>
+                    <ActionButton
+                      variant="secondary"
+                      onPress={() => {
+                        setEditingHouseholdName(false);
+                        setHouseholdName(household.name);
+                        setHouseholdError(null);
+                      }}
+                      disabled={submittingHousehold}
+                      style={styles.switchAction}>
+                      취소
+                    </ActionButton>
+                    <ActionButton
+                      testID="profile-household-name-save-button"
+                      onPress={() => void saveHouseholdName()}
+                      disabled={submittingHousehold || householdName.trim() === household.name}
+                      style={styles.switchAction}>
+                      저장
+                    </ActionButton>
+                  </View>
+                </View>
+              ) : null}
               {members.map((member, index) => {
                 const memberName = getMemberDisplayName(member, index);
+                const isCurrentMember =
+                  member.id === currentUser?.uid || member.userId === currentUser?.uid;
                 return (
                   <View key={member.id} style={styles.memberRow}>
                     <View style={[styles.memberAvatar, { backgroundColor: '#2B2A28' }]}>
                       <Text style={styles.memberInitial}>{memberName.slice(0, 1)}</Text>
                     </View>
                     <Text style={[styles.memberName, { color: theme.text }]}>{memberName}</Text>
-                    <Text style={[styles.memberRole, { color: theme.textSecondary }]}>
-                      {member.role === 'admin' ? '관리자' : '가구원'}
-                    </Text>
+                    {isAdmin && !isCurrentMember ? (
+                      <Pressable
+                        testID={`profile-member-role-button-${member.id}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${memberName} ${
+                          member.role === 'admin' ? '가구원으로 변경' : '관리자로 지정'
+                        }`}
+                        disabled={roleMemberId === member.id}
+                        onPress={() => void toggleMemberRole(member.id, member.role)}
+                        style={styles.roleButton}>
+                        {member.role === 'admin' ? (
+                          <ShieldMinus size={14} color={theme.textSecondary} strokeWidth={2} />
+                        ) : (
+                          <ShieldCheck size={14} color={theme.primary} strokeWidth={2} />
+                        )}
+                        <Text
+                          style={[
+                            styles.memberRole,
+                            { color: member.role === 'admin' ? theme.textSecondary : theme.primary },
+                          ]}>
+                          {member.role === 'admin' ? '관리자' : '가구원'}
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Text style={[styles.memberRole, { color: theme.textSecondary }]}>
+                        {member.role === 'admin' ? '관리자' : '가구원'}
+                        {isCurrentMember ? ' · 나' : ''}
+                      </Text>
+                    )}
                   </View>
                 );
               })}
             </View>
+            {householdError ? (
+              <Text style={[styles.householdFeedback, { color: theme.danger }]}>
+                {householdError}
+              </Text>
+            ) : null}
+            {householdMessage ? (
+              <Text style={[styles.householdFeedback, { color: theme.primary }]}>
+                {householdMessage}
+              </Text>
+            ) : null}
 
             <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>알림 설정</Text>
             <View
@@ -143,7 +294,7 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
               <Text style={[styles.inviteText, { color: theme.textSecondary }]}>
                 초대 코드{' '}
                 <Text style={[styles.inviteCode, { color: theme.primary }]}>
-                  {household.inviteCode || '없음'}
+                  <Text testID="profile-invite-code">{household.inviteCode || '없음'}</Text>
                 </Text>
                 을 공유해서 가구원을 추가해요
               </Text>
@@ -272,6 +423,39 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     marginBottom: 20,
   },
+  householdHeader: {
+    minHeight: 58,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  householdHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  householdName: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  householdCount: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  iconButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  householdNameForm: {
+    borderBottomWidth: 1,
+    gap: 10,
+    paddingVertical: 12,
+  },
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -300,6 +484,21 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     fontSize: 12,
     fontWeight: '500',
+  },
+  roleButton: {
+    minHeight: 32,
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 4,
+  },
+  householdFeedback: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: -12,
+    marginBottom: 18,
   },
   settingRow: {
     minHeight: 50,
