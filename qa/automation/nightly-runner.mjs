@@ -82,9 +82,14 @@ function buildDeadline(now, endHour) {
 }
 
 export function classifyNightlyStatus(ticketResults, plannedCount = ticketResults.length) {
-  if (ticketResults.some((item) => item.result === '실패/미병합')) return '일부 실패';
-  if (plannedCount > ticketResults.filter((item) => item.result === '성공').length) return '보류/지연';
+  if (ticketResults.some((item) => item.category === 'failure')) return '구현/테스트 실패 있음';
+  if (plannedCount > ticketResults.filter((item) => item.result === '완료').length) return '후속 작업 있음';
   return '성공';
+}
+
+export function classifyMergeStage(pullRequest) {
+  if (pullRequest?.state === 'MERGED' || pullRequest?.mergedAt) return '완료';
+  return pullRequest?.mergeStateStatus === 'DIRTY' ? '재작업 예정' : '병합 대기';
 }
 
 export function captureNightlyPlanSummary(summary, plan) {
@@ -92,7 +97,7 @@ export function captureNightlyPlanSummary(summary, plan) {
   const blocked = [...plan.externallyBlockedKeys, ...plan.cyclicKeys];
   summary.remainingQueue = [...summary.plannedTickets, ...blocked];
   if (plan.issues.length === 0) {
-    summary.status = blocked.length ? '보류/지연' : '성공';
+    summary.status = blocked.length ? '후속 작업 있음' : '성공';
     summary.verification = plan.counts.total
       ? `큐 스냅샷 ${plan.counts.total}건 확인 · 실행 가능 0건`
       : '큐 스냅샷 0건 확인 · 처리 티켓 없음';
@@ -103,6 +108,21 @@ export function captureNightlyPlanSummary(summary, plan) {
   return summary;
 }
 
+export async function finalizeNightlySummary({ summary, plan, jira }) {
+  const finalQueue = await jira.searchReadyIssues();
+  const planned = new Set(plan.reportIssues.map((issue) => issue.key));
+  summary.remainingQueue = finalQueue.map((issue) => issue.key);
+  summary.lateOutcomes = finalQueue
+    .filter((issue) => !planned.has(issue.key))
+    .map((issue) => `${issue.key}=${issue.fields?.summary ?? '새 후속 티켓'}`);
+  summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
+  if (summary.remainingQueue.length > 0 && summary.status === '성공') summary.status = '후속 작업 있음';
+  const completed = summary.ticketResults.filter((item) => item.result === '완료').length;
+  const checked = summary.ticketResults.length;
+  summary.verification = `처리 단계 ${checked}/${plan.issues.length}건 확인 · 완료 ${completed}건 · 최종 Jira 큐 ${summary.remainingQueue.length}건`;
+  summary.nextAction = summary.remainingQueue.length ? '최종 남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+  return summary;
+}
 export function acquireNightlyLock(path) {
   try {
     const descriptor = openSync(path, 'wx', 0o600);
@@ -375,7 +395,7 @@ async function reviewAndGate({
         parentKey,
         `Claude 리뷰 ${cycle}회 후에도 차단 항목 ${blockers.length}건이 남아 사람 확인이 필요합니다.`,
       );
-      return { needsHuman: true, merged: false };
+      return { needsHuman: true, merged: false, stage: '재작업 예정' };
     }
 
     for (const finding of blockers) {
@@ -402,7 +422,7 @@ async function reviewAndGate({
     ) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
-    return { needsHuman: false, merged: false };
+    return { needsHuman: false, merged: false, stage: '리뷰 반영 예정' };
   }
 
   await github.setCommitStatus(
@@ -419,7 +439,12 @@ async function reviewAndGate({
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
   }
-  return { needsHuman: false, merged };
+  const finalPullRequest = merged ? pullRequest : await github.getPullRequest(pullRequest.number);
+  return { needsHuman: false, merged, stage: classifyMergeStage(finalPullRequest) };
+}
+
+function ticketOutcome(result, category = 'pending', reason = '') {
+  return { completed: result === '완료', result, category, reason };
 }
 
 export async function processIssue({ jira, github, config, issue, dryRun }) {
@@ -436,7 +461,7 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       : null;
   } catch (error) {
     console.error(`${issue.key} PR lookup failed:`, error instanceof Error ? error.message : String(error));
-    return false;
+    return ticketOutcome('상태 확인 필요', 'pending', `PR #${existingPullRequestNumber} 조회 실패`);
   }
 
   if (issue.key !== parentKey && parentDetails.fields.status?.name === config.jiraDoneStatus) {
@@ -446,7 +471,9 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
     const completed = await jira.getIssue(issue.key);
-    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
+    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus)
+      ? ticketOutcome('완료', 'complete')
+      : ticketOutcome('병합 상태 확인 필요', 'pending', `PR #${existingPullRequestNumber} 미병합`);
   }
 
   if (
@@ -458,7 +485,7 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
     } else {
       await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
     }
-    return false;
+    return ticketOutcome('재작업 예정', 'pending', `상위 ${parentKey} 사람 확인 필요`);
   }
 
   if (
@@ -474,7 +501,9 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       }
     }
     const completed = await jira.getIssue(issue.key);
-    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
+    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus)
+      ? ticketOutcome('완료', 'complete')
+      : ticketOutcome('병합 상태 확인 필요', 'pending', `PR #${existingPullRequest.number} 병합 상태 불일치`);
   }
   const branch =
     existingPullRequest?.headRefName ??
@@ -484,7 +513,9 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
     console.log(
       `[dry-run] ${issue.key}: ${existingPullRequest ? `update PR #${existingPullRequest.number}` : `create ${branch}`}`,
     );
-    return false;
+    return ticketOutcome('실행 예정', 'pending', existingPullRequest
+      ? `PR #${existingPullRequest.number} 검토 예정`
+      : '새 구현 브랜치 생성 예정');
   }
 
   await jira.transitionIssue(issue.key, config.jiraInProgressStatus);
@@ -579,13 +610,23 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       sha,
     });
     if (!reviewResult.merged) {
-      return false;
+      return ticketOutcome(
+        reviewResult.stage,
+        'pending',
+        reviewResult.stage === '재작업 예정'
+          ? `PR #${pullRequest.number} 리뷰 차단 또는 충돌`
+          : reviewResult.stage === '리뷰 반영 예정'
+            ? `PR #${pullRequest.number} 리뷰 후속 티켓 처리 대기`
+            : `PR #${pullRequest.number} 승인 또는 병합 대기`,
+      );
     }
     const [completedIssue, mergedPullRequest] = await Promise.all([
       jira.getIssue(issue.key),
       github.getPullRequest(pullRequest.number),
     ]);
-    return isVerifiedCompletion(completedIssue, mergedPullRequest, config.jiraDoneStatus);
+    return isVerifiedCompletion(completedIssue, mergedPullRequest, config.jiraDoneStatus)
+      ? ticketOutcome('완료', 'complete')
+      : ticketOutcome('병합 상태 확인 필요', 'pending', `PR #${pullRequest.number} 병합/Jira 완료 불일치`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     try {
@@ -599,7 +640,7 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       console.error(`${issue.key} failure transition failed:`, jiraError);
     }
     console.error(`${issue.key} failed:`, message);
-    return false;
+    return ticketOutcome('구현/테스트 실패', 'failure', message.split(/\r?\n/, 1)[0].slice(0, 240));
   } finally {
     if (worktree) {
       rmSync(resolve(worktree, '.qa'), { recursive: true, force: true });
@@ -731,11 +772,23 @@ async function main() {
       })));
       for (const { issue: completedIssue, result } of completed) {
       if (result.held) {
-        summary.ticketResults.push({ key: completedIssue.key, result: '보류' });
+        summary.ticketResults.push({
+          key: completedIssue.key,
+          result: '선행 작업 대기',
+          category: 'pending',
+          reason: `선행 티켓 ${result.blockers?.join(', ') || '미완료'}의 Jira 완료 및 PR 병합 대기`,
+        });
         continue;
       }
       processedCount += 1;
-      summary.ticketResults.push({ key: completedIssue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      summary.ticketResults.push({
+        key: completedIssue.key,
+        ...(typeof result.outcome === 'object'
+          ? result.outcome
+          : result.succeeded
+            ? ticketOutcome('완료', 'complete')
+            : ticketOutcome('상태 확인 필요')),
+      });
       let prNumber = null;
       try {
         const refreshedIssue = dryRun ? completedIssue : await jira.getIssue(completedIssue.key);
@@ -743,7 +796,7 @@ async function main() {
         if (prNumber) {
           const pullRequest = await github.getPullRequest(prNumber);
           const merged = pullRequest.state === 'MERGED' || Boolean(pullRequest.mergedAt);
-          summary.pullRequests.push(`#${prNumber} ${merged ? 'merged' : '대기'}`);
+          summary.pullRequests.push(`#${prNumber} ${merged ? '병합 완료' : '병합 대기'}`);
         }
       } catch (error) {
         if (prNumber) summary.pullRequests.push(`#${prNumber} 확인 실패`);
@@ -752,12 +805,7 @@ async function main() {
       }
       if (once) break;
     }
-    summary.remainingQueue = plan.issues
-      .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
-      .map((issue) => issue.key);
-    summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
-    summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
-    summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+    await finalizeNightlySummary({ summary, plan, jira });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const lockContention = error?.code === 'QA_NIGHTLY_LOCKED';
