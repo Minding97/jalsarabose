@@ -27,11 +27,12 @@ export async function executePlannedIssue({
   const blockers = unsatisfiedDependencies(plan, issue.key, successfulKeys);
   if (blockers.length > 0) {
     await holdIssue(issue, blockers);
-    return { held: true, succeeded: false };
+    return { held: true, succeeded: false, blockers };
   }
-  const succeeded = await processIssue(issue);
+  const outcome = await processIssue(issue);
+  const succeeded = typeof outcome === 'object' ? outcome.completed === true : outcome === true;
   if (succeeded) successfulKeys.add(issue.key);
-  return { held: false, succeeded };
+  return { held: false, succeeded, outcome };
 }
 
 function stableRank(issue) {

@@ -39,7 +39,12 @@ export function formatAutomationSummary(summary, sensitiveValues = []) {
   ];
   if (isNightly) {
     lines.push(`계획: ${lineList(summary.plannedTickets)}`);
-    lines.push(`처리: ${lineList(summary.ticketResults?.map((item) => `${item.key}=${item.result}`))}`);
+    lines.push(`처리: ${lineList(summary.ticketResults?.map((item) => {
+      const reason = item.reason
+        ? sanitizeNotificationFailure(item.reason, sensitiveValues)
+        : '상세 이유 미기록';
+      return `${item.key}=${item.result} (${reason})`;
+    }))}`);
     lines.push(`PR/병합: ${lineList(summary.pullRequests)}`);
   } else {
     lines.push(`대상: main@${summary.commitSha?.slice(0, 8) || '확인 실패'}`);
@@ -47,7 +52,11 @@ export function formatAutomationSummary(summary, sensitiveValues = []) {
     lines.push(`Jira: ${lineList(summary.reports?.map((item) => `${item.suite}=${item.issueKey || item.action}`))}`);
   }
   lines.push(`검증: ${summary.verification || '완료 데이터 없음'}`);
-  lines.push(`실패/차단: ${lineList(summary.failures?.map((value) => sanitizeNotificationFailure(value, sensitiveValues)))}`);
+  const failedTickets = summary.ticketResults
+    ?.filter((item) => item.category === 'failure')
+    .map((item) => `${item.key}=${item.result}: ${sanitizeNotificationFailure(item.reason || '원인 미기록', sensitiveValues)}`) ?? [];
+  const failureDetails = summary.failures?.map((value) => sanitizeNotificationFailure(value, sensitiveValues)) ?? [];
+  lines.push(`실제 실패: ${lineList([...failedTickets, ...failureDetails])}`);
   lines.push(`남은 큐: ${lineList(summary.remainingQueue)}`);
   lines.push(`다음 조치: ${summary.nextAction || '다음 예약 실행에서 재확인'}`);
   return redactSecrets(lines.join('\n')).slice(0, 3900);
