@@ -87,6 +87,11 @@ export function classifyNightlyStatus(ticketResults, plannedCount = ticketResult
 export function captureNightlyPlanSummary(summary, plan) {
   summary.plannedTickets = plan.issues.map((issue) => issue.key);
   const blocked = [...plan.externallyBlockedKeys, ...plan.cyclicKeys];
+  summary.failures ??= [];
+  summary.failures.push(
+    ...plan.externallyBlockedKeys.map((key) => `${key}: 큐 밖 미완료 선행조건으로 차단`),
+    ...plan.cyclicKeys.map((key) => `${key}: Jira 의존 순환으로 차단`),
+  );
   summary.remainingQueue = [...summary.plannedTickets, ...blocked];
   if (plan.issues.length === 0) {
     summary.status = blocked.length ? '보류/지연' : '성공';
