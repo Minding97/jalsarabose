@@ -42,7 +42,6 @@ function snapshot(expenses: Expense[], householdMembers = members): HouseholdSna
     },
     members: householdMembers,
     expenses,
-    chores: [],
     fridgeItems: [],
   };
 }

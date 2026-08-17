@@ -92,6 +92,7 @@ try {
   console.log(`Invite code ready: ${household.inviteCode}`);
 
   await assertReadableHouseholdCollections(householdId);
+  await assertRetiredFeatureCollectionIsClosed(householdId);
   await cleanupUiSmokeArtifacts(householdId);
   await exerciseCrud(householdId, user.uid, today);
   await exerciseInviteJoin({
@@ -188,12 +189,20 @@ async function ensureHousehold(user, today) {
 }
 
 async function assertReadableHouseholdCollections(householdId) {
-  const collections = ['members', 'expenses', 'chores', 'fridgeItems'];
+  const collections = ['members', 'expenses', 'fridgeItems'];
 
   for (const name of collections) {
     await getDocs(query(collection(db, 'households', householdId, name), limit(1)));
     console.log(`Readable collection: ${name}`);
   }
+}
+
+async function assertRetiredFeatureCollectionIsClosed(householdId) {
+  await assertDenied(
+    () => getDocs(query(collection(db, 'households', householdId, 'chores'), limit(1))),
+    async () => undefined,
+    'Retired feature records must not be readable.',
+  );
 }
 
 async function cleanupUiSmokeArtifacts(householdId) {
@@ -241,31 +250,6 @@ async function exerciseCrud(householdId, uid, today) {
   );
   await deleteDoc(expenseRef);
   console.log('Expense create/update/query/delete passed.');
-
-  const choreRef = await addDoc(collection(db, 'households', householdId, 'chores'), {
-    householdId,
-    title: '[smoke] 분리수거',
-    assigneeId: uid,
-    dueDate: today,
-    repeatCycle: 'none',
-    score: 1,
-    status: 'scheduled',
-    memo: 'created by firebase smoke test',
-    createdBy: uid,
-    createdAt: today,
-    notificationEnabled: true,
-  });
-  await assertDenied(
-    () => updateDoc(choreRef, { householdId: `invalid-${householdId}` }),
-    () => updateDoc(choreRef, { householdId }),
-    'Chore householdId mutation should be denied.',
-  );
-  await updateDoc(choreRef, { status: 'done' });
-  await getDocs(
-    query(collection(db, 'households', householdId, 'chores'), orderBy('dueDate', 'asc'), limit(3)),
-  );
-  await deleteDoc(choreRef);
-  console.log('Chore create/update/query/delete passed.');
 
   const fridgeRef = await addDoc(collection(db, 'households', householdId, 'fridgeItems'), {
     householdId,

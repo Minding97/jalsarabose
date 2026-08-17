@@ -1,7 +1,6 @@
 import { DocumentData, QueryDocumentSnapshot, Timestamp } from 'firebase/firestore';
 
 import {
-  Chore,
   Expense,
   FridgeItem,
   Household,
@@ -89,25 +88,6 @@ export function expenseFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Expens
     splitRatio: data.splitRatio as Expense['splitRatio'],
     isRecurring: Boolean(data.isRecurring),
     status: (data.status as Expense['status']) ?? 'scheduled',
-    memo: data.memo ? String(data.memo) : undefined,
-    createdBy: String(data.createdBy ?? ''),
-    createdAt: data.createdAt as ISODate,
-    notificationEnabled: data.notificationEnabled !== false,
-  };
-}
-
-export function choreFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Chore {
-  const data = withIsoDates(doc.data(), ['dueDate', 'createdAt']);
-
-  return {
-    id: doc.id,
-    householdId: String(data.householdId ?? ''),
-    title: String(data.title ?? ''),
-    assigneeId: String(data.assigneeId ?? ''),
-    dueDate: data.dueDate as ISODate,
-    repeatCycle: (data.repeatCycle as Chore['repeatCycle']) ?? 'none',
-    score: Number(data.score ?? 1),
-    status: (data.status as Chore['status']) ?? 'scheduled',
     memo: data.memo ? String(data.memo) : undefined,
     createdBy: String(data.createdBy ?? ''),
     createdAt: data.createdAt as ISODate,

@@ -5,8 +5,6 @@ import { create } from 'zustand';
 
 import { createSeedState } from '@/data/seed';
 import {
-  Chore,
-  ChoreInput,
   Expense,
   ExpenseInput,
   ExpenseStatus,
@@ -17,11 +15,9 @@ import {
   UserProfile,
 } from '@/domain/types';
 import {
-  addChore,
   addExpense,
   addFridgeItem,
   createHousehold,
-  deleteChore,
   deleteExpense,
   deleteFridgeItem,
   joinHouseholdByInviteCode,
@@ -31,7 +27,6 @@ import {
   subscribeAuth,
   subscribeHouseholdSnapshot,
   subscribeUserProfile,
-  updateChore,
   updateExpense,
   updateFridgeItem,
   upsertUserProfile,
@@ -62,10 +57,6 @@ type HouseholdActions = {
   addExpenseItem: (input: ExpenseInput) => Promise<void>;
   updateExpenseItem: (expenseId: string, input: ExpenseInput) => Promise<void>;
   deleteExpenseItem: (expenseId: string) => Promise<void>;
-  completeChore: (choreId: string) => Promise<void>;
-  addChoreItem: (input: ChoreInput) => Promise<void>;
-  updateChoreItem: (choreId: string, input: ChoreInput) => Promise<void>;
-  deleteChoreItem: (choreId: string) => Promise<void>;
   markExpensePaid: (expenseId: string) => Promise<void>;
   updateExpenseStatus: (expenseId: string, status: ExpenseStatus) => Promise<void>;
   updateFridgeItemStatus: (itemId: string, status: FridgeStatus) => Promise<void>;
@@ -89,7 +80,6 @@ const emptySnapshot: HouseholdSnapshot = {
   },
   members: [],
   expenses: [],
-  chores: [],
   fridgeItems: [],
 };
 
@@ -327,61 +317,6 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
     await updateExpense(requireHouseholdId(state), expenseId, { status });
   },
 
-  addChoreItem: async (input) => {
-    const state = get();
-    const chore = createChorePayload(state, input);
-
-    if (useMocks) {
-      set((current) => ({
-        chores: [...current.chores, { ...chore, id: createLocalId('chore') }],
-      }));
-      return;
-    }
-
-    await addChore(requireHouseholdId(state), chore);
-  },
-
-  updateChoreItem: async (choreId, input) => {
-    const state = get();
-
-    if (useMocks) {
-      set((current) => ({
-        chores: current.chores.map((chore) => (chore.id === choreId ? { ...chore, ...input } : chore)),
-      }));
-      return;
-    }
-
-    await updateChore(requireHouseholdId(state), choreId, input);
-  },
-
-  deleteChoreItem: async (choreId) => {
-    const state = get();
-
-    if (useMocks) {
-      set((current) => ({
-        chores: current.chores.filter((chore) => chore.id !== choreId),
-      }));
-      return;
-    }
-
-    await deleteChore(requireHouseholdId(state), choreId);
-  },
-
-  completeChore: async (choreId) => {
-    const state = get();
-
-    if (useMocks) {
-      set((current) => ({
-        chores: current.chores.map((chore) =>
-          chore.id === choreId ? { ...chore, status: 'done' } : chore,
-        ),
-      }));
-      return;
-    }
-
-    await updateChore(requireHouseholdId(state), choreId, { status: 'done' });
-  },
-
   addFridgeItemEntry: async (input) => {
     const state = get();
     const item = createFridgePayload(state, input);
@@ -512,17 +447,6 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 }));
 
 function createExpensePayload(state: StoreState, input: ExpenseInput): Omit<Expense, 'id'> {
-  const user = requireCurrentUser(state);
-
-  return {
-    ...input,
-    householdId: requireHouseholdId(state),
-    createdBy: user.uid,
-    createdAt: todayIso(),
-  };
-}
-
-function createChorePayload(state: StoreState, input: ChoreInput): Omit<Chore, 'id'> {
   const user = requireCurrentUser(state);
 
   return {

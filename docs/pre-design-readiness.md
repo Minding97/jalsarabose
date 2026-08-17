@@ -7,7 +7,7 @@
 - Firebase Auth + Firestore 연결
 - 이메일/비밀번호 로그인과 회원가입
 - 가구 생성, 초대 코드, 가구원 참여
-- 지출, 집안일, 냉장고 CRUD
+- 지출과 냉장고 CRUD
 - 홈과 캘린더의 실제 Firestore 데이터 연결
 - Firestore security rules와 index 설정
 - Firebase live smoke test
@@ -57,7 +57,7 @@ SMOKE_TEST_PASSWORD=<테스트 계정 비밀번호> \
 npm run demo:seed
 ```
 
-`demo:seed`는 먼저 기존 `[codex-demo-data]` 항목을 정리한 뒤 지출, 집안일, 냉장고 데모 항목을 다시 만든다. 데모 항목만 정리하려면:
+`demo:seed`는 먼저 기존 `[codex-demo-data]` 활성 항목을 정리한 뒤 지출과 냉장고 데모 항목을 다시 만든다. 데모 항목만 정리하려면:
 
 ```bash
 SMOKE_TEST_EMAIL=<테스트 계정 이메일> \
@@ -85,7 +85,6 @@ npm run verify
 
 - 원격 푸시 발송 서버
 - 가구별 세부 권한 관리
-- 반복 집안일 자동 생성
 - 정산/송금 연동
 - 이미지 첨부와 영수증 인식
 - 앱스토어/플레이스토어 배포 메타데이터

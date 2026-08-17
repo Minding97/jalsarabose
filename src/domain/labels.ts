@@ -1,6 +1,4 @@
 import {
-  ChoreRepeatCycle,
-  ChoreStatus,
   ExpenseCategory,
   ExpenseStatus,
   FridgeCategory,
@@ -20,20 +18,6 @@ export const expenseStatusLabels: Record<ExpenseStatus, string> = {
   scheduled: '예정',
   paid: '완료',
   overdue: '연체',
-};
-
-export const choreRepeatLabels: Record<ChoreRepeatCycle, string> = {
-  none: '반복 없음',
-  daily: '매일',
-  weekly: '매주',
-  biweekly: '격주',
-  monthly: '매월',
-};
-
-export const choreStatusLabels: Record<ChoreStatus, string> = {
-  scheduled: '예정',
-  done: '완료',
-  missed: '미완료',
 };
 
 export const fridgeCategoryLabels: Record<FridgeCategory, string> = {

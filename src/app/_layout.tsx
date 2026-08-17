@@ -9,7 +9,9 @@ import { QaOverlay } from '@/components/qa-overlay';
 export default function TabLayout() {
   useEffect(() => {
     if (Platform.OS !== 'web') {
-      void import('@/services/notification-service');
+      void import('@/services/notification-service')
+        .then(({ cancelRetiredFeatureNotifications }) => cancelRetiredFeatureNotifications())
+        .catch(() => undefined);
     }
   }, []);
 

@@ -14,6 +14,7 @@ Notifications.setNotificationHandler({
 });
 
 const CHANNEL_ID = 'household-reminders';
+const RETIRED_NOTIFICATION_PREFIX = 'chore-';
 
 export type NotificationSetupResult =
   | {
@@ -106,6 +107,21 @@ export async function cancelHouseholdLocalNotifications(): Promise<NotificationS
     scheduledCount: 0,
     permissionStatus: 'not-requested',
   };
+}
+
+export async function cancelRetiredFeatureNotifications() {
+  if (Platform.OS === 'web') {
+    return;
+  }
+
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter((notification) => notification.identifier.startsWith(RETIRED_NOTIFICATION_PREFIX))
+      .map((notification) =>
+        Notifications.cancelScheduledNotificationAsync(notification.identifier),
+      ),
+  );
 }
 
 async function ensureNotificationPermission() {

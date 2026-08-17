@@ -52,7 +52,7 @@ npm run verify:env
 - 가구를 만든다.
 - 홈에 초대 코드가 표시되는지 확인한다.
 - 다른 계정으로 로그인해서 초대 코드로 참여한다.
-- 두 계정에서 같은 가구의 지출, 집안일, 냉장고 항목이 실시간으로 보이는지 확인한다.
+- 두 계정에서 같은 가구의 지출과 냉장고 항목이 실시간으로 보이는지 확인한다.
 - 한 계정에서 지출을 삭제했을 때 다른 계정에도 반영되는지 확인한다.
 
 ## 자동 smoke test
@@ -70,9 +70,10 @@ npm run smoke:firebase
 - 이메일/비밀번호 로그인
 - `users/{uid}` 읽기/쓰기
 - 활성 가구 조회 또는 테스트 가구 생성
-- `members`, `expenses`, `chores`, `fridgeItems` 읽기
-- 지출/집안일/냉장고 항목 create, update, query, delete
-- 지출/집안일/냉장고 항목의 `householdId` 변조 거부
+- `members`, `expenses`, `fridgeItems` 읽기
+- 지출/냉장고 항목 create, update, query, delete
+- 지출/냉장고 항목의 `householdId` 변조 거부
+- MVP 제외 기능의 보존 컬렉션 읽기 거부
 
 초대 코드 참여까지 자동 검증하려면 두 번째 계정을 함께 전달한다.
 
@@ -128,7 +129,7 @@ SMOKE_TEST_PASSWORD=<테스트 계정 비밀번호> \
 npm run demo:seed
 ```
 
-`demo:seed`는 현재 로그인 계정의 활성 가구에 `[demo]` 항목 6개를 만든다. 실행 전 같은 가구 안의 `memo`가 `[codex-demo-data]`인 항목만 먼저 삭제한다.
+`demo:seed`는 현재 로그인 계정의 활성 가구에 `[demo]` 항목 4개를 만든다. 실행 전 같은 가구 안의 `memo`가 `[codex-demo-data]`인 활성 기능 항목만 먼저 삭제한다. MVP 제외 기능의 기존 데이터는 건드리지 않는다.
 
 데모 항목만 삭제:
 
