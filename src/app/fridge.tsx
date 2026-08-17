@@ -6,6 +6,7 @@ import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
 import { FormField } from '@/components/app/form-field';
+import { FormResetButton } from '@/components/app/form-reset-button';
 import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { fridgeCategoryLabels, fridgeStatusLabels, storageTypeLabels } from '@/domain/labels';
@@ -53,9 +54,7 @@ export default function FridgeScreen() {
   }, [stockedItems]);
   const maxCategoryCount = Math.max(...categoryCounts.map((item) => item.count), 1);
 
-  const resetForm = () => {
-    setFormOpen(false);
-    setEditingId(null);
+  const clearFridgeForm = () => {
     setName('');
     setQuantity('');
     setExpiryDate('');
@@ -63,6 +62,12 @@ export default function FridgeScreen() {
     setStorageType('fridge');
     setStatus('stocked');
     setFormError(null);
+  };
+
+  const resetForm = () => {
+    setFormOpen(false);
+    setEditingId(null);
+    clearFridgeForm();
   };
 
   const openNewForm = () => {
@@ -196,7 +201,14 @@ export default function FridgeScreen() {
               style={styles.deleteAction}>
               삭제
             </ActionButton>
-          ) : null}
+          ) : (
+            <FormResetButton
+              testID="fridge-reset-button"
+              onReset={clearFridgeForm}
+              disabled={submitting}
+              style={styles.deleteAction}
+            />
+          )}
           <ActionButton
             testID="fridge-submit-button"
             onPress={submit}

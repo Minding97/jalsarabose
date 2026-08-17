@@ -6,6 +6,7 @@ import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
 import { FormField } from '@/components/app/form-field';
+import { FormResetButton } from '@/components/app/form-reset-button';
 import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { useTheme } from '@/hooks/use-theme';
@@ -53,9 +54,7 @@ export default function ExpensesScreen() {
   const maxCategoryAmount = Math.max(...summary.byCategory.map((item) => item.amount), 1);
   const settlement = getSettlement(snapshot.expenses, snapshot.members.map((member) => member.id));
 
-  const resetForm = () => {
-    setFormOpen(false);
-    setEditingId(null);
+  const clearExpenseForm = () => {
     setTitle('');
     setAmount('');
     setDueDate(todayIso());
@@ -65,6 +64,12 @@ export default function ExpensesScreen() {
     setSplitMode('equal');
     setShares({});
     setFormError(null);
+  };
+
+  const resetForm = () => {
+    setFormOpen(false);
+    setEditingId(null);
+    clearExpenseForm();
   };
 
   const openNewForm = () => {
@@ -233,7 +238,14 @@ export default function ExpensesScreen() {
               style={styles.deleteAction}>
               삭제
             </ActionButton>
-          ) : null}
+          ) : (
+            <FormResetButton
+              testID="expense-reset-button"
+              onReset={clearExpenseForm}
+              disabled={submitting}
+              style={styles.deleteAction}
+            />
+          )}
           <ActionButton
             testID="expense-submit-button"
             onPress={submit}
