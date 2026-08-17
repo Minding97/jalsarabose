@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyMergeStage, classifyNightlyStatus, finalizeNightlySummary, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, blockedTicketReason, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyMergeStage, classifyNightlyStatus, finalizeNightlySummary, processIssue } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -79,7 +79,10 @@ test('processIssue uses a completed parent merged PR for a subtask without its o
 test('processIssue contains PR lookup failures to the affected ticket', async () => {
   const issue = { key: 'JAL-47', fields: { summary: 'blocker', labels: ['pr-16'], status: { name: '해야 할 일' } } };
   const github = { getPullRequest: async () => { throw new Error('offline'); } };
-  assert.equal((await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false })).result, '상태 확인 필요');
+  const outcome = await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false });
+  assert.equal(outcome.result, 'PR 조회 실패');
+  assert.equal(outcome.category, 'failure');
+  assert.match(outcome.reason, /PR #16 조회 실패: offline/);
 });
 
 test('processIssue dry-run is conservative for unprocessed work', async () => {
@@ -118,6 +121,36 @@ test('captures the fixed plan snapshot and blocked queue before an empty actiona
   assert.equal(summary.status, '후속 작업 있음');
   assert.match(summary.verification, /큐 스냅샷 2건 확인/);
   assert.match(summary.nextAction, /JAL-47, JAL-53/);
+});
+
+test('records concrete external, cyclic, and cascaded blocker causes', () => {
+  const summary = { ticketResults: [] };
+  captureNightlyPlanSummary(summary, {
+    issues: [],
+    reportIssues: [{ key: 'JAL-70' }, { key: 'JAL-71' }],
+    externallyBlockedKeys: ['JAL-70'], cyclicKeys: ['JAL-71'], duplicateKeys: [],
+    dependencies: new Map([['JAL-70', ['JAL-28']], ['JAL-71', ['JAL-72']]]),
+    externalFailures: new Map([['JAL-28', 'PR #28 lookup failed: gh pr view 28 failed (1)']]),
+    counts: { total: 2 },
+  });
+  assert.match(summary.ticketResults.find(({ key }) => key === 'JAL-70').reason, /gh pr view 28 failed/);
+  assert.match(summary.ticketResults.find(({ key }) => key === 'JAL-71').reason, /Jira 의존 순환: JAL-72/);
+  assert.equal(blockedTicketReason(['JAL-70'], summary.ticketResults),
+    'JAL-70=외부 선행조건 차단: JAL-28: PR #28 lookup failed: gh pr view 28 failed (1)');
+});
+
+test('propagates a representative failure cause to every deduplicated work-group ticket', async () => {
+  const first = { key: 'JAL-60', fields: { labels: ['pr-28'] } };
+  const duplicate = { key: 'JAL-61', fields: { labels: ['pr-28'] } };
+  const summary = { ticketResults: [{ key: 'JAL-60', result: 'PR 조회 실패', category: 'failure', reason: 'gh pr view 28 failed (1)' }] };
+  await finalizeNightlySummary({
+    summary,
+    plan: { issues: [first], reportIssues: [first, duplicate], duplicateKeys: ['JAL-61'] },
+    jira: { searchReadyIssues: async () => [] },
+  });
+  const inherited = summary.ticketResults.find(({ key }) => key === 'JAL-61');
+  assert.equal(inherited.category, 'blocked');
+  assert.match(inherited.reason, /JAL-60 결과 전파.*gh pr view 28 failed/);
 });
 
 test('waits for recovered review follow-ups before building the one final summary', async () => {

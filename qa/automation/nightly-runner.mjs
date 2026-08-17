@@ -35,6 +35,7 @@ import {
   resolveExternalDependencies,
   shouldStopForDeadline,
   unsatisfiedDependencies,
+  workGroupKey,
 } from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
 
@@ -92,10 +93,36 @@ export function classifyMergeStage(pullRequest) {
   return pullRequest?.mergeStateStatus === 'DIRTY' ? '재작업 예정' : '병합 대기';
 }
 
+export function blockedTicketReason(blockers, ticketResults) {
+  return blockers.map((blocker) => {
+    const upstream = ticketResults.find((item) => item.key === blocker);
+    return upstream
+      ? `${blocker}=${upstream.result}: ${upstream.reason || '상세 이유 미기록'}`
+      : `${blocker}=완료/병합 미확인`;
+  }).join('; ');
+}
+
 export function captureNightlyPlanSummary(summary, plan) {
-  summary.plannedTickets = plan.issues.map((issue) => issue.key);
+  summary.ticketResults ??= [];
+  summary.plannedTickets = (plan.reportIssues ?? plan.issues).map((issue) => issue.key);
   const blocked = [...plan.externallyBlockedKeys, ...plan.cyclicKeys];
-  summary.remainingQueue = [...summary.plannedTickets, ...blocked];
+  summary.ticketResults.push(
+    ...plan.externallyBlockedKeys.map((key) => {
+      const dependencies = plan.dependencies?.get(key) ?? [];
+      const details = dependencies
+        .filter((dependency) => plan.externalFailures?.has(dependency))
+        .map((dependency) => `${dependency}: ${plan.externalFailures.get(dependency)}`);
+      return {
+        key, result: '외부 선행조건 차단', category: 'blocked',
+        reason: details.length ? details.join('; ') : `큐 밖 선행 티켓 ${dependencies.join(', ') || '미상'} 미완료`,
+      };
+    }),
+    ...plan.cyclicKeys.map((key) => ({
+      key, result: '의존 순환 차단', category: 'blocked',
+      reason: `Jira 의존 순환: ${(plan.dependencies?.get(key) ?? []).join(', ') || key}`,
+    })),
+  );
+  summary.remainingQueue = [...new Set([...summary.plannedTickets, ...blocked])];
   if (plan.issues.length === 0) {
     summary.status = blocked.length ? '후속 작업 있음' : '성공';
     summary.verification = plan.counts.total
@@ -109,6 +136,20 @@ export function captureNightlyPlanSummary(summary, plan) {
 }
 
 export async function finalizeNightlySummary({ summary, plan, jira }) {
+  const representativeByGroup = new Map(plan.issues.map((issue) => [workGroupKey(issue), issue.key]));
+  for (const duplicateKey of plan.duplicateKeys ?? []) {
+    const duplicate = plan.reportIssues.find((issue) => issue.key === duplicateKey);
+    const representativeKey = duplicate && representativeByGroup.get(workGroupKey(duplicate));
+    const representative = summary.ticketResults.find((item) => item.key === representativeKey);
+    summary.ticketResults.push({
+      key: duplicateKey,
+      result: representative?.result === '완료' ? '완료' : '작업 묶음 대기',
+      category: representative?.category === 'failure' ? 'blocked' : (representative?.category ?? 'pending'),
+      reason: representative
+        ? `동일 작업 묶음 ${representativeKey} 결과 전파: ${representative.result} — ${representative.reason || '상세 이유 미기록'}`
+        : `동일 작업 묶음 대표 티켓 ${representativeKey ?? '미상'} 결과 없음`,
+    });
+  }
   const finalQueue = await jira.searchReadyIssues();
   const planned = new Set(plan.reportIssues.map((issue) => issue.key));
   summary.remainingQueue = finalQueue.map((issue) => issue.key);
@@ -460,8 +501,9 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       ? await github.getPullRequest(existingPullRequestNumber)
       : null;
   } catch (error) {
-    console.error(`${issue.key} PR lookup failed:`, error instanceof Error ? error.message : String(error));
-    return ticketOutcome('상태 확인 필요', 'pending', `PR #${existingPullRequestNumber} 조회 실패`);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${issue.key} PR lookup failed:`, message);
+    return ticketOutcome('PR 조회 실패', 'failure', `PR #${existingPullRequestNumber} 조회 실패: ${message.split(/\r?\n/, 1)[0]}`);
   }
 
   if (issue.key !== parentKey && parentDetails.fields.status?.name === config.jiraDoneStatus) {
@@ -775,8 +817,8 @@ async function main() {
         summary.ticketResults.push({
           key: completedIssue.key,
           result: '선행 작업 대기',
-          category: 'pending',
-          reason: `선행 티켓 ${result.blockers?.join(', ') || '미완료'}의 Jira 완료 및 PR 병합 대기`,
+          category: 'blocked',
+          reason: blockedTicketReason(result.blockers, summary.ticketResults),
         });
         continue;
       }
