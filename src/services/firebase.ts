@@ -1,6 +1,14 @@
 import { FirebaseOptions, getApp, getApps, initializeApp } from 'firebase/app';
-import { Auth, getAuth } from 'firebase/auth';
+import {
+  Auth,
+  browserLocalPersistence,
+  browserSessionPersistence,
+  getAuth,
+  inMemoryPersistence,
+  initializeAuth,
+} from 'firebase/auth';
 import { Firestore, getFirestore } from 'firebase/firestore';
+import { Platform } from 'react-native';
 
 const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -25,7 +33,31 @@ const app = isFirebaseConfigured
     : initializeApp(firebaseConfig)
   : null;
 
-export const firebaseAuth: Auth | null = app ? getAuth(app) : null;
+// Firebase's default browser persistence probes IndexedDB first. Some iOS Safari
+// sessions can leave that probe pending indefinitely (notably after storage was
+// cleared or in restricted/private storage contexts), which also prevents the
+// first onAuthStateChanged callback. localStorage is sufficient for this app and
+// the ordered fallbacks keep restricted WebKit sessions usable.
+function initializeWebAuth(): Auth | null {
+  if (!app) {
+    return null;
+  }
+
+  try {
+    return initializeAuth(app, {
+      persistence: [browserLocalPersistence, browserSessionPersistence, inMemoryPersistence],
+    });
+  } catch {
+    // Expo fast refresh can evaluate this module after Auth is already registered.
+    return getAuth(app);
+  }
+}
+
+export const firebaseAuth: Auth | null = app
+  ? Platform.OS === 'web'
+    ? initializeWebAuth()
+    : getAuth(app)
+  : null;
 export const firestoreDb: Firestore | null = app ? getFirestore(app) : null;
 
 export function requireAuth(): Auth {
