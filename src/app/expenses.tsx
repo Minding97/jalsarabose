@@ -9,6 +9,7 @@ import { FormField } from '@/components/app/form-field';
 import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { useTheme } from '@/hooks/use-theme';
+import { useReturnToTabMain } from '@/hooks/use-return-to-tab-main';
 import { expenseCategoryLabels, expenseStatusLabels } from '@/domain/labels';
 import { Expense, ExpenseCategory, ExpenseStatus } from '@/domain/types';
 import { useHouseholdStore } from '@/store/household-store';
@@ -40,6 +41,8 @@ export default function ExpensesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  useReturnToTabMain(setFormOpen);
+
   const groups = useMemo(() => {
     const grouped = snapshot.expenses.reduce<Record<string, Expense[]>>((acc, expense) => {
       acc[expense.dueDate] ??= [];
@@ -53,8 +56,7 @@ export default function ExpensesScreen() {
   const maxCategoryAmount = Math.max(...summary.byCategory.map((item) => item.amount), 1);
   const settlement = getSettlement(snapshot.expenses, snapshot.members.map((member) => member.id));
 
-  const resetForm = () => {
-    setFormOpen(false);
+  const clearForm = () => {
     setEditingId(null);
     setTitle('');
     setAmount('');
@@ -67,8 +69,17 @@ export default function ExpensesScreen() {
     setFormError(null);
   };
 
+  const resetForm = () => {
+    setFormOpen(false);
+    clearForm();
+  };
+
   const openNewForm = () => {
-    resetForm();
+    if (editingId) {
+      clearForm();
+    } else {
+      setFormError(null);
+    }
     setFormOpen(true);
   };
 

@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Card } from '@/components/app/card';
 import { Screen } from '@/components/app/screen';
 import { ProfileSheet } from '@/components/profile-sheet';
+import { useReturnToTabMain } from '@/hooks/use-return-to-tab-main';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
@@ -16,6 +17,7 @@ export default function HomeScreen() {
   const snapshot = useHouseholdStore();
   const currentUser = useHouseholdStore((state) => state.currentUser);
   const [profileOpen, setProfileOpen] = useState(false);
+  useReturnToTabMain(setProfileOpen);
   const today = todayIso();
   const summary = getHomeSummary(snapshot, today);
   const greetingName =
