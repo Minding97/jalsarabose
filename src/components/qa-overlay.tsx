@@ -13,7 +13,7 @@ import {
 
 import { ActionButton } from '@/components/app/action-button';
 import { SegmentedControl } from '@/components/app/segmented-control';
-import { MaxContentWidth } from '@/constants/theme';
+import { MaxContentWidth, WebBottomTabHeight } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { createQaReportId, isQaMode, submitQaReport } from '@/qa/client';
 import { startQaRecording } from '@/qa/recorder';
@@ -498,8 +498,9 @@ const styles = StyleSheet.create({
   },
   launcher: {
     position: 'absolute',
-    top: 64,
-    right: 12,
+    left: 12,
+    // React Native's DimensionValue omits CSS calc()/env(), though RN Web passes it through.
+    bottom: `calc(${WebBottomTabHeight + 12}px + env(safe-area-inset-bottom, 0px))` as unknown as number,
     width: 40,
     height: 40,
     borderRadius: 20,
