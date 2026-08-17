@@ -31,10 +31,12 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.0",
     "@types/react": "~19.2.2",
     "concurrently": "^10.0.4",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~56.0.4",
+    "firebase-tools": "^14.17.0",
     "playwright-core": "^1.62.0",
     "typescript": "~6.0.3"
   },
@@ -56,6 +58,7 @@
     "qa:configure-github": "node qa/automation/configure-github.mjs",
     "qa:install-schedule": "node qa/automation/install-schedule.mjs",
     "qa:test": "node --test qa/**/*.test.mjs",
+    "test:firestore-rules": "npx --yes firebase-tools@14.17.0 emulators:exec --project jalsarabose-rules-test --only firestore \"node --test qa/domain/firestore-rules.emulator.test.mjs\"",
     "export:web": "expo export --platform web && node scripts/prepare-sites-build.mjs",
     "export:web:mock": "EXPO_PUBLIC_USE_MOCKS=true expo export --platform web --output-dir dist-mock",
     "verify:env": "node scripts/verify-env.mjs",

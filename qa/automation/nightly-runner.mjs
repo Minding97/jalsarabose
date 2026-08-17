@@ -25,6 +25,7 @@ import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
+import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 import {
   buildNightlyPlan,
   executePlannedIssue,
@@ -77,6 +78,43 @@ function buildDeadline(now, endHour) {
   return deadline;
 }
 
+export function classifyNightlyStatus(ticketResults, plannedCount = ticketResults.length) {
+  if (ticketResults.some((item) => item.result === '실패/미병합')) return '일부 실패';
+  if (plannedCount > ticketResults.filter((item) => item.result === '성공').length) return '보류/지연';
+  return '성공';
+}
+
+export function captureNightlyPlanSummary(summary, plan) {
+  summary.plannedTickets = plan.issues.map((issue) => issue.key);
+  const blocked = [...plan.externallyBlockedKeys, ...plan.cyclicKeys];
+  summary.remainingQueue = [...summary.plannedTickets, ...blocked];
+  if (plan.issues.length === 0) {
+    summary.status = blocked.length ? '보류/지연' : '성공';
+    summary.verification = plan.counts.total
+      ? `큐 스냅샷 ${plan.counts.total}건 확인 · 실행 가능 0건`
+      : '큐 스냅샷 0건 확인 · 처리 티켓 없음';
+    summary.nextAction = blocked.length
+      ? `차단/순환 티켓 ${blocked.join(', ')}의 선행조건 확인`
+      : '다음 야간 큐 대기';
+  }
+  return summary;
+}
+
+export function acquireNightlyLock(path) {
+  try {
+    const descriptor = openSync(path, 'wx', 0o600);
+    writeFileSync(descriptor, String(process.pid));
+    return descriptor;
+  } catch (error) {
+    if (error?.code === 'EEXIST') {
+      const contention = new Error(`Another QA nightly runner is active (${path}).`);
+      contention.code = 'QA_NIGHTLY_LOCKED';
+      throw contention;
+    }
+    throw error;
+  }
+}
+
 async function createWorktree(issue, existingPullRequest, branch) {
   const worktree = resolve(worktreesRoot, issue.key);
   mkdirSync(worktreesRoot, { recursive: true });
@@ -95,7 +133,7 @@ async function createWorktree(issue, existingPullRequest, branch) {
     await runCommand('git', ['fetch', 'origin', branch], { cwd: repositoryRoot });
     await runCommand(
       'git',
-      ['worktree', 'add', '--force', '-B', branch, worktree, `origin/${branch}`],
+      buildWorktreeAddArgs(worktree, `origin/${branch}`),
       { cwd: repositoryRoot },
     );
   } else {
@@ -120,6 +158,12 @@ async function createWorktree(issue, existingPullRequest, branch) {
   }
 
   return worktree;
+}
+
+export function buildWorktreeAddArgs(worktree, startPoint) {
+  // A PR branch may already be checked out in an operator worktree.  A detached
+  // automation worktree avoids resetting or claiming that shared local branch.
+  return ['worktree', 'add', '--force', '--detach', worktree, startPoint];
 }
 
 async function downloadRecordings(jira, issue, issueArtifacts, config) {
@@ -243,7 +287,7 @@ async function commitAndPush(issue, worktree, branch) {
   await runCommand('git', ['commit', '-m', `fix: ${issue.key} ${issue.fields.summary}`], {
     cwd: worktree,
   });
-  await runCommand('git', ['push', '-u', 'origin', branch], {
+  await runCommand('git', ['push', 'origin', `HEAD:refs/heads/${branch}`], {
     cwd: worktree,
     timeoutMs: 10 * 60 * 1000,
   });
@@ -602,10 +646,16 @@ async function main() {
   const once = flags.has('--once');
   const force = flags.has('--force');
   const config = loadQaConfig();
-
-  if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
-    throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
-  }
+  const startedAt = new Date().toISOString();
+  const summary = {
+    kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
+    testNotification: isTestNotificationRun({
+      dryRun,
+      explicitTestNotification: flags.has('--test-notification'),
+    }),
+    status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [],
+    verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
+  };
 
   const now = new Date();
   const deadline = buildDeadline(now, config.nightlyEndHour);
@@ -616,17 +666,14 @@ async function main() {
 
   mkdirSync(dirname(lockPath), { recursive: true });
   let lockFile;
-  try {
-    lockFile = openSync(lockPath, 'wx', 0o600);
-    writeFileSync(lockFile, String(process.pid));
-  } catch {
-    throw new Error(`Another QA nightly runner is active (${lockPath}).`);
-  }
-
   const jira = new JiraClient(config);
   const github = new GitHubClient(config.githubRepository);
 
   try {
+    lockFile = acquireNightlyLock(lockPath);
+    if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
+      throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
+    }
     await github.ensureAuthenticated();
     if (!dryRun) {
       await reconcileMergedPullRequests(jira, github, config);
@@ -635,6 +682,7 @@ async function main() {
 
     const queueSnapshot = await jira.searchReadyIssues();
     const plan = buildNightlyPlan(queueSnapshot, config);
+    captureNightlyPlanSummary(summary, plan);
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
     if (plan.issues.length === 0) {
@@ -663,17 +711,54 @@ async function main() {
           if (!dryRun) await jira.addComment(heldIssue.key, message);
         },
       });
-      if (result.held) continue;
+      if (result.held) {
+        summary.ticketResults.push({ key: issue.key, result: '보류' });
+        continue;
+      }
       processedCount += 1;
+      summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      let prNumber = null;
+      try {
+        const refreshedIssue = dryRun ? issue : await jira.getIssue(issue.key);
+        prNumber = getPullRequestNumber(refreshedIssue);
+        if (prNumber) {
+          const pullRequest = await github.getPullRequest(prNumber);
+          const merged = pullRequest.state === 'MERGED' || Boolean(pullRequest.mergedAt);
+          summary.pullRequests.push(`#${prNumber} ${merged ? 'merged' : '대기'}`);
+        }
+      } catch (error) {
+        if (prNumber) summary.pullRequests.push(`#${prNumber} 확인 실패`);
+        summary.failures.push(`${issue.key} PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
+      }
       if (once || dryRun) {
         break;
       }
     }
+    summary.remainingQueue = plan.issues
+      .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
+      .map((issue) => issue.key);
+    summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
+    summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
+    summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const lockContention = error?.code === 'QA_NIGHTLY_LOCKED';
+    summary.status = lockContention ? '중복 실행 건너뜀' : '실패';
+    if (!lockContention) summary.failures.push(message);
+    summary.nextAction = lockContention ? '진행 중인 야간 실행의 완료 알림 대기' : '야간 로그 확인 후 안전 재실행';
+    throw error;
   } finally {
     if (lockFile !== undefined) {
       closeSync(lockFile);
     }
-    rmSync(lockPath, { force: true });
+    if (lockFile !== undefined) rmSync(lockPath, { force: true });
+    summary.completedAt = new Date().toISOString();
+    try {
+      await notifyAutomationSummary({ summary, config, dryRun });
+    } catch (error) {
+      console.error(`Nightly Telegram notification failed: ${error instanceof Error ? error.message : String(error)}`);
+      process.exitCode = 1;
+    }
   }
 }
 

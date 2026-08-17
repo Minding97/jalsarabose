@@ -8,7 +8,6 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
   const today = toIsoDate(baseDate);
   const yesterday = toIsoDate(subDays(baseDate, 1));
   const tomorrow = toIsoDate(addDays(baseDate, 1));
-  const inTwoDays = toIsoDate(addDays(baseDate, 2));
   const inFourDays = toIsoDate(addDays(baseDate, 4));
   const inSixDays = toIsoDate(addDays(baseDate, 6));
 
@@ -108,60 +107,6 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         createdBy: minseoId,
         createdAt: yesterday,
         notificationEnabled: false,
-      },
-    ],
-    chores: [
-      {
-        id: 'chore-recycle',
-        householdId,
-        title: '분리수거',
-        assigneeId: jihoonId,
-        dueDate: today,
-        repeatCycle: 'weekly',
-        score: 2,
-        status: 'scheduled',
-        createdBy: minseoId,
-        createdAt: today,
-        notificationEnabled: true,
-      },
-      {
-        id: 'chore-bathroom',
-        householdId,
-        title: '화장실 청소',
-        assigneeId: minseoId,
-        dueDate: inTwoDays,
-        repeatCycle: 'weekly',
-        score: 3,
-        status: 'scheduled',
-        createdBy: minseoId,
-        createdAt: today,
-        notificationEnabled: true,
-      },
-      {
-        id: 'chore-dishes',
-        householdId,
-        title: '저녁 설거지',
-        assigneeId: minseoId,
-        dueDate: yesterday,
-        repeatCycle: 'daily',
-        score: 1,
-        status: 'done',
-        createdBy: jihoonId,
-        createdAt: yesterday,
-        notificationEnabled: true,
-      },
-      {
-        id: 'chore-laundry',
-        householdId,
-        title: '침구 세탁',
-        assigneeId: jihoonId,
-        dueDate: inSixDays,
-        repeatCycle: 'biweekly',
-        score: 3,
-        status: 'scheduled',
-        createdBy: jihoonId,
-        createdAt: today,
-        notificationEnabled: true,
       },
     ],
     fridgeItems: [

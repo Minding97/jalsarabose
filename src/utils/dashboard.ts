@@ -1,8 +1,7 @@
-import { addDays, isSameMonth, isWithinInterval } from 'date-fns';
+import { isSameMonth } from 'date-fns';
 
-import { choreStatusLabels, expenseStatusLabels, fridgeStatusLabels } from '@/domain/labels';
+import { expenseStatusLabels, fridgeStatusLabels } from '@/domain/labels';
 import {
-  Chore,
   EventType,
   Expense,
   FridgeItem,
@@ -12,7 +11,6 @@ import {
   ISODate,
 } from '@/domain/types';
 import { daysUntil, formatKoreanDate, fromIsoDate } from '@/utils/dates';
-import { getReminderCandidates } from '@/utils/reminder-policy';
 
 export function getMemberName(members: HouseholdMember[], memberId?: string): string {
   const memberIndex = members.findIndex((member) => member.id === memberId);
@@ -26,30 +24,18 @@ export function getMemberDisplayName(member: HouseholdMember, index: number): st
 
 export function getCalendarEvents(snapshot: HouseholdSnapshot): HouseholdEvent[] {
   const expenseEvents = snapshot.expenses.map((expense) => expenseToEvent(expense));
-  const choreEvents = snapshot.chores.map((chore) => choreToEvent(chore, snapshot.members));
   const fridgeEvents = snapshot.fridgeItems
     .filter((item) => item.expiryDate && item.status === 'stocked')
     .map((item) => fridgeToEvent(item));
 
-  return [...expenseEvents, ...choreEvents, ...fridgeEvents].sort((a, b) =>
+  return [...expenseEvents, ...fridgeEvents].sort((a, b) =>
     a.date.localeCompare(b.date),
   );
 }
 
 export function getHomeSummary(snapshot: HouseholdSnapshot, today: ISODate) {
   const allEvents = getCalendarEvents(snapshot);
-  const upcomingEvents = allEvents.filter((event) => {
-    const diff = daysUntil(event.date, today);
-    return diff >= 0 && diff <= 7;
-  });
   const todayEvents = allEvents.filter((event) => event.date === today);
-  const todayChores = snapshot.chores.filter(
-    (chore) => chore.dueDate === today && chore.status === 'scheduled',
-  );
-  const upcomingExpenses = snapshot.expenses.filter((expense) => {
-    const diff = daysUntil(expense.dueDate, today);
-    return diff >= 0 && diff <= 7 && expense.status !== 'paid';
-  });
   const expiringFridgeItems = snapshot.fridgeItems.filter((item) => {
     if (!item.expiryDate || item.status !== 'stocked') {
       return false;
@@ -60,27 +46,8 @@ export function getHomeSummary(snapshot: HouseholdSnapshot, today: ISODate) {
 
   return {
     todayEvents,
-    todayChores,
-    upcomingEvents,
-    upcomingExpenses,
     expiringFridgeItems,
     monthlyExpenseTotal: getExpenseSummary(snapshot, today).total,
-    choreContribution: getChoreSummary(snapshot, today).contribution,
-    notificationSummary: getNotificationSummary(snapshot, today),
-  };
-}
-
-export function getNotificationSummary(snapshot: HouseholdSnapshot, today: ISODate) {
-  const candidates = getReminderCandidates(snapshot, today);
-  const expenseCount = candidates.filter((candidate) => candidate.type === 'expense').length;
-  const choreCount = candidates.filter((candidate) => candidate.type === 'chore').length;
-  const fridgeCount = candidates.filter((candidate) => candidate.type === 'fridge').length;
-
-  return {
-    expenseCount,
-    choreCount,
-    fridgeCount,
-    totalCount: expenseCount + choreCount + fridgeCount,
   };
 }
 
@@ -107,29 +74,6 @@ export function getExpenseSummary(snapshot: HouseholdSnapshot, today: ISODate) {
     scheduledCount: monthlyExpenses.filter((expense) => expense.status === 'scheduled').length,
     paidCount: monthlyExpenses.filter((expense) => expense.status === 'paid').length,
     overdueCount: monthlyExpenses.filter((expense) => expense.status === 'overdue').length,
-  };
-}
-
-export function getChoreSummary(snapshot: HouseholdSnapshot, today: ISODate) {
-  const todayDate = fromIsoDate(today);
-  const weekEnd = addDays(todayDate, 7);
-  const currentMonthChores = snapshot.chores.filter((chore) =>
-    isSameMonth(fromIsoDate(chore.dueDate), todayDate),
-  );
-  const contribution = getChoreContribution(snapshot.members, currentMonthChores);
-
-  return {
-    todayCount: snapshot.chores.filter(
-      (chore) => chore.dueDate === today && chore.status === 'scheduled',
-    ).length,
-    weekCount: snapshot.chores.filter((chore) =>
-      isWithinInterval(fromIsoDate(chore.dueDate), { start: todayDate, end: weekEnd }),
-    ).length,
-    completedScore: currentMonthChores
-      .filter((chore) => chore.status === 'done')
-      .reduce((sum, chore) => sum + chore.score, 0),
-    pendingCount: snapshot.chores.filter((chore) => chore.status === 'scheduled').length,
-    contribution,
   };
 }
 
@@ -170,24 +114,6 @@ export function getFridgeSummary(snapshot: HouseholdSnapshot, today: ISODate) {
   };
 }
 
-function getChoreContribution(members: HouseholdMember[], chores: Chore[]) {
-  const completedChores = chores.filter((chore) => chore.status === 'done');
-  const totalScore = completedChores.reduce((sum, chore) => sum + chore.score, 0);
-
-  return members.map((member, index) => {
-    const completedScore = completedChores
-      .filter((chore) => chore.assigneeId === member.id)
-      .reduce((sum, chore) => sum + chore.score, 0);
-
-    return {
-      memberId: member.id,
-      name: getMemberDisplayName(member, index),
-      completedScore,
-      ratio: totalScore === 0 ? 0 : Math.round((completedScore / totalScore) * 100),
-    };
-  });
-}
-
 function expenseToEvent(expense: Expense): HouseholdEvent {
   return {
     id: `expense-${expense.id}`,
@@ -200,21 +126,6 @@ function expenseToEvent(expense: Expense): HouseholdEvent {
     date: expense.dueDate,
     status: expense.status,
     tone: expense.status === 'overdue' ? 'danger' : 'info',
-  };
-}
-
-function choreToEvent(chore: Chore, members: HouseholdMember[]): HouseholdEvent {
-  return {
-    id: `chore-${chore.id}`,
-    type: 'chore' satisfies EventType,
-    typeLabel: '집안일',
-    title: chore.title,
-    subtitle: `${getMemberName(members, chore.assigneeId)} 담당 · ${chore.score}점 · ${
-      choreStatusLabels[chore.status]
-    }`,
-    date: chore.dueDate,
-    status: chore.status,
-    tone: chore.status === 'missed' ? 'warning' : 'primary',
   };
 }
 

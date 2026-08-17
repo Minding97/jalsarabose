@@ -1,6 +1,6 @@
 # 잘살아보세
 
-함께 사는 사람들이 지출, 집안일, 냉장고 재고, 날짜 기반 생활 이벤트를 한 곳에서 관리하는 공동생활 관리 앱입니다.
+함께 사는 사람들이 공동 지출, 냉장고 재고, 날짜 기반 생활 이벤트를 한 곳에서 관리하는 공동생활 관리 앱입니다.
 
 ## 기술 스택
 
@@ -13,10 +13,9 @@
 
 ## MVP 범위
 
-- 홈: 오늘의 집안일, 다가오는 지출, 유통기한 임박 항목, 월간 요약
-- 캘린더: 지출, 집안일, 냉장고 유통기한 이벤트 통합 표시
+- 홈: 오늘 일정, 다가오는 지출, 유통기한 임박 항목, 월간 요약
+- 캘린더: 지출, 냉장고 유통기한 이벤트 통합 표시
 - 지출: 공과금/생활비 등록 모델, 납부 상태, 월간/유형별 요약
-- 집안일: 담당자, 반복 주기, 점수, 완료 상태, 수행 비율
 - 냉장고: 재고, 보관 위치, 유통기한, 소진/폐기 상태
 - 가구: 가구/가구원/초대 코드 데이터 모델
 - 알림 준비: 항목별 `notificationEnabled`와 홈 알림 대상 요약
@@ -104,11 +103,12 @@ Firestore 컬렉션 구조:
 - `households/{householdId}`
 - `households/{householdId}/members/{uid}`
 - `households/{householdId}/expenses/{expenseId}`
-- `households/{householdId}/chores/{choreId}`
 - `households/{householdId}/fridgeItems/{itemId}`
 - `inviteCodes/{code}`
 
 Firebase 설정 절차는 [docs/firebase-setup.md](docs/firebase-setup.md)를 기준으로 진행합니다. 알림 구현 기준은 [docs/notifications.md](docs/notifications.md)에 정리합니다. 디자인 전 준비 범위는 [docs/pre-design-readiness.md](docs/pre-design-readiness.md), 실제 기기 확인은 [docs/device-testing.md](docs/device-testing.md)를 따릅니다.
+
+MVP에서 제외한 기능의 기존 데이터 보존, 딥링크 호환, 규칙 배포와 롤백 절차는 [docs/retired-feature-policy.md](docs/retired-feature-policy.md)를 따릅니다.
 
 환경변수와 Firebase 프로젝트 연결 확인:
 

@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict';
+import { closeSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('checks out an existing PR head without claiming its local branch', () => {
+  assert.deepEqual(
+    buildWorktreeAddArgs('/tmp/JAL-55', 'origin/codex/JAL-47-p0'),
+    ['worktree', 'add', '--force', '--detach', '/tmp/JAL-55', 'origin/codex/JAL-47-p0'],
+  );
+});
 
 function jiraWith(issue, parent = issue) {
   const transitions = [];
@@ -79,4 +90,51 @@ test('processIssue dry-run is conservative for unprocessed work', async () => {
   assert.equal(await processIssue({
     jira: jiraWith(issue), github: {}, config, issue, dryRun: true,
   }), false);
+});
+
+test('nightly completion status does not call an all-held queue successful', () => {
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-48', result: '보류' }]), '보류/지연');
+  assert.equal(classifyNightlyStatus([], 2), '보류/지연');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }, { key: 'JAL-48', result: '보류' }], 2), '보류/지연');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }], 2), '보류/지연');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }]), '성공');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '실패/미병합' }]), '일부 실패');
+});
+
+test('captures the fixed plan snapshot and blocked queue before an empty actionable-plan return', () => {
+  const summary = { plannedTickets: [], remainingQueue: [], verification: '처리 티켓 없음' };
+  captureNightlyPlanSummary(summary, {
+    issues: [], externallyBlockedKeys: ['JAL-47'], cyclicKeys: ['JAL-53'],
+    counts: { total: 2 },
+  });
+  assert.deepEqual(summary.plannedTickets, []);
+  assert.deepEqual(summary.remainingQueue, ['JAL-47', 'JAL-53']);
+  assert.equal(summary.status, '보류/지연');
+  assert.match(summary.verification, /큐 스냅샷 2건 확인/);
+  assert.match(summary.nextAction, /JAL-47, JAL-53/);
+});
+
+test('labels only dry-runs or explicitly requested probes as test notifications', () => {
+  assert.equal(isTestNotificationRun({ dryRun: true }), true);
+  assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
+  assert.equal(isTestNotificationRun({ dryRun: false }), false);
+});
+
+test('nightly lock contention leaves the existing owner lock untouched', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-lock-test-'));
+  const path = resolve(root, 'nightly.lock');
+  try {
+    writeFileSync(path, 'existing-owner');
+    assert.throws(
+      () => acquireNightlyLock(path),
+      (error) => error.code === 'QA_NIGHTLY_LOCKED' && /Another QA nightly runner is active/.test(error.message),
+    );
+    assert.equal(readFileSync(path, 'utf8'), 'existing-owner');
+    rmSync(path);
+    const descriptor = acquireNightlyLock(path);
+    closeSync(descriptor);
+    assert.equal(existsSync(path), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

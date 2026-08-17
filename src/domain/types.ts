@@ -3,14 +3,11 @@ export type ISODate = string;
 export type YearMonth = string;
 
 export type HouseholdRole = 'admin' | 'member';
-export type EventType = 'expense' | 'chore' | 'fridge';
+export type EventType = 'expense' | 'fridge';
 
 export type ExpenseCategory = 'rent' | 'utilities' | 'living' | 'subscription' | 'other';
 export type ExpenseStatus = 'scheduled' | 'paid' | 'overdue';
 export type ContributionMode = 'equal' | 'custom';
-
-export type ChoreRepeatCycle = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly';
-export type ChoreStatus = 'scheduled' | 'done' | 'missed';
 
 export type FridgeCategory = 'vegetable' | 'fruit' | 'meat' | 'dairy' | 'side' | 'sauce' | 'other';
 export type StorageType = 'fridge' | 'freezer' | 'room';
@@ -64,22 +61,6 @@ export type MonthlyBudget = {
   updatedBy: ID;
   updatedAt: ISODate;
 };
-
-export type Chore = {
-  id: ID;
-  householdId: ID;
-  title: string;
-  assigneeId: ID;
-  dueDate: ISODate;
-  repeatCycle: ChoreRepeatCycle;
-  score: number;
-  status: ChoreStatus;
-  memo?: string;
-  createdBy: ID;
-  createdAt: ISODate;
-  notificationEnabled: boolean;
-};
-
 export type FridgeItem = {
   id: ID;
   householdId: ID;
@@ -100,7 +81,6 @@ export type HouseholdSnapshot = {
   members: HouseholdMember[];
   monthlyBudgets: MonthlyBudget[];
   expenses: Expense[];
-  chores: Chore[];
   fridgeItems: FridgeItem[];
 };
 
@@ -143,19 +123,6 @@ export type MonthlyBudgetInput = Pick<
   MonthlyBudget,
   'month' | 'totalAmount' | 'contributionMode' | 'memberContributions'
 >;
-
-export type ChoreInput = Pick<
-  Chore,
-  | 'title'
-  | 'assigneeId'
-  | 'dueDate'
-  | 'repeatCycle'
-  | 'score'
-  | 'status'
-  | 'memo'
-  | 'notificationEnabled'
->;
-
 export type FridgeItemInput = Pick<
   FridgeItem,
   | 'name'

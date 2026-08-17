@@ -8,7 +8,6 @@ PRD의 모델을 TypeScript 타입과 Firestore 컬렉션으로 옮긴 기준 �
 - `HouseholdMember`: 사용자, 역할, 참여 일시
 - `Expense`: 지출명, 유형, 금액, 납부일, 납부자, 분담 비율, 상태
 - `MonthlyBudget`: 대상 월, 월 공동생활비, 2인 구성원별 부담금, 부담 방식(50:50/직접 입력)
-- `Chore`: 집안일명, 담당자, 수행일, 반복 주기, 점수, 상태
 - `FridgeItem`: 식재료명, 카테고리, 수량, 보관 위치, 유통기한, 상태, 알림 여부
 
 ## Firestore 컬렉션
@@ -18,7 +17,6 @@ PRD의 모델을 TypeScript 타입과 Firestore 컬렉션으로 옮긴 기준 �
 - `households/{householdId}/members/{uid}`: 가구원 이름, 역할, 참여일
 - `households/{householdId}/expenses/{expenseId}`: 공동 지출
 - `households/{householdId}/monthlyBudgets/{YYYY-MM}`: 월별 공동생활비와 구성원 부담금
-- `households/{householdId}/chores/{choreId}`: 집안일
 - `households/{householdId}/fridgeItems/{itemId}`: 냉장고 항목
 - `inviteCodes/{code}`: 초대 코드와 가구 ID 매핑
 
@@ -30,10 +28,9 @@ PRD의 모델을 TypeScript 타입과 Firestore 컬렉션으로 옮긴 기준 �
 - 월 공동생활비는 가구 구성원이 정확히 2명일 때 설정하며 기본 부담금은 50:50이다. 원 단위로 정확히 반분할할 수 없는 금액은 첫 번째 구성원이 1원을 더 부담해 합계를 보존한다.
 - 직접 입력한 두 부담금의 합계는 월 공동생활비와 정확히 같아야 한다. 0원 이상의 정수만 부담금으로 저장한다.
 - 냉장고 항목은 유통기한이 없어도 등록할 수 있다.
-- 집안일 점수는 1, 2, 3, 5점 템플릿을 기본값으로 둔다.
 - MVP에서는 실제 푸시 발송 전에 `notificationEnabled`를 저장한다.
-- 알림 기본값은 지출, 집안일, 냉장고 모두 켬이며, 냉장고는 유통기한 3일 전 기준으로 다음 알림 연동 단계에서 사용한다.
-- 홈 화면은 현재 저장된 알림 정책 기준으로 지출, 집안일, 냉장고 알림 대상 수를 표시한다.
+- 알림 기본값은 지출과 냉장고 모두 켬이며, 냉장고는 유통기한 3일 전 기준으로 다음 알림 연동 단계에서 사용한다.
+- 홈 화면은 현재 저장된 알림 정책 기준으로 지출과 냉장고 알림 대상 수를 표시한다.
 - Expo Notifications 로컬 알림 예약은 홈 화면에서 실행한다.
 - 로컬 알림 예약 취소도 홈 화면에서 실행한다.
 - 웹 미리보기에서는 로컬 알림 예약 대신 지원 제한 메시지를 보여준다.
