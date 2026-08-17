@@ -1,16 +1,20 @@
 import { addDays, addMonths, eachDayOfInterval, isSameMonth, startOfMonth, startOfWeek } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
+import { FormField } from '@/components/app/form-field';
+import { MultiSelectToolbar, SelectionIndicator } from '@/components/app/multi-select-toolbar';
 import { Screen } from '@/components/app/screen';
+import { useMultiSelection } from '@/hooks/use-multi-selection';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, fromIsoDate, toIsoDate, todayIso } from '@/utils/dates';
 import { getCalendarEvents } from '@/utils/dashboard';
+import { isValidIsoDate } from '@/utils/validation';
 
 type LocalEvent = {
   id: string;
@@ -22,6 +26,10 @@ type LocalEvent = {
 export default function CalendarScreen() {
   const theme = useTheme();
   const snapshot = useHouseholdStore();
+  const updateExpenseItem = useHouseholdStore((state) => state.updateExpenseItem);
+  const deleteExpenseItem = useHouseholdStore((state) => state.deleteExpenseItem);
+  const updateFridgeItemEntry = useHouseholdStore((state) => state.updateFridgeItemEntry);
+  const deleteFridgeItemEntry = useHouseholdStore((state) => state.deleteFridgeItemEntry);
   const today = todayIso();
   const [visibleMonth, setVisibleMonth] = useState(startOfMonth(fromIsoDate(today)));
   const [selectedDate, setSelectedDate] = useState(today);
@@ -29,6 +37,12 @@ export default function CalendarScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newTime, setNewTime] = useState('');
   const [localEvents, setLocalEvents] = useState<LocalEvent[]>([]);
+  const selection = useMultiSelection();
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkDate, setBulkDate] = useState(selectedDate);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const longPressHandled = useRef(false);
 
   const monthDays = useMemo(() => {
     const start = startOfWeek(visibleMonth, { weekStartsOn: 0 });
@@ -62,6 +76,78 @@ export default function CalendarScreen() {
     const nextMonth = addMonths(visibleMonth, offset);
     setVisibleMonth(nextMonth);
     setSelectedDate(toIsoDate(startOfMonth(nextMonth)));
+    closeSelection();
+  };
+
+  const closeSelection = () => {
+    selection.clear();
+    setBulkEditOpen(false);
+    setBulkError(null);
+  };
+
+  const toggleSelected = (id: string) => {
+    if (selection.selectedCount === 1 && selection.isSelected(id)) {
+      closeSelection();
+      return;
+    }
+    selection.toggle(id);
+  };
+
+  const removeSelected = async () => {
+    const selectedEvents = generatedEvents.filter((event) => selection.selectedIds.has(event.id));
+
+    setSubmitting(true);
+    setBulkError(null);
+    try {
+      await Promise.all(
+        selectedEvents.map((event) => {
+          const entityId = event.id.slice(`${event.type}-`.length);
+          return event.type === 'expense'
+            ? deleteExpenseItem(entityId)
+            : deleteFridgeItemEntry(entityId);
+        }),
+      );
+      setLocalEvents((events) => events.filter((event) => !selection.selectedIds.has(event.id)));
+      closeSelection();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '선택한 일정을 삭제하지 못했어요.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitBulkEdit = async () => {
+    const nextDate = bulkDate.trim();
+    if (!isValidIsoDate(nextDate)) {
+      setBulkError('날짜는 YYYY-MM-DD 형식으로 입력해주세요.');
+      return;
+    }
+
+    const selectedEvents = generatedEvents.filter((event) => selection.selectedIds.has(event.id));
+    setSubmitting(true);
+    setBulkError(null);
+    try {
+      await Promise.all(
+        selectedEvents.map((event) => {
+          const entityId = event.id.slice(`${event.type}-`.length);
+          return event.type === 'expense'
+            ? updateExpenseItem(entityId, { dueDate: nextDate })
+            : updateFridgeItemEntry(entityId, { expiryDate: nextDate });
+        }),
+      );
+      setLocalEvents((events) =>
+        events.map((event) =>
+          selection.selectedIds.has(event.id) ? { ...event, date: nextDate } : event,
+        ),
+      );
+      setSelectedDate(nextDate);
+      setVisibleMonth(startOfMonth(fromIsoDate(nextDate)));
+      closeSelection();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '선택한 일정을 수정하지 못했어요.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -108,7 +194,10 @@ export default function CalendarScreen() {
               key={isoDate}
               accessibilityRole="button"
               accessibilityLabel={`${formatKoreanDate(isoDate)} 선택`}
-              onPress={() => setSelectedDate(isoDate)}
+              onPress={() => {
+                setSelectedDate(isoDate);
+                closeSelection();
+              }}
               style={[styles.dayCell, { opacity: inMonth ? 1 : 0.35 }]}>
               <View
                 style={[
@@ -138,15 +227,56 @@ export default function CalendarScreen() {
         <Text style={[styles.scheduleDate, { color: theme.text }]}>
           {formatKoreanDate(selectedDate)}
         </Text>
-        <Pressable
-          testID="calendar-add-button"
-          accessibilityRole="button"
-          accessibilityLabel="일정 추가"
-          onPress={() => setAdding((current) => !current)}
-          style={[styles.addButton, { backgroundColor: theme.primarySoft }]}>
-          <Plus size={17} color={theme.primary} strokeWidth={2.2} />
-        </Pressable>
+        {selection.selectionMode ? null : (
+          <Pressable
+            testID="calendar-add-button"
+            accessibilityRole="button"
+            accessibilityLabel="일정 추가"
+            onPress={() => setAdding((current) => !current)}
+            style={[styles.addButton, { backgroundColor: theme.primarySoft }]}>
+            <Plus size={17} color={theme.primary} strokeWidth={2.2} />
+          </Pressable>
+        )}
       </View>
+
+      {selection.selectionMode ? (
+        <>
+          <MultiSelectToolbar
+            count={selection.selectedCount}
+            onCancel={closeSelection}
+            onDelete={removeSelected}
+            onEdit={() => {
+              setBulkDate(selectedDate);
+              setBulkEditOpen((current) => !current);
+              setBulkError(null);
+            }}
+            busy={submitting}
+            testIDPrefix="calendar"
+          />
+          {bulkEditOpen ? (
+            <Card title={`${selection.selectedCount}개 일정 일괄 수정`} style={styles.bulkEditCard}>
+              <FormField
+                label="일정 날짜"
+                value={bulkDate}
+                onChangeText={setBulkDate}
+                placeholder="YYYY-MM-DD"
+                testID="calendar-bulk-date-input"
+              />
+              {bulkError ? (
+                <Text style={[styles.errorText, { color: theme.danger }]}>{bulkError}</Text>
+              ) : null}
+              <ActionButton
+                testID="calendar-bulk-save-button"
+                onPress={submitBulkEdit}
+                disabled={submitting}>
+                선택 일정 날짜 변경
+              </ActionButton>
+            </Card>
+          ) : bulkError ? (
+            <Text style={[styles.errorText, { color: theme.danger }]}>{bulkError}</Text>
+          ) : null}
+        </>
+      ) : null}
 
       {adding ? (
         <Card style={styles.addCard}>
@@ -194,37 +324,99 @@ export default function CalendarScreen() {
       ) : (
         <>
           {selectedGeneratedEvents.map((event) => (
-            <Card key={event.id} style={styles.eventCard}>
-              <View style={styles.eventRow}>
-                <View style={[styles.eventDotLarge, { backgroundColor: theme.primary }]} />
-                <View style={styles.eventText}>
-                  <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
-                  <Text style={[styles.eventTime, { color: theme.textSecondary }]}>
-                    {event.typeLabel}
-                  </Text>
+            <Pressable
+              key={event.id}
+              testID={`calendar-event-${event.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${event.title}, 길게 눌러 다중 선택`}
+              accessibilityState={{ selected: selection.isSelected(event.id) }}
+              delayLongPress={450}
+              onPressIn={() => {
+                longPressHandled.current = false;
+              }}
+              onLongPress={() => {
+                longPressHandled.current = true;
+                setAdding(false);
+                selection.select(event.id);
+              }}
+              onPress={() => {
+                if (longPressHandled.current) return;
+                if (selection.selectionMode) toggleSelected(event.id);
+              }}>
+              <Card
+                style={[
+                  styles.eventCard,
+                  selection.isSelected(event.id)
+                    ? { borderColor: theme.primary, backgroundColor: theme.primarySoft }
+                    : {},
+                ]}>
+                <View style={styles.eventRow}>
+                  {selection.selectionMode ? (
+                    <SelectionIndicator selected={selection.isSelected(event.id)} />
+                  ) : (
+                    <View style={[styles.eventDotLarge, { backgroundColor: theme.primary }]} />
+                  )}
+                  <View style={styles.eventText}>
+                    <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
+                    <Text style={[styles.eventTime, { color: theme.textSecondary }]}>
+                      {event.typeLabel}
+                    </Text>
+                  </View>
                 </View>
-              </View>
-            </Card>
+              </Card>
+            </Pressable>
           ))}
           {selectedLocalEvents.map((event) => (
-            <Card key={event.id} style={styles.eventCard}>
-              <View style={styles.eventRow}>
-                <View style={[styles.eventDotLarge, { backgroundColor: theme.primary }]} />
-                <View style={styles.eventText}>
-                  <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
-                  <Text style={[styles.eventTime, { color: theme.textSecondary }]}>{event.time}</Text>
+            <Pressable
+              key={event.id}
+              testID={`calendar-event-${event.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${event.title}, 길게 눌러 다중 선택`}
+              accessibilityState={{ selected: selection.isSelected(event.id) }}
+              delayLongPress={450}
+              onPressIn={() => {
+                longPressHandled.current = false;
+              }}
+              onLongPress={() => {
+                longPressHandled.current = true;
+                setAdding(false);
+                selection.select(event.id);
+              }}
+              onPress={() => {
+                if (longPressHandled.current) return;
+                if (selection.selectionMode) toggleSelected(event.id);
+              }}>
+              <Card
+                style={[
+                  styles.eventCard,
+                  selection.isSelected(event.id)
+                    ? { borderColor: theme.primary, backgroundColor: theme.primarySoft }
+                    : {},
+                ]}>
+                <View style={styles.eventRow}>
+                  {selection.selectionMode ? (
+                    <SelectionIndicator selected={selection.isSelected(event.id)} />
+                  ) : (
+                    <View style={[styles.eventDotLarge, { backgroundColor: theme.primary }]} />
+                  )}
+                  <View style={styles.eventText}>
+                    <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
+                    <Text style={[styles.eventTime, { color: theme.textSecondary }]}>{event.time}</Text>
+                  </View>
+                  {selection.selectionMode ? null : (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${event.title} 삭제`}
+                      onPress={() =>
+                        setLocalEvents((events) => events.filter((item) => item.id !== event.id))
+                      }
+                      style={styles.deleteButton}>
+                      <Trash2 size={16} color={theme.textTertiary} strokeWidth={2} />
+                    </Pressable>
+                  )}
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`${event.title} 삭제`}
-                  onPress={() =>
-                    setLocalEvents((events) => events.filter((item) => item.id !== event.id))
-                  }
-                  style={styles.deleteButton}>
-                  <Trash2 size={16} color={theme.textTertiary} strokeWidth={2} />
-                </Pressable>
-              </View>
-            </Card>
+              </Card>
+            </Pressable>
           ))}
         </>
       )}
@@ -233,6 +425,10 @@ export default function CalendarScreen() {
 }
 
 const styles = StyleSheet.create({
+  bulkEditCard: {
+    borderRadius: 16,
+    padding: 14,
+  },
   monthNavigation: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -356,5 +552,10 @@ const styles = StyleSheet.create({
     height: 28,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  errorText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
   },
 });

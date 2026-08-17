@@ -1,20 +1,22 @@
 import { ChevronLeft, Plus } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
 import { FormField } from '@/components/app/form-field';
+import { MultiSelectToolbar, SelectionIndicator } from '@/components/app/multi-select-toolbar';
 import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { useTheme } from '@/hooks/use-theme';
 import { expenseCategoryLabels, expenseStatusLabels } from '@/domain/labels';
 import { Expense, ExpenseCategory, ExpenseStatus } from '@/domain/types';
+import { useMultiSelection } from '@/hooks/use-multi-selection';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
 import { getExpenseSummary, getMemberName } from '@/utils/dashboard';
-import { validateExpenseInput } from '@/utils/validation';
+import { isValidIsoDate, validateExpenseInput } from '@/utils/validation';
 
 type ExpenseView = 'list' | 'dashboard';
 type SplitMode = 'equal' | 'custom';
@@ -39,6 +41,13 @@ export default function ExpensesScreen() {
   const [shares, setShares] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const selection = useMultiSelection();
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkDueDate, setBulkDueDate] = useState('');
+  const [bulkCategory, setBulkCategory] = useState<ExpenseCategory | ''>('');
+  const [bulkStatus, setBulkStatus] = useState<ExpenseStatus | ''>('');
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const longPressHandled = useRef(false);
 
   const groups = useMemo(() => {
     const grouped = snapshot.expenses.reduce<Record<string, Expense[]>>((acc, expense) => {
@@ -150,6 +159,67 @@ export default function ExpensesScreen() {
     }
   };
 
+  const closeSelection = () => {
+    selection.clear();
+    setBulkEditOpen(false);
+    setBulkDueDate('');
+    setBulkCategory('');
+    setBulkStatus('');
+    setBulkError(null);
+  };
+
+  const toggleSelected = (id: string) => {
+    if (selection.selectedCount === 1 && selection.isSelected(id)) {
+      closeSelection();
+      return;
+    }
+    selection.toggle(id);
+  };
+
+  const removeSelected = async () => {
+    setSubmitting(true);
+    setBulkError(null);
+    try {
+      await Promise.all([...selection.selectedIds].map((id) => deleteExpenseItem(id)));
+      closeSelection();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '선택한 지출을 삭제하지 못했어요.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitBulkEdit = async () => {
+    const dueDate = bulkDueDate.trim();
+    if (dueDate && !isValidIsoDate(dueDate)) {
+      setBulkError('날짜는 YYYY-MM-DD 형식으로 입력해주세요.');
+      return;
+    }
+    if (!dueDate && !bulkCategory && !bulkStatus) {
+      setBulkError('변경할 항목을 하나 이상 선택해주세요.');
+      return;
+    }
+
+    const patch = {
+      ...(dueDate ? { dueDate } : {}),
+      ...(bulkCategory ? { category: bulkCategory } : {}),
+      ...(bulkStatus ? { status: bulkStatus } : {}),
+    };
+
+    setSubmitting(true);
+    setBulkError(null);
+    try {
+      await Promise.all(
+        [...selection.selectedIds].map((id) => updateExpenseItem(id, patch)),
+      );
+      closeSelection();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '선택한 지출을 수정하지 못했어요.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (formOpen) {
     return (
       <Screen testID="expense-form-screen">
@@ -250,16 +320,71 @@ export default function ExpensesScreen() {
     <Screen
       title="지출"
       testID="expenses-screen"
-      floatingAction={<FloatingButton onPress={openNewForm} label="지출 등록" />}>
+      floatingAction={
+        selection.selectionMode ? undefined : <FloatingButton onPress={openNewForm} label="지출 등록" />
+      }>
       <SegmentedControl
         value={view}
         options={[
           { value: 'list', label: '목록' },
           { value: 'dashboard', label: '대시보드' },
         ]}
-        onChange={setView}
+        onChange={(nextView) => {
+          closeSelection();
+          setView(nextView);
+        }}
         accessibilityLabel="지출 보기"
       />
+
+      {selection.selectionMode ? (
+        <>
+          <MultiSelectToolbar
+            count={selection.selectedCount}
+            onCancel={closeSelection}
+            onDelete={removeSelected}
+            onEdit={() => {
+              setBulkEditOpen((current) => !current);
+              setBulkError(null);
+            }}
+            busy={submitting}
+            testIDPrefix="expense"
+          />
+          {bulkEditOpen ? (
+            <Card title={`${selection.selectedCount}개 지출 일괄 수정`} style={styles.bulkEditCard}>
+              <FormField
+                label="날짜"
+                value={bulkDueDate}
+                onChangeText={setBulkDueDate}
+                placeholder="변경 안 함 (YYYY-MM-DD)"
+                testID="expense-bulk-date-input"
+              />
+              <ChipGroup
+                label="카테고리"
+                value={bulkCategory}
+                options={[{ value: '', label: '변경 안 함' }, ...expenseCategoryOptions]}
+                onChange={setBulkCategory}
+              />
+              <ChipGroup
+                label="납부 상태"
+                value={bulkStatus}
+                options={[{ value: '', label: '변경 안 함' }, ...expenseStatusOptions]}
+                onChange={setBulkStatus}
+              />
+              {bulkError ? (
+                <Text style={[styles.errorText, { color: theme.danger }]}>{bulkError}</Text>
+              ) : null}
+              <ActionButton
+                testID="expense-bulk-save-button"
+                onPress={submitBulkEdit}
+                disabled={submitting}>
+                선택 항목 수정
+              </ActionButton>
+            </Card>
+          ) : bulkError ? (
+            <Text style={[styles.errorText, { color: theme.danger }]}>{bulkError}</Text>
+          ) : null}
+        </>
+      ) : null}
 
       {view === 'list' ? (
         groups.length === 0 ? (
@@ -271,9 +396,36 @@ export default function ExpensesScreen() {
                 {formatKoreanDate(date)}
               </Text>
               {expenses.map((expense) => (
-                <Pressable key={expense.id} onPress={() => editExpense(expense)}>
-                  <Card style={styles.listCard}>
+                <Pressable
+                  key={expense.id}
+                  testID={`expense-item-${expense.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${expense.title}, 길게 눌러 다중 선택`}
+                  accessibilityState={{ selected: selection.isSelected(expense.id) }}
+                  delayLongPress={450}
+                  onPressIn={() => {
+                    longPressHandled.current = false;
+                  }}
+                  onLongPress={() => {
+                    longPressHandled.current = true;
+                    selection.select(expense.id);
+                  }}
+                  onPress={() => {
+                    if (longPressHandled.current) return;
+                    if (selection.selectionMode) toggleSelected(expense.id);
+                    else editExpense(expense);
+                  }}>
+                  <Card
+                    style={[
+                      styles.listCard,
+                      selection.isSelected(expense.id)
+                        ? { borderColor: theme.primary, backgroundColor: theme.primarySoft }
+                        : {},
+                    ]}>
                     <View style={styles.expenseRow}>
+                      {selection.selectionMode ? (
+                        <SelectionIndicator selected={selection.isSelected(expense.id)} />
+                      ) : null}
                       <View style={[styles.categoryBadge, { backgroundColor: theme.chip }]}>
                         <Text style={[styles.categoryShort, { color: theme.textSecondary }]}>
                           {expenseCategoryLabels[expense.category].slice(0, 2)}
@@ -478,6 +630,10 @@ const expenseStatusOptions = Object.entries(expenseStatusLabels).map(([value, la
 }));
 
 const styles = StyleSheet.create({
+  bulkEditCard: {
+    borderRadius: 16,
+    padding: 14,
+  },
   group: {
     gap: 8,
     marginBottom: 4,

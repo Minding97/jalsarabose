@@ -1,11 +1,11 @@
 import { PropsWithChildren } from 'react';
-import { StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 
 type CardProps = PropsWithChildren<{
   title?: string;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 }>;
 
 export function Card({ title, children, style }: CardProps) {
