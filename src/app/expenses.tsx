@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
+import { DatePickerField } from '@/components/app/date-picker-field';
 import { EmptyState } from '@/components/app/empty-state';
 import { FormField } from '@/components/app/form-field';
 import { Screen } from '@/components/app/screen';
@@ -169,11 +170,10 @@ export default function ExpensesScreen() {
           placeholder="예: 주간 장보기"
           testID="expense-title-input"
         />
-        <FormField
+        <DatePickerField
           label="날짜"
           value={dueDate}
-          onChangeText={setDueDate}
-          placeholder="YYYY-MM-DD"
+          onChange={setDueDate}
           testID="expense-due-date-input"
         />
         <ChipGroup
