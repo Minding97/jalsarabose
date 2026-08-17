@@ -31,11 +31,13 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@types/node": "^26.1.2",
     "@types/react": "~19.2.2",
     "concurrently": "^10.0.4",
     "eslint": "^9.0.0",
     "eslint-config-expo": "~56.0.4",
     "playwright-core": "^1.62.0",
+    "tsx": "^4.23.5",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -48,6 +50,7 @@
     "qa:gateway": "node qa/server/index.mjs",
     "qa:lan": "concurrently --kill-others --names APP,QA --prefix-colors green,cyan \"EXPO_PUBLIC_QA_MODE=true expo start --web --lan --port 8081\" \"node qa/server/index.mjs\"",
     "qa:replay": "node qa/automation/replay.mjs",
+    "qa:expense-smoke": "node qa/automation/expense-smoke.mjs",
     "qa:review": "node qa/automation/claude-review.mjs",
     "qa:nightly": "node qa/automation/nightly-runner.mjs",
     "qa:nightly:dry": "node qa/automation/nightly-runner.mjs --dry-run --once --force",
@@ -56,6 +59,7 @@
     "qa:configure-github": "node qa/automation/configure-github.mjs",
     "qa:install-schedule": "node qa/automation/install-schedule.mjs",
     "qa:test": "node --test qa/**/*.test.mjs",
+    "unit:test": "tsx --test src/utils/*.test.ts",
     "export:web": "expo export --platform web && node scripts/prepare-sites-build.mjs",
     "export:web:mock": "EXPO_PUBLIC_USE_MOCKS=true expo export --platform web --output-dir dist-mock",
     "verify:env": "node scripts/verify-env.mjs",
