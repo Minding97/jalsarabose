@@ -28,10 +28,13 @@ import { GitHubClient } from './github.mjs';
 import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
 import {
   buildNightlyPlan,
+  canRunTogether,
   executePlannedIssue,
   isVerifiedCompletion,
   reportNightlyPlan,
+  resolveExternalDependencies,
   shouldStopForDeadline,
+  unsatisfiedDependencies,
 } from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
 
@@ -681,7 +684,10 @@ async function main() {
     }
 
     const queueSnapshot = await jira.searchReadyIssues();
-    const plan = buildNightlyPlan(queueSnapshot, config);
+    const external = await resolveExternalDependencies({
+      issues: queueSnapshot, jira, github, doneStatus: config.jiraDoneStatus,
+    });
+    const plan = buildNightlyPlan(queueSnapshot, config, external);
     captureNightlyPlanSummary(summary, plan);
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
@@ -693,14 +699,25 @@ async function main() {
     }
     let processedCount = 0;
     const successfulKeys = new Set();
-    for (const issue of plan.issues) {
+    const pending = [...plan.issues];
+    while (pending.length > 0) {
+      const issue = pending.shift();
       if (shouldStopForDeadline({ now: Date.now(), deadline, force, once, processedCount })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
         break;
       }
-      const result = await executePlannedIssue({
+      const batch = [issue];
+      if (!once && !dryRun) {
+        const secondIndex = pending.findIndex((candidate) =>
+          canRunTogether(issue, candidate, plan)
+          && unsatisfiedDependencies(plan, candidate.key, successfulKeys).length === 0);
+        if (secondIndex >= 0) batch.push(pending.splice(secondIndex, 1)[0]);
+      }
+      const completed = await Promise.all(batch.map(async (plannedIssue) => ({
+        issue: plannedIssue,
+        result: await executePlannedIssue({
         plan,
-        issue,
+        issue: plannedIssue,
         successfulKeys,
         processIssue: (plannedIssue) => processIssue({
           jira, github, config, issue: plannedIssue, dryRun,
@@ -710,16 +727,18 @@ async function main() {
           console.log(`${heldIssue.key}: ${message}`);
           if (!dryRun) await jira.addComment(heldIssue.key, message);
         },
-      });
+        }),
+      })));
+      for (const { issue: completedIssue, result } of completed) {
       if (result.held) {
-        summary.ticketResults.push({ key: issue.key, result: '보류' });
+        summary.ticketResults.push({ key: completedIssue.key, result: '보류' });
         continue;
       }
       processedCount += 1;
-      summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      summary.ticketResults.push({ key: completedIssue.key, result: result.succeeded ? '성공' : '실패/미병합' });
       let prNumber = null;
       try {
-        const refreshedIssue = dryRun ? issue : await jira.getIssue(issue.key);
+        const refreshedIssue = dryRun ? completedIssue : await jira.getIssue(completedIssue.key);
         prNumber = getPullRequestNumber(refreshedIssue);
         if (prNumber) {
           const pullRequest = await github.getPullRequest(prNumber);
@@ -728,11 +747,10 @@ async function main() {
         }
       } catch (error) {
         if (prNumber) summary.pullRequests.push(`#${prNumber} 확인 실패`);
-        summary.failures.push(`${issue.key} PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
+        summary.failures.push(`${completedIssue.key} PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (once || dryRun) {
-        break;
       }
+      if (once) break;
     }
     summary.remainingQueue = plan.issues
       .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
