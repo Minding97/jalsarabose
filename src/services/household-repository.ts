@@ -45,8 +45,11 @@ type CreateHouseholdInput = {
   owner: UserProfile;
 };
 
-export function subscribeAuth(callback: (user: User | null) => void): Unsubscribe {
-  return onAuthStateChanged(requireAuth(), callback);
+export function subscribeAuth(
+  callback: (user: User | null) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  return onAuthStateChanged(requireAuth(), callback, onError);
 }
 
 export async function signIn(email: string, password: string) {

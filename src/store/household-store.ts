@@ -83,6 +83,8 @@ const emptySnapshot: HouseholdSnapshot = {
   fridgeItems: [],
 };
 
+const AUTH_INITIALIZATION_TIMEOUT_MS = 10_000;
+
 export const useHouseholdStore = create<StoreState>((set, get) => ({
   ...(useMocks ? seedState : emptySnapshot),
   authStatus: useMocks ? 'mock' : 'checking',
@@ -136,57 +138,95 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       unsubscribeHousehold = undefined;
     };
 
-    const unsubscribeAuth = subscribeAuth(async (user: User | null) => {
+    let authResolved = false;
+    let unsubscribeAuth: Unsubscribe = () => undefined;
+    const finishAuthCheck = () => {
+      authResolved = true;
+      clearTimeout(authTimeout);
+    };
+    const recoverFromAuthInitialization = (message: string) => {
+      finishAuthCheck();
       cleanupNested();
-
-      if (!user) {
-        set({
-          ...emptySnapshot,
-          authStatus: 'unauthenticated',
-          dataStatus: 'idle',
-          currentUser: null,
-          activeHouseholdId: null,
-          errorMessage: null,
-        });
-        return;
+      set({
+        ...emptySnapshot,
+        authStatus: 'unauthenticated',
+        dataStatus: 'idle',
+        currentUser: null,
+        activeHouseholdId: null,
+        errorMessage: message,
+      });
+    };
+    const authTimeout = setTimeout(() => {
+      if (!authResolved) {
+        recoverFromAuthInitialization(
+          'Safari에서 로그인 저장소 확인이 지연됐어요. 페이지를 새로고침하거나 아래에서 다시 로그인해주세요.',
+        );
       }
+    }, AUTH_INITIALIZATION_TIMEOUT_MS);
 
-      set({ authStatus: 'authenticated', dataStatus: 'loading', errorMessage: null });
-      await upsertUserProfile(user);
+    try {
+      unsubscribeAuth = subscribeAuth(async (user: User | null) => {
+        finishAuthCheck();
+        cleanupNested();
 
-      unsubscribeProfile = subscribeUserProfile(user.uid, (profile) => {
-        if (!profile) {
+        if (!user) {
           set({
+            ...emptySnapshot,
+            authStatus: 'unauthenticated',
+            dataStatus: 'idle',
             currentUser: null,
             activeHouseholdId: null,
-            dataStatus: 'empty',
+            errorMessage: null,
           });
           return;
         }
 
-        set({
-          currentUser: profile,
-          activeHouseholdId: profile.activeHouseholdId ?? null,
-          dataStatus: profile.activeHouseholdId ? 'loading' : 'empty',
+        set({ authStatus: 'authenticated', dataStatus: 'loading', errorMessage: null });
+        await upsertUserProfile(user);
+
+        unsubscribeProfile = subscribeUserProfile(user.uid, (profile) => {
+          if (!profile) {
+            set({
+              currentUser: null,
+              activeHouseholdId: null,
+              dataStatus: 'empty',
+            });
+            return;
+          }
+
+          set({
+            currentUser: profile,
+            activeHouseholdId: profile.activeHouseholdId ?? null,
+            dataStatus: profile.activeHouseholdId ? 'loading' : 'empty',
+          });
+
+          unsubscribeHousehold?.();
+          unsubscribeHousehold = undefined;
+
+          if (!profile.activeHouseholdId) {
+            set({ ...emptySnapshot, currentUser: profile, dataStatus: 'empty' });
+            return;
+          }
+
+          unsubscribeHousehold = subscribeHouseholdSnapshot(
+            profile.activeHouseholdId,
+            (snapshot) => set({ ...snapshot, dataStatus: 'ready', errorMessage: null }),
+            (error) => set({ dataStatus: 'error', errorMessage: error.message }),
+          );
         });
-
-        unsubscribeHousehold?.();
-        unsubscribeHousehold = undefined;
-
-        if (!profile.activeHouseholdId) {
-          set({ ...emptySnapshot, currentUser: profile, dataStatus: 'empty' });
-          return;
-        }
-
-        unsubscribeHousehold = subscribeHouseholdSnapshot(
-          profile.activeHouseholdId,
-          (snapshot) => set({ ...snapshot, dataStatus: 'ready', errorMessage: null }),
-          (error) => set({ dataStatus: 'error', errorMessage: error.message }),
+      }, () => {
+        recoverFromAuthInitialization(
+          '로그인 상태를 확인하지 못했어요. 브라우저 저장소 설정을 확인하거나 다시 로그인해주세요.',
         );
       });
-    });
+    } catch {
+      recoverFromAuthInitialization(
+        '로그인 기능을 시작하지 못했어요. 페이지를 새로고침하거나 다시 로그인해주세요.',
+      );
+    }
 
     return () => {
+      clearTimeout(authTimeout);
       cleanupNested();
       unsubscribeAuth();
     };
