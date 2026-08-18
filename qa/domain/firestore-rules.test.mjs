@@ -41,7 +41,9 @@ test('the authoritative member index is guarded while legacy two-member househol
   assert.match(rules, /createsInitialHouseholdMemberIndex\(\)/);
   assert.match(rules, /requesterIsIndexedAfterWrite\(householdId\)/);
   assert.match(rules, /function initializesLegacyHouseholdMemberIndex\(householdId\)/);
+  assert.match(rules, /&& 'memberIds' in resource\.data/);
   assert.match(rules, /!\('memberIds' in resource\.data\)/);
   assert.match(rules, /memberIds\[0\] == resource\.data\.createdBy/);
   assert.match(rules, /exists\(memberPath\(householdId, memberIds\[1\]\)\)/);
+  assert.match(rules, /requesterIsHouseholdAdmin\(householdId\)/);
 });

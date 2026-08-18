@@ -52,7 +52,7 @@ async function seedTwoMemberHousehold() {
   });
 }
 
-async function seedJoinableHousehold({ legacy = false } = {}) {
+async function seedJoinableHousehold({ legacy = false, legacySecondMember = false } = {}) {
   await environment.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, 'households', 'home'), {
@@ -67,6 +67,15 @@ async function seedJoinableHousehold({ legacy = false } = {}) {
       role: 'admin',
       joinedAt: '2026-08-01',
     });
+    if (legacySecondMember) {
+      await setDoc(doc(db, 'households', 'home', 'members', 'bob'), {
+        householdId: 'home',
+        userId: 'bob',
+        role: 'member',
+        joinedAt: '2026-08-02',
+        inviteCode: 'JOINME',
+      });
+    }
     await setDoc(doc(db, 'inviteCodes', 'JOINME'), {
       code: 'JOINME',
       householdId: 'home',
@@ -78,6 +87,7 @@ async function seedJoinableHousehold({ legacy = false } = {}) {
 
 function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember = true, joinedAt = '2026-08-19' } = {}) {
   return runTransaction(db, async (transaction) => {
+    const householdRef = doc(db, 'households', 'home');
     const memberRef = doc(db, 'households', 'home', 'members', uid);
     const memberSnapshot = await transaction.get(memberRef);
     if (memberSnapshot.exists()) {
@@ -88,7 +98,7 @@ function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember =
       return;
     }
     if (includeIndex) {
-      transaction.update(doc(db, 'households', 'home'), { memberIds: ['alice', uid] });
+      transaction.update(householdRef, { memberIds: ['alice', uid] });
     }
     if (includeMember) {
       transaction.set(memberRef, {
@@ -152,15 +162,35 @@ test('joining an existing household is idempotent and preserves member metadata'
   assert.equal(member.data().inviteCode, 'JOINME');
 });
 
-test('a second member can join a legacy household without a memberIds index', { skip: !emulatorHost }, async () => {
+test('an admin can migrate a legacy two-person household and its member can rejoin', { skip: !emulatorHost }, async () => {
   await environment.clearFirestore();
-  await seedJoinableHousehold({ legacy: true });
-  const db = environment.authenticatedContext('bob').firestore();
+  await seedJoinableHousehold({ legacy: true, legacySecondMember: true });
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
 
-  await assertSucceeds(joinTransaction(db));
+  await assertSucceeds(joinTransaction(bobDb));
+  await assertSucceeds(updateDoc(doc(aliceDb, 'households', 'home'), { memberIds: ['alice', 'bob'] }));
 
-  const household = await getDoc(doc(db, 'households', 'home'));
+  const household = await getDoc(doc(bobDb, 'households', 'home'));
   assert.deepEqual(household.data().memberIds, ['alice', 'bob']);
+});
+
+test('a third party cannot take over a legacy two-person household through its invite code', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold({ legacy: true, legacySecondMember: true });
+  const db = environment.authenticatedContext('mallory').firestore();
+
+  await assertFails(joinTransaction(db, 'mallory'));
+
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    const household = await getDoc(doc(adminDb, 'households', 'home'));
+    const existingMember = await getDoc(doc(adminDb, 'households', 'home', 'members', 'bob'));
+    const attacker = await getDoc(doc(adminDb, 'households', 'home', 'members', 'mallory'));
+    assert.equal('memberIds' in household.data(), false);
+    assert.equal(existingMember.exists(), true);
+    assert.equal(attacker.exists(), false);
+  });
 });
 
 test('monthly budget rules enforce financial and identity invariants', { skip: !emulatorHost }, async () => {

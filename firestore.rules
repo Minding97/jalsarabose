@@ -77,6 +77,7 @@ service cloud.firestore {
         ? resource.data.memberIds
         : [resource.data.createdBy];
       return signedIn()
+        && 'memberIds' in resource.data
         && previousMemberIds is list
         && previousMemberIds.size() == 1
         && previousMemberIds[0] == resource.data.createdBy
@@ -98,10 +99,7 @@ service cloud.firestore {
         && memberIds[0] != memberIds[1]
         && exists(memberPath(householdId, memberIds[0]))
         && exists(memberPath(householdId, memberIds[1]))
-        && (
-          request.auth.uid == memberIds[1]
-          || requesterIsHouseholdAdmin(householdId)
-        );
+        && requesterIsHouseholdAdmin(householdId);
     }
 
     function requesterIsIndexedAfterWrite(householdId) {
