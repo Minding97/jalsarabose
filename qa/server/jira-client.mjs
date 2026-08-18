@@ -267,6 +267,9 @@ export class JiraClient {
   }
 
   async findIssueByPullRequest(pullRequestNumber) {
+    if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0) {
+      throw new TypeError('Pull request number must be a positive safe integer.');
+    }
     const response = await this.request('/rest/api/3/search/jql', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

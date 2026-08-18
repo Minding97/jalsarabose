@@ -626,8 +626,11 @@ export async function reconcileReviewPullRequests(jira, github, config, dependen
   const createReviewWorktree = dependencies.createWorktree ?? createWorktree;
   const runReviewAndGate = dependencies.reviewAndGate ?? reviewAndGate;
   const scopedIssue = scope ? await jira.findIssueByPullRequest(scope.pullRequestNumber) : null;
+  const scopedReviewIssue = scopedIssue?.fields.status?.name === config.jiraReviewStatus
+    ? scopedIssue
+    : null;
   const reviewIssues = scope
-    ? (scopedIssue ? [scopedIssue] : [])
+    ? (scopedReviewIssue ? [scopedReviewIssue] : [])
     : await jira.searchIssuesByStatus(config.jiraReviewStatus);
   let matchedScope = false;
   for (const issue of reviewIssues) {

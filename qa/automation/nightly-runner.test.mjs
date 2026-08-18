@@ -74,6 +74,22 @@ test('exact-head re-review aborts instead of reviewing a moved PR head', async (
   );
 });
 
+test('exact-head re-review rejects a ticket outside the review-status queue', async () => {
+  const issue = { key: 'JAL-17', fields: { labels: ['pr-17'], status: { name: '수정 중' } } };
+  let pullRequestLookups = 0;
+  await assert.rejects(
+    reconcileReviewPullRequests(
+      { findIssueByPullRequest: async () => issue },
+      { getPullRequest: async () => { pullRequestLookups += 1; } },
+      { ...config, jiraReviewStatus: '검토 중' },
+      {},
+      { pullRequestNumber: 17, headSha: 'b'.repeat(40) },
+    ),
+    /not present in the review-status queue/,
+  );
+  assert.equal(pullRequestLookups, 0);
+});
+
 test('does not repeat a finalized review for the same head', () => {
   assert.equal(shouldReviewCommitStatus({ state: 'success' }), false);
   assert.equal(shouldReviewCommitStatus({ state: 'failure' }), false);

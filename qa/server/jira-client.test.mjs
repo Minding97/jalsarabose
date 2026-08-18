@@ -131,6 +131,12 @@ test('finds an unresolved daily automation bug by its stable fingerprint', async
   assert.match(requestBody.jql, /status != "완료"/);
 });
 
+test('rejects invalid pull request numbers before building review lookup JQL', async () => {
+  const client = new JiraClient(config);
+  await assert.rejects(client.findIssueByPullRequest('34'), /positive safe integer/);
+  await assert.rejects(client.findIssueByPullRequest(0), /positive safe integer/);
+});
+
 test('matches review subtasks by the full fingerprint when legacy labels collide', async (context) => {
   const originalFetch = globalThis.fetch;
   context.after(() => {
