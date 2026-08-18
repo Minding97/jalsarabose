@@ -120,7 +120,7 @@ export function acquireNightlyLock(path) {
   }
 }
 
-async function createWorktree(issue, existingPullRequest, branch) {
+async function createWorktree(issue, existingPullRequest, branch, exactHead = null) {
   const worktree = resolve(worktreesRoot, issue.key);
   mkdirSync(worktreesRoot, { recursive: true });
 
@@ -135,10 +135,10 @@ async function createWorktree(issue, existingPullRequest, branch) {
   await runCommand('git', ['worktree', 'prune'], { cwd: repositoryRoot });
 
   if (existingPullRequest) {
-    await runCommand('git', ['fetch', 'origin', branch], { cwd: repositoryRoot });
+    await runCommand('git', ['fetch', 'origin', exactHead ?? branch], { cwd: repositoryRoot });
     await runCommand(
       'git',
-      buildWorktreeAddArgs(worktree, `origin/${branch}`),
+      buildWorktreeAddArgs(worktree, exactHead ?? `origin/${branch}`),
       { cwd: repositoryRoot },
     );
   } else {
@@ -622,9 +622,19 @@ export function shouldReviewCommitStatus(status) {
   return !status || !['success', 'failure'].includes(status.state);
 }
 
+export function requireScopedRereview(flags, scope) {
+  if (flags.has('--require-review-scope') && !scope) {
+    throw new Error('qa:rereview requires both --review-pr and --review-head.');
+  }
+}
+
 export async function reconcileReviewPullRequests(jira, github, config, dependencies = {}, scope = null) {
   const createReviewWorktree = dependencies.createWorktree ?? createWorktree;
   const runReviewAndGate = dependencies.reviewAndGate ?? reviewAndGate;
+  const getWorktreeHead = dependencies.getWorktreeHead ?? (async (worktree) => {
+    const result = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: worktree });
+    return result.stdout.trim();
+  });
   const scopedIssue = scope ? await jira.findIssueByPullRequest(scope.pullRequestNumber) : null;
   const scopedReviewIssue = scopedIssue?.fields.status?.name === config.jiraReviewStatus
     ? scopedIssue
@@ -659,7 +669,17 @@ export async function reconcileReviewPullRequests(jira, github, config, dependen
     mkdirSync(issueArtifacts, { recursive: true, mode: 0o700 });
     let worktree;
     try {
-      worktree = await createReviewWorktree(issueDetails, pullRequest, pullRequest.headRefName);
+      worktree = await createReviewWorktree(
+        issueDetails,
+        pullRequest,
+        pullRequest.headRefName,
+        pullRequest.headRefOid,
+      );
+      if (worktree && await getWorktreeHead(worktree) !== pullRequest.headRefOid) {
+        throw new Error(
+          `PR #${pullRequestNumber} review worktree head changed from ${pullRequest.headRefOid}.`,
+        );
+      }
       await runReviewAndGate({
         jira, github, config, issue: issueDetails, parentKey, worktree, issueArtifacts,
         pullRequest, sha: pullRequest.headRefOid,
@@ -706,6 +726,7 @@ async function main() {
   if (reviewScope && (!Number.isSafeInteger(reviewScope.pullRequestNumber) || !/^[0-9a-f]{40}$/.test(reviewScope.headSha))) {
     throw new Error('--review-pr must be an integer and --review-head must be an exact 40-character SHA.');
   }
+  requireScopedRereview(flags, reviewScope);
   const dryRun = flags.has('--dry-run');
   const once = flags.has('--once');
   const force = flags.has('--force');

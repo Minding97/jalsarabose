@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue, reconcileReviewPullRequests, shouldReviewCommitStatus } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue, reconcileReviewPullRequests, requireScopedRereview, shouldReviewCommitStatus } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -37,6 +37,7 @@ test('exact-head re-review scope isolates one PR from the review-status queue', 
   }));
   const requestedHead = 'b'.repeat(40);
   const inspected = [];
+  const checkoutHeads = [];
   const reviews = [];
   const jira = {
     findIssueByPullRequest: async (number) => issues.find((issue) => issue.fields.labels.includes(`pr-${number}`)),
@@ -52,11 +53,15 @@ test('exact-head re-review scope isolates one PR from the review-status queue', 
   };
 
   await reconcileReviewPullRequests(jira, github, { ...config, jiraReviewStatus: '검토 중' }, {
-    createWorktree: async () => undefined,
+    createWorktree: async (issue, pullRequest, branch, exactHead) => {
+      checkoutHeads.push(exactHead);
+      return undefined;
+    },
     reviewAndGate: async (input) => reviews.push(input.pullRequest.number),
   }, { pullRequestNumber: 17, headSha: requestedHead });
 
   assert.deepEqual(inspected, [17]);
+  assert.deepEqual(checkoutHeads, [requestedHead]);
   assert.deepEqual(reviews, [17]);
 });
 
@@ -90,11 +95,68 @@ test('exact-head re-review rejects a ticket outside the review-status queue', as
   assert.equal(pullRequestLookups, 0);
 });
 
+test('exact-head re-review aborts if the created worktree moved', async () => {
+  const requestedHead = 'b'.repeat(40);
+  const issue = { key: 'JAL-17', fields: { labels: ['pr-17'], status: { name: '검토 중' } } };
+  let reviewed = false;
+  await assert.rejects(
+    reconcileReviewPullRequests(
+      {
+        findIssueByPullRequest: async () => issue,
+        getIssue: async () => issue,
+      },
+      {
+        getPullRequest: async () => ({
+          number: 17, state: 'OPEN', headRefName: 'feature', headRefOid: requestedHead,
+        }),
+        getCommitStatus: async () => null,
+      },
+      { ...config, jiraReviewStatus: '검토 중' },
+      {
+        createWorktree: async () => '/tmp/moved-review-worktree',
+        getWorktreeHead: async () => 'c'.repeat(40),
+        reviewAndGate: async () => { reviewed = true; },
+      },
+      { pullRequestNumber: 17, headSha: requestedHead },
+    ),
+    /review worktree head changed/,
+  );
+  assert.equal(reviewed, false);
+});
+
+test('qa:rereview fails closed without an exact PR scope', () => {
+  assert.throws(
+    () => requireScopedRereview(new Set(['--require-review-scope']), null),
+    /requires both --review-pr and --review-head/,
+  );
+  assert.doesNotThrow(() => requireScopedRereview(
+    new Set(['--require-review-scope']),
+    { pullRequestNumber: 17, headSha: 'b'.repeat(40) },
+  ));
+});
+
 test('does not repeat a finalized review for the same head', () => {
   assert.equal(shouldReviewCommitStatus({ state: 'success' }), false);
   assert.equal(shouldReviewCommitStatus({ state: 'failure' }), false);
   assert.equal(shouldReviewCommitStatus({ state: 'pending' }), true);
   assert.equal(shouldReviewCommitStatus(null), true);
+});
+
+test('reconciliation skips an unscoped head with a finalized review status', async () => {
+  const issue = { key: 'JAL-17', fields: { labels: ['pr-17'], status: { name: '검토 중' } } };
+  let reviewed = false;
+  await reconcileReviewPullRequests(
+    {
+      searchIssuesByStatus: async () => [issue],
+    },
+    {
+      getPullRequest: async () => ({ number: 17, state: 'OPEN', headRefOid: 'b'.repeat(40) }),
+      getCommitStatus: async () => ({ context: 'claude-review', state: 'success' }),
+    },
+    { ...config, jiraReviewStatus: '검토 중' },
+    { reviewAndGate: async () => { reviewed = true; } },
+  );
+  assert.equal(reviewed, false);
 });
 
 test('checks out an existing PR head without claiming its local branch', () => {

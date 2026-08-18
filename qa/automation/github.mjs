@@ -10,6 +10,10 @@ export function getReviewCycleForHead(comments, headSha) {
   }, 0);
 }
 
+export function getClaudeReviewStatus(statuses) {
+  return statuses.find((status) => status.context === 'claude-review') ?? null;
+}
+
 export class GitHubClient {
   constructor(repository) {
     this.repository = repository;
@@ -75,7 +79,7 @@ export class GitHubClient {
       `repos/${this.repository}/commits/${sha}/statuses`,
       '--paginate',
     ]);
-    return JSON.parse(response.stdout).find((status) => status.context === 'claude-review') ?? null;
+    return getClaudeReviewStatus(JSON.parse(response.stdout));
   }
 
   async comment(pullRequestNumber, body) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getReviewCycleForHead } from './github.mjs';
+import { getClaudeReviewStatus, getReviewCycleForHead } from './github.mjs';
 
 test('review cycles are scoped to the exact PR head SHA', () => {
   const oldHead = 'a'.repeat(40);
@@ -14,4 +14,10 @@ test('review cycles are scoped to the exact PR head SHA', () => {
   assert.equal(getReviewCycleForHead(comments, oldHead), 3);
   assert.equal(getReviewCycleForHead(comments, newHead), 1);
   assert.equal(getReviewCycleForHead(comments, 'c'.repeat(40)), 0);
+});
+
+test('selects only the Claude review commit status', () => {
+  const claudeStatus = { context: 'claude-review', state: 'success' };
+  assert.equal(getClaudeReviewStatus([{ context: 'verify' }, claudeStatus]), claudeStatus);
+  assert.equal(getClaudeReviewStatus([{ context: 'verify' }]), null);
 });
