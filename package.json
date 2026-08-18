@@ -50,6 +50,7 @@
     "qa:replay": "node qa/automation/replay.mjs",
     "qa:review": "node qa/automation/claude-review.mjs",
     "qa:nightly": "node qa/automation/nightly-runner.mjs",
+    "qa:rereview": "node qa/automation/nightly-runner.mjs",
     "qa:nightly:dry": "node qa/automation/nightly-runner.mjs --dry-run --once --force",
     "qa:daily": "node qa/automation/daily-regression.mjs",
     "qa:daily:dry": "node qa/automation/daily-regression.mjs --dry-run --force",

@@ -48,6 +48,11 @@ function parseFlags(argv) {
   return new Set(argv.filter((value) => value.startsWith('--')));
 }
 
+function parseOption(argv, name) {
+  const index = argv.indexOf(name);
+  return index === -1 ? undefined : argv[index + 1];
+}
+
 function slugify(value) {
   const slug = value
     .toLowerCase()
@@ -617,16 +622,23 @@ export function shouldReviewCommitStatus(status) {
   return !status || !['success', 'failure'].includes(status.state);
 }
 
-export async function reconcileReviewPullRequests(jira, github, config, dependencies = {}) {
+export async function reconcileReviewPullRequests(jira, github, config, dependencies = {}, scope = null) {
   const createReviewWorktree = dependencies.createWorktree ?? createWorktree;
   const runReviewAndGate = dependencies.reviewAndGate ?? reviewAndGate;
   const reviewIssues = await jira.searchIssuesByStatus(config.jiraReviewStatus);
+  let matchedScope = false;
   for (const issue of reviewIssues) {
     const pullRequestNumber = getPullRequestNumber(issue);
-    if (!pullRequestNumber) {
+    if (!pullRequestNumber || (scope && pullRequestNumber !== scope.pullRequestNumber)) {
       continue;
     }
+    matchedScope = true;
     const pullRequest = await github.getPullRequest(pullRequestNumber);
+    if (scope && pullRequest.headRefOid !== scope.headSha) {
+      throw new Error(
+        `PR #${pullRequestNumber} head changed: expected ${scope.headSha}, found ${pullRequest.headRefOid}.`,
+      );
+    }
     if (pullRequest.state === 'MERGED' || pullRequest.mergedAt) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
       continue;
@@ -655,6 +667,9 @@ export async function reconcileReviewPullRequests(jira, github, config, dependen
       }
     }
   }
+  if (scope && !matchedScope) {
+    throw new Error(`PR #${scope.pullRequestNumber} is not present in the review-status queue.`);
+  }
 }
 
 async function cleanupExpiredRecordings(jira, config) {
@@ -672,7 +687,19 @@ async function cleanupExpiredRecordings(jira, config) {
 }
 
 async function main() {
-  const flags = parseFlags(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const flags = parseFlags(argv);
+  const reviewPrValue = parseOption(argv, '--review-pr');
+  const reviewHead = parseOption(argv, '--review-head');
+  if (Boolean(reviewPrValue) !== Boolean(reviewHead)) {
+    throw new Error('--review-pr and --review-head must be provided together.');
+  }
+  const reviewScope = reviewPrValue
+    ? { pullRequestNumber: Number(reviewPrValue), headSha: reviewHead }
+    : null;
+  if (reviewScope && (!Number.isSafeInteger(reviewScope.pullRequestNumber) || !/^[0-9a-f]{40}$/.test(reviewScope.headSha))) {
+    throw new Error('--review-pr must be an integer and --review-head must be an exact 40-character SHA.');
+  }
   const dryRun = flags.has('--dry-run');
   const once = flags.has('--once');
   const force = flags.has('--force');
@@ -707,7 +734,12 @@ async function main() {
     }
     await github.ensureAuthenticated();
     if (!dryRun) {
-      await reconcileReviewPullRequests(jira, github, config);
+      await reconcileReviewPullRequests(jira, github, config, {}, reviewScope);
+      if (reviewScope) {
+        summary.verification = `PR #${reviewScope.pullRequestNumber} exact head ${reviewScope.headSha} review reconciled`;
+        summary.nextAction = 'scoped review result 확인';
+        return;
+      }
       await cleanupExpiredRecordings(jira, config);
     }
 

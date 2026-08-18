@@ -30,6 +30,49 @@ test('reviews an open review-status PR when its current head has no final Claude
   assert.deepEqual(reviews, ['b'.repeat(40)]);
 });
 
+test('exact-head re-review scope isolates one PR from the review-status queue', async () => {
+  const issues = [17, 34].map((number) => ({
+    key: `JAL-${number}`,
+    fields: { labels: [`pr-${number}`], status: { name: '검토 중' } },
+  }));
+  const requestedHead = 'b'.repeat(40);
+  const inspected = [];
+  const reviews = [];
+  const jira = {
+    searchIssuesByStatus: async () => issues,
+    getIssue: async (key) => issues.find((issue) => issue.key === key),
+  };
+  const github = {
+    getPullRequest: async (number) => {
+      inspected.push(number);
+      return { number, state: 'OPEN', headRefName: 'feature', headRefOid: requestedHead };
+    },
+    getCommitStatus: async () => null,
+  };
+
+  await reconcileReviewPullRequests(jira, github, { ...config, jiraReviewStatus: '검토 중' }, {
+    createWorktree: async () => undefined,
+    reviewAndGate: async (input) => reviews.push(input.pullRequest.number),
+  }, { pullRequestNumber: 17, headSha: requestedHead });
+
+  assert.deepEqual(inspected, [17]);
+  assert.deepEqual(reviews, [17]);
+});
+
+test('exact-head re-review aborts instead of reviewing a moved PR head', async () => {
+  const issue = { key: 'JAL-17', fields: { labels: ['pr-17'], status: { name: '검토 중' } } };
+  await assert.rejects(
+    reconcileReviewPullRequests(
+      { searchIssuesByStatus: async () => [issue] },
+      { getPullRequest: async () => ({ number: 17, state: 'OPEN', headRefOid: 'c'.repeat(40) }) },
+      { ...config, jiraReviewStatus: '검토 중' },
+      {},
+      { pullRequestNumber: 17, headSha: 'b'.repeat(40) },
+    ),
+    /head changed/,
+  );
+});
+
 test('does not repeat a finalized review for the same head', () => {
   assert.equal(shouldReviewCommitStatus({ state: 'success' }), false);
   assert.equal(shouldReviewCommitStatus({ state: 'failure' }), false);
