@@ -274,7 +274,7 @@ export class JiraClient {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        jql: `project = "${this.config.jiraProjectKey}" AND labels = "pr-${pullRequestNumber}"`,
+        jql: `project = "${this.config.jiraProjectKey}" AND labels = "pr-${pullRequestNumber}" AND parent is EMPTY ORDER BY created ASC`,
         maxResults: 1,
         fields: ['summary', 'status', 'created', 'updated', 'labels', 'parent', 'attachment'],
       }),

@@ -137,6 +137,24 @@ test('rejects invalid pull request numbers before building review lookup JQL', a
   await assert.rejects(client.findIssueByPullRequest(0), /positive safe integer/);
 });
 
+test('finds the deterministic top-level ticket when review subtasks share a PR label', async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => { globalThis.fetch = originalFetch; });
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return Response.json({ issues: [{ key: 'JAL-34', fields: { parent: null } }] });
+  };
+
+  const client = new JiraClient(config);
+  const issue = await client.findIssueByPullRequest(34);
+
+  assert.equal(issue.key, 'JAL-34');
+  assert.match(requestBody.jql, /labels = "pr-34"/);
+  assert.match(requestBody.jql, /parent is EMPTY/);
+  assert.match(requestBody.jql, /ORDER BY created ASC/);
+});
+
 test('matches review subtasks by the full fingerprint when legacy labels collide', async (context) => {
   const originalFetch = globalThis.fetch;
   context.after(() => {
