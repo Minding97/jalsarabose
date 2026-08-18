@@ -39,7 +39,8 @@ test('exact-head re-review scope isolates one PR from the review-status queue', 
   const inspected = [];
   const reviews = [];
   const jira = {
-    searchIssuesByStatus: async () => issues,
+    findIssueByPullRequest: async (number) => issues.find((issue) => issue.fields.labels.includes(`pr-${number}`)),
+    searchIssuesByStatus: async () => assert.fail('scoped recovery must not scan the review queue'),
     getIssue: async (key) => issues.find((issue) => issue.key === key),
   };
   const github = {
@@ -63,7 +64,7 @@ test('exact-head re-review aborts instead of reviewing a moved PR head', async (
   const issue = { key: 'JAL-17', fields: { labels: ['pr-17'], status: { name: '검토 중' } } };
   await assert.rejects(
     reconcileReviewPullRequests(
-      { searchIssuesByStatus: async () => [issue] },
+      { findIssueByPullRequest: async () => issue },
       { getPullRequest: async () => ({ number: 17, state: 'OPEN', headRefOid: 'c'.repeat(40) }) },
       { ...config, jiraReviewStatus: '검토 중' },
       {},

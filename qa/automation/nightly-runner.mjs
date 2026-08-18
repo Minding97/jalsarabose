@@ -625,7 +625,10 @@ export function shouldReviewCommitStatus(status) {
 export async function reconcileReviewPullRequests(jira, github, config, dependencies = {}, scope = null) {
   const createReviewWorktree = dependencies.createWorktree ?? createWorktree;
   const runReviewAndGate = dependencies.reviewAndGate ?? reviewAndGate;
-  const reviewIssues = await jira.searchIssuesByStatus(config.jiraReviewStatus);
+  const scopedIssue = scope ? await jira.findIssueByPullRequest(scope.pullRequestNumber) : null;
+  const reviewIssues = scope
+    ? (scopedIssue ? [scopedIssue] : [])
+    : await jira.searchIssuesByStatus(config.jiraReviewStatus);
   let matchedScope = false;
   for (const issue of reviewIssues) {
     const pullRequestNumber = getPullRequestNumber(issue);

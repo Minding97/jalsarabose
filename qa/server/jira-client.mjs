@@ -266,6 +266,19 @@ export class JiraClient {
     return issues;
   }
 
+  async findIssueByPullRequest(pullRequestNumber) {
+    const response = await this.request('/rest/api/3/search/jql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jql: `project = "${this.config.jiraProjectKey}" AND labels = "pr-${pullRequestNumber}"`,
+        maxResults: 1,
+        fields: ['summary', 'status', 'created', 'updated', 'labels', 'parent', 'attachment'],
+      }),
+    });
+    return response.issues?.[0] ?? null;
+  }
+
   async addLabel(issueKey, label) {
     await this.request(`/rest/api/3/issue/${issueKey}`, {
       method: 'PUT',
