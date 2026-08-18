@@ -1,6 +1,7 @@
 import { addDays, subDays } from 'date-fns';
 
 import { HouseholdSnapshot } from '@/domain/types';
+import { createEqualContributions, getYearMonth } from '@/domain/monthly-budget';
 import { toIsoDate } from '@/utils/dates';
 
 export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
@@ -13,6 +14,8 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
   const householdId = 'household-woorijip';
   const minseoId = 'member-minseo';
   const jihoonId = 'member-jihoon';
+  const currentMonth = getYearMonth(today);
+  const monthlyBudgetAmount = 1_000_000;
 
   return {
     household: {
@@ -21,6 +24,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
       inviteCode: 'JALSAL-24',
       createdBy: minseoId,
       createdAt: today,
+      memberIds: [minseoId, jihoonId],
     },
     members: [
       {
@@ -38,6 +42,21 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         name: '지훈',
         role: 'member',
         joinedAt: today,
+      },
+    ],
+    monthlyBudgets: [
+      {
+        id: currentMonth,
+        householdId,
+        month: currentMonth,
+        totalAmount: monthlyBudgetAmount,
+        contributionMode: 'equal',
+        memberContributions: createEqualContributions(monthlyBudgetAmount, [minseoId, jihoonId]),
+        revision: 1,
+        createdBy: minseoId,
+        createdAt: today,
+        updatedBy: minseoId,
+        updatedAt: today,
       },
     ],
     expenses: [

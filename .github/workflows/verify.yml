@@ -41,6 +41,9 @@ jobs:
       - name: Run QA tests
         run: npm run qa:test
 
+      - name: Run Firestore security rules emulator tests
+        run: npm run test:firestore-rules
+
       - name: Run unit tests
         run: npm run unit:test --if-present
 

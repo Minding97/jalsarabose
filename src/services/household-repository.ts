@@ -13,6 +13,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -26,6 +27,7 @@ import {
   fridgeItemFromDoc,
   householdFromDoc,
   memberFromDoc,
+  monthlyBudgetFromDoc,
   userProfileFromDoc,
 } from '@/services/firestore-mappers';
 import { requireAuth, requireDb } from '@/services/firebase';
@@ -35,9 +37,11 @@ import {
   Household,
   HouseholdMember,
   HouseholdSnapshot,
+  MonthlyBudget,
   UserProfile,
 } from '@/domain/types';
 import { todayIso } from '@/utils/dates';
+import { saveMonthlyBudgetWithRevision } from '@/services/monthly-budget-write';
 
 type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
 type CreateHouseholdInput = {
@@ -117,6 +121,7 @@ export async function createHousehold({ name, owner }: CreateHouseholdInput) {
       inviteCode,
       createdBy: owner.uid,
       createdAt: today,
+      memberIds: [owner.uid],
     });
     transaction.set(doc(db, 'households', householdRef.id, 'members', owner.uid), {
       householdId: householdRef.id,
@@ -156,13 +161,16 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   }
 
   const householdId = String(inviteSnapshot.data().householdId ?? '');
+  const creatorId = String(inviteSnapshot.data().createdBy ?? '');
   const today = todayIso();
 
   await runTransaction(db, async (transaction) => {
+    const householdRef = doc(db, 'households', householdId);
     const memberRef = doc(db, 'households', householdId, 'members', user.uid);
     const memberSnapshot = await transaction.get(memberRef);
 
     if (!memberSnapshot.exists()) {
+      transaction.update(householdRef, { memberIds: [creatorId, user.uid] });
       transaction.set(memberRef, {
         householdId,
         userId: user.uid,
@@ -186,6 +194,23 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   return householdId;
 }
 
+export async function migrateLegacyHouseholdMemberIndex(householdId: string, uid: string) {
+  const db = requireDb();
+  const householdRef = doc(db, 'households', householdId);
+  const householdSnapshot = await getDoc(householdRef);
+
+  if (!householdSnapshot.exists() || Array.isArray(householdSnapshot.data().memberIds)) return;
+  if (String(householdSnapshot.data().createdBy ?? '') !== uid) return;
+
+  const membersSnapshot = await getDocs(collection(db, 'households', householdId, 'members'));
+  const memberIds = membersSnapshot.docs.map((member) => member.id);
+  const orderedMemberIds = [uid, ...memberIds.filter((memberId) => memberId !== uid).sort()];
+  if (orderedMemberIds.length < 1 || orderedMemberIds.length > 2) {
+    throw new Error('기존 가구의 구성원 정보를 안전하게 전환할 수 없어요.');
+  }
+  await updateDoc(householdRef, { memberIds: orderedMemberIds });
+}
+
 export function subscribeHouseholdSnapshot(
   householdId: string,
   callback: (snapshot: HouseholdSnapshot) => void,
@@ -194,6 +219,7 @@ export function subscribeHouseholdSnapshot(
   const db = requireDb();
   let household: Household | null = null;
   let members: HouseholdMember[] = [];
+  let monthlyBudgets: MonthlyBudget[] = [];
   let expenses: Expense[] = [];
   let fridgeItems: FridgeItem[] = [];
 
@@ -202,7 +228,22 @@ export function subscribeHouseholdSnapshot(
       return;
     }
 
-    callback({ household, members, expenses, fridgeItems });
+    const effectiveMemberIds = household.memberIds.length
+      ? household.memberIds
+      : [
+          household.createdBy,
+          ...members
+            .filter((member) => member.id !== household?.createdBy)
+            .map((member) => member.id),
+        ];
+    const memberOrder = new Map(effectiveMemberIds.map((memberId, index) => [memberId, index]));
+    const orderedMembers = [...members].sort((left, right) => {
+      const leftIndex = memberOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = memberOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      return leftIndex - rightIndex || left.id.localeCompare(right.id);
+    });
+
+    callback({ household, members: orderedMembers, monthlyBudgets, expenses, fridgeItems });
   };
 
   const unsubs = [
@@ -227,6 +268,14 @@ export function subscribeHouseholdSnapshot(
       onError,
     ),
     onSnapshot(
+      query(collection(db, 'households', householdId, 'monthlyBudgets'), orderBy('month', 'desc')),
+      (snapshot) => {
+        monthlyBudgets = snapshot.docs.map(monthlyBudgetFromDoc);
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
       query(collection(db, 'households', householdId, 'expenses'), orderBy('dueDate', 'asc')),
       (snapshot) => {
         expenses = snapshot.docs.map(expenseFromDoc);
@@ -245,6 +294,14 @@ export function subscribeHouseholdSnapshot(
   ];
 
   return () => unsubs.forEach((unsubscribe) => unsubscribe());
+}
+
+export async function saveMonthlyBudget(
+  householdId: string,
+  budget: Omit<MonthlyBudget, 'id' | 'revision'>,
+  expectedRevision: number,
+) {
+  await saveMonthlyBudgetWithRevision(requireDb(), householdId, omitUndefined(budget), expectedRevision);
 }
 
 export function addExpense(householdId: string, expense: Omit<Expense, 'id'>) {
