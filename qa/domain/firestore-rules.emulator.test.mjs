@@ -7,7 +7,6 @@ const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 let environment;
 let assertFails;
 let assertSucceeds;
-let arrayUnion;
 let doc;
 let getDoc;
 let initializeTestEnvironment;
@@ -20,7 +19,7 @@ let MonthlyBudgetConflictError;
 before(async () => {
   if (!emulatorHost) return;
   ({ assertFails, assertSucceeds, initializeTestEnvironment } = await import('@firebase/rules-unit-testing'));
-  ({ arrayUnion, doc, getDoc, runTransaction, setDoc, updateDoc } = await import(
+  ({ doc, getDoc, runTransaction, setDoc, updateDoc } = await import(
     'firebase/firestore'
   ));
   ({ saveMonthlyBudgetWithRevision, MonthlyBudgetConflictError } = await import(
@@ -53,13 +52,13 @@ async function seedTwoMemberHousehold() {
   });
 }
 
-async function seedJoinableHousehold() {
+async function seedJoinableHousehold({ legacy = false } = {}) {
   await environment.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, 'households', 'home'), {
       createdBy: 'alice',
       inviteCode: 'JOINME',
-      memberIds: ['alice'],
+      ...(legacy ? {} : { memberIds: ['alice'] }),
       name: 'Alice home',
     });
     await setDoc(doc(db, 'households', 'home', 'members', 'alice'), {
@@ -89,7 +88,7 @@ function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember =
       return;
     }
     if (includeIndex) {
-      transaction.update(doc(db, 'households', 'home'), { memberIds: arrayUnion(uid) });
+      transaction.update(doc(db, 'households', 'home'), { memberIds: ['alice', uid] });
     }
     if (includeMember) {
       transaction.set(memberRef, {
@@ -153,6 +152,17 @@ test('joining an existing household is idempotent and preserves member metadata'
   assert.equal(member.data().inviteCode, 'JOINME');
 });
 
+test('a second member can join a legacy household without a memberIds index', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold({ legacy: true });
+  const db = environment.authenticatedContext('bob').firestore();
+
+  await assertSucceeds(joinTransaction(db));
+
+  const household = await getDoc(doc(db, 'households', 'home'));
+  assert.deepEqual(household.data().memberIds, ['alice', 'bob']);
+});
+
 test('monthly budget rules enforce financial and identity invariants', { skip: !emulatorHost }, async () => {
   await environment.clearFirestore();
   await seedTwoMemberHousehold();
@@ -173,6 +183,8 @@ test('monthly budget rules enforce financial and identity invariants', { skip: !
     }),
   );
   await assertFails(updateDoc(ref('2026-08'), { revision: 4 }));
+  await assertFails(updateDoc(ref('2026-08'), { updatedBy: 'bob', revision: 3 }));
+  await assertFails(updateDoc(ref('2026-08'), { createdBy: 'bob', revision: 3 }));
 });
 
 test('concurrent creates keep one budget and report the stale writer as a conflict', { skip: !emulatorHost }, async () => {
@@ -270,4 +282,15 @@ test('a third user cannot join or forge the household member index', { skip: !em
   await assertFails(
     updateDoc(doc(db, 'households', 'home'), { memberIds: ['alice', 'mallory'] }),
   );
+});
+
+test('a member cannot rewrite security-sensitive household identity fields', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  const db = environment.authenticatedContext('bob').firestore();
+  const householdRef = doc(db, 'households', 'home');
+
+  await assertFails(updateDoc(householdRef, { createdBy: 'bob' }));
+  await assertFails(updateDoc(householdRef, { inviteCode: 'TAKEOVER' }));
+  await assertSucceeds(updateDoc(householdRef, { name: 'Our home' }));
 });

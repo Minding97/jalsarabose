@@ -8,7 +8,6 @@ import {
 import {
   Unsubscribe,
   addDoc,
-  arrayUnion,
   collection,
   deleteField,
   deleteDoc,
@@ -161,6 +160,7 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   }
 
   const householdId = String(inviteSnapshot.data().householdId ?? '');
+  const creatorId = String(inviteSnapshot.data().createdBy ?? '');
   const today = todayIso();
 
   await runTransaction(db, async (transaction) => {
@@ -169,7 +169,7 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
     const memberSnapshot = await transaction.get(memberRef);
 
     if (!memberSnapshot.exists()) {
-      transaction.update(householdRef, { memberIds: arrayUnion(user.uid) });
+      transaction.update(householdRef, { memberIds: [creatorId, user.uid] });
       transaction.set(memberRef, {
         householdId,
         userId: user.uid,
