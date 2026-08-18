@@ -231,6 +231,24 @@ test('monthly budget rules enforce financial and identity invariants', { skip: !
   await assertFails(updateDoc(ref('2026-08'), { createdBy: 'bob', revision: 3 }));
 });
 
+test('an existing non-admin member can migrate a legacy index while saving a budget', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold({ legacy: true, legacySecondMember: true });
+  const bobDb = environment.authenticatedContext('bob').firestore();
+
+  await assertSucceeds(saveMonthlyBudgetWithRevision(
+    bobDb,
+    'home',
+    budget({ createdBy: 'bob', updatedBy: 'bob' }),
+    0,
+  ));
+
+  const household = await getDoc(doc(bobDb, 'households', 'home'));
+  const savedBudget = await getDoc(doc(bobDb, 'households', 'home', 'monthlyBudgets', '2026-08'));
+  assert.deepEqual(household.data().memberIds, ['alice', 'bob']);
+  assert.equal(savedBudget.data().createdBy, 'bob');
+});
+
 test('concurrent creates keep one budget and report the stale writer as a conflict', { skip: !emulatorHost }, async () => {
   await environment.clearFirestore();
   await seedTwoMemberHousehold();

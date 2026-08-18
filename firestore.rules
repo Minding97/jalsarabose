@@ -105,7 +105,14 @@ service cloud.firestore {
             && exists(memberPath(householdId, memberIds[1]))
           )
         )
-        && requesterIsHouseholdAdmin(householdId);
+        && (
+          requesterIsHouseholdAdmin(householdId)
+          || (
+            memberIds.size() == 2
+            && request.auth.uid == memberIds[1]
+            && exists(memberPath(householdId, request.auth.uid))
+          )
+        );
     }
 
     function requesterIsIndexedAfterWrite(householdId) {
