@@ -17,6 +17,7 @@ PRD의 모델을 TypeScript 타입과 Firestore 컬렉션으로 옮긴 기준 �
 - `households/{householdId}/members/{uid}`: 가구원 이름, 역할, 참여일
 - `households/{householdId}/expenses/{expenseId}`: 공동 지출
 - `households/{householdId}/monthlyBudgets/{YYYY-MM}`: 월별 공동생활비와 구성원 부담금
+- 월 예산은 `revision`을 1부터 증가시키는 낙관적 동시성 제어를 사용한다. 같은 버전을 편집한 두 저장 중 먼저 커밋된 저장만 성공하고, 나중 저장은 최신 내용을 다시 확인하도록 충돌 오류를 반환한다.
 - `households/{householdId}/fridgeItems/{itemId}`: 냉장고 항목
 - `inviteCodes/{code}`: 초대 코드와 가구 ID 매핑
 

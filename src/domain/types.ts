@@ -60,6 +60,7 @@ export type MonthlyBudget = {
   createdAt: ISODate;
   updatedBy: ID;
   updatedAt: ISODate;
+  revision: number;
 };
 export type FridgeItem = {
   id: ID;

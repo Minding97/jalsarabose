@@ -14,12 +14,17 @@ let initializeTestEnvironment;
 let runTransaction;
 let setDoc;
 let updateDoc;
+let saveMonthlyBudgetWithRevision;
+let MonthlyBudgetConflictError;
 
 before(async () => {
   if (!emulatorHost) return;
   ({ assertFails, assertSucceeds, initializeTestEnvironment } = await import('@firebase/rules-unit-testing'));
   ({ arrayUnion, doc, getDoc, runTransaction, setDoc, updateDoc } = await import(
     'firebase/firestore'
+  ));
+  ({ saveMonthlyBudgetWithRevision, MonthlyBudgetConflictError } = await import(
+    '../../src/services/monthly-budget-write.ts'
   ));
   const [host, port] = emulatorHost.split(':');
   environment = await initializeTestEnvironment({
@@ -105,6 +110,7 @@ function budget(overrides = {}) {
     createdAt: '2026-08-01',
     updatedBy: 'alice',
     updatedAt: '2026-08-01',
+    revision: 1,
     ...overrides,
   };
 }
@@ -141,8 +147,73 @@ test('monthly budget rules enforce financial and identity invariants', { skip: !
     updateDoc(ref('2026-08'), {
       contributionMode: 'custom',
       memberContributions: { alice: 60, bob: 41 },
+      revision: 2,
     }),
   );
+  await assertFails(updateDoc(ref('2026-08'), { revision: 4 }));
+});
+
+test('concurrent creates keep one budget and report the stale writer as a conflict', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  const aliceBudget = budget({ totalAmount: 200, memberContributions: { alice: 100, bob: 100 } });
+  const bobBudget = budget({
+    totalAmount: 300,
+    memberContributions: { alice: 150, bob: 150 },
+    createdBy: 'bob',
+    updatedBy: 'bob',
+  });
+
+  const results = await Promise.allSettled([
+    saveMonthlyBudgetWithRevision(aliceDb, 'home', aliceBudget, 0),
+    saveMonthlyBudgetWithRevision(bobDb, 'home', bobBudget, 0),
+  ]);
+
+  assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
+  const rejection = results.find(({ status }) => status === 'rejected');
+  assert.equal(rejection.reason?.name, 'MonthlyBudgetConflictError', String(rejection.reason));
+  const saved = await getDoc(doc(aliceDb, 'households', 'home', 'monthlyBudgets', '2026-08'));
+  assert.equal(saved.data().revision, 1);
+  assert.ok([200, 300].includes(saved.data().totalAmount));
+});
+
+test('concurrent edits preserve the winner and reject rather than overwrite the stale edit', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  await saveMonthlyBudgetWithRevision(aliceDb, 'home', budget(), 0);
+  const aliceEdit = budget({
+    totalAmount: 200,
+    contributionMode: 'custom',
+    memberContributions: { alice: 120, bob: 80 },
+    updatedAt: '2026-08-19',
+  });
+  const bobEdit = budget({
+    totalAmount: 300,
+    contributionMode: 'custom',
+    memberContributions: { alice: 170, bob: 130 },
+    createdBy: 'bob',
+    createdAt: '2099-01-01',
+    updatedBy: 'bob',
+    updatedAt: '2026-08-19',
+  });
+
+  const results = await Promise.allSettled([
+    saveMonthlyBudgetWithRevision(aliceDb, 'home', aliceEdit, 1),
+    saveMonthlyBudgetWithRevision(bobDb, 'home', bobEdit, 1),
+  ]);
+
+  assert.equal(results.filter(({ status }) => status === 'fulfilled').length, 1);
+  const rejection = results.find(({ status }) => status === 'rejected');
+  assert.equal(rejection.reason?.name, 'MonthlyBudgetConflictError', String(rejection.reason));
+  const saved = await getDoc(doc(aliceDb, 'households', 'home', 'monthlyBudgets', '2026-08'));
+  assert.equal(saved.data().revision, 2);
+  assert.ok([200, 300].includes(saved.data().totalAmount));
+  assert.equal(saved.data().createdBy, 'alice');
+  assert.equal(saved.data().createdAt, '2026-08-01');
 });
 
 test('second member can join when the index and member document are created atomically', { skip: !emulatorHost }, async () => {

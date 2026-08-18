@@ -199,11 +199,22 @@ service cloud.firestore {
         allow create: if isHouseholdMember(householdId)
           && itemBelongsToHousehold(householdId)
           && request.resource.data.month == month
+          && request.resource.data.revision == 1
           && validMonthlyBudget(householdId);
         allow update: if isHouseholdMember(householdId)
           && itemStaysInHousehold(householdId)
           && request.resource.data.month == month
           && resource.data.month == month
+          && (
+            (
+              !('revision' in resource.data)
+              && request.resource.data.revision == 2
+            )
+            || (
+              resource.data.revision is int
+              && request.resource.data.revision == resource.data.revision + 1
+            )
+          )
           && validMonthlyBudget(householdId);
         allow delete: if false;
       }

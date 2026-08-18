@@ -276,14 +276,20 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       set((current) => ({
         monthlyBudgets: [
           ...current.monthlyBudgets.filter((item) => item.month !== input.month),
-          { ...budget, id: input.month },
+          {
+            ...budget,
+            id: input.month,
+            revision:
+              (current.monthlyBudgets.find((item) => item.month === input.month)?.revision ?? 0) + 1,
+          },
         ].sort((a, b) => b.month.localeCompare(a.month)),
       }));
       return;
     }
 
     try {
-      await saveMonthlyBudget(requireHouseholdId(state), budget);
+      const existing = state.monthlyBudgets.find((item) => item.month === input.month);
+      await saveMonthlyBudget(requireHouseholdId(state), budget, existing?.revision ?? 0);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
       throw error;
@@ -494,7 +500,7 @@ function createExpensePayload(state: StoreState, input: ExpenseInput): Omit<Expe
 function createMonthlyBudgetPayload(
   state: StoreState,
   input: MonthlyBudgetInput,
-): Omit<MonthlyBudget, 'id'> {
+): Omit<MonthlyBudget, 'id' | 'revision'> {
   const user = requireCurrentUser(state);
   const existing = state.monthlyBudgets.find((budget) => budget.month === input.month);
   const updatedAt = todayIso();

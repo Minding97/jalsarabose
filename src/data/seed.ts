@@ -52,6 +52,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         totalAmount: monthlyBudgetAmount,
         contributionMode: 'equal',
         memberContributions: createEqualContributions(monthlyBudgetAmount, [minseoId, jihoonId]),
+        revision: 1,
         createdBy: minseoId,
         createdAt: today,
         updatedBy: minseoId,

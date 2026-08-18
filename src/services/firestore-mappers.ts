@@ -119,6 +119,10 @@ export function monthlyBudgetFromDoc(
     createdAt: data.createdAt as ISODate,
     updatedBy: String(data.updatedBy ?? data.createdBy ?? ''),
     updatedAt: data.updatedAt as ISODate,
+    revision:
+      typeof data.revision === 'number' && Number.isInteger(data.revision) && data.revision > 0
+        ? data.revision
+        : 1,
   };
 }
 export function fridgeItemFromDoc(doc: QueryDocumentSnapshot<DocumentData>): FridgeItem {

@@ -41,6 +41,7 @@ import {
   UserProfile,
 } from '@/domain/types';
 import { todayIso } from '@/utils/dates';
+import { saveMonthlyBudgetWithRevision } from '@/services/monthly-budget-write';
 
 type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
 type CreateHouseholdInput = {
@@ -275,27 +276,10 @@ export function subscribeHouseholdSnapshot(
 
 export async function saveMonthlyBudget(
   householdId: string,
-  budget: Omit<MonthlyBudget, 'id'>,
+  budget: Omit<MonthlyBudget, 'id' | 'revision'>,
+  expectedRevision: number,
 ) {
-  const db = requireDb();
-  const householdRef = doc(db, 'households', householdId);
-  const budgetRef = doc(db, 'households', householdId, 'monthlyBudgets', budget.month);
-
-  await runTransaction(db, async (transaction) => {
-    const householdSnapshot = await transaction.get(householdRef);
-
-    if (!householdSnapshot.exists()) {
-      throw new Error('가구 정보를 찾을 수 없어요.');
-    }
-
-    if (!Array.isArray(householdSnapshot.data().memberIds)) {
-      transaction.update(householdRef, {
-        memberIds: Object.keys(budget.memberContributions),
-      });
-    }
-
-    transaction.set(budgetRef, omitUndefined(budget));
-  });
+  await saveMonthlyBudgetWithRevision(requireDb(), householdId, omitUndefined(budget), expectedRevision);
 }
 
 export function addExpense(householdId: string, expense: Omit<Expense, 'id'>) {
