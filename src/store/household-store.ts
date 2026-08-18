@@ -12,8 +12,11 @@ import {
   FridgeItemInput,
   FridgeStatus,
   HouseholdSnapshot,
+  MonthlyBudget,
+  MonthlyBudgetInput,
   UserProfile,
 } from '@/domain/types';
+import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
 import {
   addExpense,
   addFridgeItem,
@@ -21,6 +24,8 @@ import {
   deleteExpense,
   deleteFridgeItem,
   joinHouseholdByInviteCode,
+  migrateLegacyHouseholdMemberIndex,
+  saveMonthlyBudget,
   signIn,
   signOutCurrentUser,
   signUp,
@@ -54,6 +59,7 @@ type HouseholdActions = {
   signOut: () => Promise<void>;
   createNewHousehold: (name: string) => Promise<void>;
   joinHousehold: (code: string) => Promise<void>;
+  saveMonthlyBudgetItem: (input: MonthlyBudgetInput) => Promise<void>;
   addExpenseItem: (input: ExpenseInput) => Promise<void>;
   updateExpenseItem: (expenseId: string, input: ExpenseInput) => Promise<void>;
   deleteExpenseItem: (expenseId: string) => Promise<void>;
@@ -77,8 +83,10 @@ const emptySnapshot: HouseholdSnapshot = {
     inviteCode: '',
     createdBy: '',
     createdAt: todayIso(),
+    memberIds: [],
   },
   members: [],
+  monthlyBudgets: [],
   expenses: [],
   fridgeItems: [],
 };
@@ -178,6 +186,10 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
           return;
         }
 
+        void migrateLegacyHouseholdMemberIndex(profile.activeHouseholdId, user.uid).catch(() => {
+          // A non-admin legacy member can still rejoin and read; the admin performs migration.
+        });
+
         unsubscribeHousehold = subscribeHouseholdSnapshot(
           profile.activeHouseholdId,
           (snapshot) => set({ ...snapshot, dataStatus: 'ready', errorMessage: null }),
@@ -250,6 +262,39 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
     try {
       await joinHouseholdByInviteCode(code, user);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  saveMonthlyBudgetItem: async (input) => {
+    const state = get();
+    const validationMessage = validateMonthlyBudgetInput(input, state.members);
+
+    if (validationMessage) {
+      throw new Error(validationMessage);
+    }
+
+    const budget = createMonthlyBudgetPayload(state, input);
+    if (useMocks) {
+      set((current) => ({
+        monthlyBudgets: [
+          ...current.monthlyBudgets.filter((item) => item.month !== input.month),
+          {
+            ...budget,
+            id: input.month,
+            revision:
+              (current.monthlyBudgets.find((item) => item.month === input.month)?.revision ?? 0) + 1,
+          },
+        ].sort((a, b) => b.month.localeCompare(a.month)),
+      }));
+      return;
+    }
+
+    try {
+      const existing = state.monthlyBudgets.find((item) => item.month === input.month);
+      await saveMonthlyBudget(requireHouseholdId(state), budget, existing?.revision ?? 0);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
       throw error;
@@ -457,6 +502,23 @@ function createExpensePayload(state: StoreState, input: ExpenseInput): Omit<Expe
   };
 }
 
+function createMonthlyBudgetPayload(
+  state: StoreState,
+  input: MonthlyBudgetInput,
+): Omit<MonthlyBudget, 'id' | 'revision'> {
+  const user = requireCurrentUser(state);
+  const existing = state.monthlyBudgets.find((budget) => budget.month === input.month);
+  const updatedAt = todayIso();
+
+  return {
+    ...input,
+    householdId: requireHouseholdId(state),
+    createdBy: existing?.createdBy ?? user.uid,
+    createdAt: existing?.createdAt ?? updatedAt,
+    updatedBy: user.uid,
+    updatedAt,
+  };
+}
 function createFridgePayload(state: StoreState, input: FridgeItemInput): Omit<FridgeItem, 'id'> {
   const user = requireCurrentUser(state);
 

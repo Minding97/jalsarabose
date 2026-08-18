@@ -1,4 +1,4 @@
-import { ChevronLeft, Plus } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -10,7 +10,22 @@ import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { useTheme } from '@/hooks/use-theme';
 import { expenseCategoryLabels, expenseStatusLabels } from '@/domain/labels';
-import { Expense, ExpenseCategory, ExpenseStatus } from '@/domain/types';
+import {
+  createEqualContributions,
+  formatYearMonth,
+  getMonthlyBudgetSummary,
+  getYearMonth,
+  shiftYearMonth,
+  validateMonthlyBudgetInput,
+} from '@/domain/monthly-budget';
+import {
+  ContributionMode,
+  Expense,
+  ExpenseCategory,
+  ExpenseStatus,
+  YearMonth,
+} from '@/domain/types';
+import { getExpenseOverview } from '@/domain/settlement';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
 import { getExpenseSummary, getMemberName } from '@/utils/dashboard';
@@ -25,9 +40,13 @@ export default function ExpensesScreen() {
   const addExpenseItem = useHouseholdStore((state) => state.addExpenseItem);
   const updateExpenseItem = useHouseholdStore((state) => state.updateExpenseItem);
   const deleteExpenseItem = useHouseholdStore((state) => state.deleteExpenseItem);
-  const summary = getExpenseSummary(snapshot, todayIso());
+  const saveMonthlyBudgetItem = useHouseholdStore((state) => state.saveMonthlyBudgetItem);
+  const currentMonth = getYearMonth(todayIso());
+  const [selectedMonth, setSelectedMonth] = useState<YearMonth>(currentMonth);
+  const summary = getExpenseSummary(snapshot, `${selectedMonth}-01`);
   const [view, setView] = useState<ExpenseView>('list');
   const [formOpen, setFormOpen] = useState(false);
+  const [budgetFormOpen, setBudgetFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [amount, setAmount] = useState('');
@@ -39,26 +58,42 @@ export default function ExpensesScreen() {
   const [shares, setShares] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [budgetTotal, setBudgetTotal] = useState('');
+  const [contributionMode, setContributionMode] = useState<ContributionMode>('equal');
+  const [budgetShares, setBudgetShares] = useState<Record<string, string>>({});
+  const [budgetFormError, setBudgetFormError] = useState<string | null>(null);
+  const [budgetSubmitting, setBudgetSubmitting] = useState(false);
+
+  const selectedBudget = snapshot.monthlyBudgets.find((budget) => budget.month === selectedMonth);
+  const { monthlyExpenses: selectedExpenses, settlement } = useMemo(
+    () =>
+      getExpenseOverview(
+        snapshot.expenses,
+        selectedMonth,
+        snapshot.members.map((member) => member.id),
+      ),
+    [selectedMonth, snapshot.expenses, snapshot.members],
+  );
+  const budgetSummary = getMonthlyBudgetSummary(selectedBudget, snapshot.expenses, selectedMonth);
 
   const groups = useMemo(() => {
-    const grouped = snapshot.expenses.reduce<Record<string, Expense[]>>((acc, expense) => {
+    const grouped = selectedExpenses.reduce<Record<string, Expense[]>>((acc, expense) => {
       acc[expense.dueDate] ??= [];
       acc[expense.dueDate].push(expense);
       return acc;
     }, {});
 
     return Object.entries(grouped).sort(([dateA], [dateB]) => dateB.localeCompare(dateA));
-  }, [snapshot.expenses]);
+  }, [selectedExpenses]);
 
   const maxCategoryAmount = Math.max(...summary.byCategory.map((item) => item.amount), 1);
-  const settlement = getSettlement(snapshot.expenses, snapshot.members.map((member) => member.id));
 
   const resetForm = () => {
     setFormOpen(false);
     setEditingId(null);
     setTitle('');
     setAmount('');
-    setDueDate(todayIso());
+    setDueDate(getDefaultDueDate(selectedMonth, currentMonth));
     setCategory('living');
     setStatus('scheduled');
     setPayerId(snapshot.members[0]?.id ?? '');
@@ -70,6 +105,67 @@ export default function ExpensesScreen() {
   const openNewForm = () => {
     resetForm();
     setFormOpen(true);
+  };
+
+  const openBudgetForm = () => {
+    setBudgetTotal(selectedBudget ? String(selectedBudget.totalAmount) : '');
+    setContributionMode(selectedBudget?.contributionMode ?? 'equal');
+    setBudgetShares(
+      Object.fromEntries(
+        Object.entries(selectedBudget?.memberContributions ?? {}).map(([memberId, amount]) => [
+          memberId,
+          String(amount),
+        ]),
+      ),
+    );
+    setBudgetFormError(null);
+    setBudgetFormOpen(true);
+  };
+
+  const closeBudgetForm = () => {
+    setBudgetFormOpen(false);
+    setBudgetFormError(null);
+  };
+
+  const submitBudget = async () => {
+    const totalAmount = parseWon(budgetTotal);
+    let memberContributions: Record<string, number>;
+
+    try {
+      memberContributions =
+        contributionMode === 'equal'
+          ? createEqualContributions(totalAmount, snapshot.members.map((member) => member.id))
+          : Object.fromEntries(
+              snapshot.members.map((member) => [member.id, parseWon(budgetShares[member.id] ?? '')]),
+            );
+    } catch (error) {
+      setBudgetFormError(error instanceof Error ? error.message : '부담금을 계산하지 못했어요.');
+      return;
+    }
+
+    const validationMessage = validateMonthlyBudgetInput(
+      { month: selectedMonth, totalAmount, contributionMode, memberContributions },
+      snapshot.members,
+    );
+    if (validationMessage) {
+      setBudgetFormError(validationMessage);
+      return;
+    }
+
+    setBudgetSubmitting(true);
+    try {
+      await saveMonthlyBudgetItem({
+        month: selectedMonth,
+        totalAmount,
+        contributionMode,
+        memberContributions,
+      });
+      closeBudgetForm();
+    } catch (error) {
+      setBudgetFormError(error instanceof Error ? error.message : '공동생활비를 저장하지 못했어요.');
+    } finally {
+      setBudgetSubmitting(false);
+    }
   };
 
   const editExpense = (expense: Expense) => {
@@ -149,6 +245,94 @@ export default function ExpensesScreen() {
       setSubmitting(false);
     }
   };
+
+  if (budgetFormOpen) {
+    const parsedTotal = parseWon(budgetTotal);
+    const equalContributions =
+      Number.isSafeInteger(parsedTotal) && parsedTotal >= 0 && snapshot.members.length === 2
+        ? createEqualContributions(parsedTotal, snapshot.members.map((member) => member.id))
+        : {};
+    const customTotal = snapshot.members.reduce(
+      (sum, member) => sum + parseWon(budgetShares[member.id] ?? ''),
+      0,
+    );
+
+    return (
+      <Screen testID="monthly-budget-form-screen">
+        <FormHeader title={`${formatYearMonth(selectedMonth)} 공동생활비`} onBack={closeBudgetForm} />
+        <FormField
+          label="월 공동생활비"
+          value={budgetTotal}
+          onChangeText={setBudgetTotal}
+          placeholder="예: 1,000,000"
+          keyboardType="numeric"
+          testID="monthly-budget-total-input"
+        />
+        <ChipGroup
+          label="부담 방식"
+          value={contributionMode}
+          options={[
+            { value: 'equal', label: '50:50' },
+            { value: 'custom', label: '직접 입력' },
+          ]}
+          onChange={(mode) => {
+            setContributionMode(mode);
+            setBudgetFormError(null);
+          }}
+        />
+        <Card title="구성원별 부담금" style={styles.contributionCard}>
+          {snapshot.members.map((member) => (
+            <View key={member.id}>
+              {contributionMode === 'custom' ? (
+                <FormField
+                  label={`${getMemberName(snapshot.members, member.id)} 부담금`}
+                  value={budgetShares[member.id] ?? ''}
+                  onChangeText={(value) =>
+                    setBudgetShares((current) => ({ ...current, [member.id]: value }))
+                  }
+                  placeholder="0"
+                  keyboardType="numeric"
+                  testID={`monthly-budget-share-${member.id}`}
+                />
+              ) : (
+                <View style={styles.contributionRow}>
+                  <Text style={[styles.contributionName, { color: theme.textSecondary }]}>
+                    {getMemberName(snapshot.members, member.id)}
+                  </Text>
+                  <Text style={[styles.contributionAmount, { color: theme.text }]}>
+                    {(equalContributions[member.id] ?? 0).toLocaleString()}원
+                  </Text>
+                </View>
+              )}
+            </View>
+          ))}
+          {contributionMode === 'custom' ? (
+            <Text
+              style={[
+                styles.contributionTotal,
+                { color: customTotal === parsedTotal ? theme.primary : theme.danger },
+              ]}>
+              부담금 합계 {customTotal.toLocaleString()}원 / {parsedTotal.toLocaleString()}원
+            </Text>
+          ) : null}
+        </Card>
+        {snapshot.members.length !== 2 ? (
+          <Text style={[styles.errorText, { color: theme.danger }]}>
+            공동생활비는 구성원이 정확히 2명일 때 설정할 수 있어요.
+          </Text>
+        ) : null}
+        {budgetFormError ? (
+          <Text style={[styles.errorText, { color: theme.danger }]}>{budgetFormError}</Text>
+        ) : null}
+        <ActionButton
+          testID="monthly-budget-submit-button"
+          onPress={submitBudget}
+          disabled={budgetSubmitting || !budgetTotal || snapshot.members.length !== 2}>
+          저장
+        </ActionButton>
+      </Screen>
+    );
+  }
 
   if (formOpen) {
     return (
@@ -261,6 +445,8 @@ export default function ExpensesScreen() {
         accessibilityLabel="지출 보기"
       />
 
+      <MonthSelector month={selectedMonth} onChange={setSelectedMonth} />
+
       {view === 'list' ? (
         groups.length === 0 ? (
           <EmptyState title="등록된 지출이 없어요." description="새 공동 지출을 등록해보세요." />
@@ -304,16 +490,64 @@ export default function ExpensesScreen() {
       ) : (
         <>
           <Card style={styles.totalCard}>
-            <Text style={[styles.dashboardLabel, { color: theme.textSecondary }]}>
-              이번 달 총 지출
-            </Text>
-            <Text style={[styles.totalValue, { color: theme.text }]}>
-              {summary.total.toLocaleString()}원
-            </Text>
-            <Text style={[styles.dashboardHelper, { color: theme.textSecondary }]}>
-              1인당{' '}
-              {Math.round(summary.total / Math.max(snapshot.members.length, 1)).toLocaleString()}원
-            </Text>
+            <View style={styles.budgetHeading}>
+              <View style={styles.budgetTitleBlock}>
+                <Text style={[styles.dashboardLabel, { color: theme.textSecondary }]}>
+                  월 공동생활비
+                </Text>
+                <Text style={[styles.totalValue, { color: theme.text }]}>
+                  {budgetSummary.budgetTotal === null
+                    ? '미설정'
+                    : `${budgetSummary.budgetTotal.toLocaleString()}원`}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={selectedBudget ? '공동생활비 수정' : '공동생활비 설정'}
+                testID="monthly-budget-edit-button"
+                onPress={openBudgetForm}
+                style={[styles.budgetEditButton, { backgroundColor: theme.primarySoft }]}>
+                <Text style={[styles.budgetEditText, { color: theme.primary }]}>
+                  {selectedBudget ? '수정' : '설정'}
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.budgetMetrics}>
+              <BudgetMetric label="실제 지출 합계" amount={budgetSummary.expenseTotal} />
+              <BudgetMetric
+                label={
+                  budgetSummary.remainingAmount !== null && budgetSummary.remainingAmount < 0
+                    ? '초과 생활비'
+                    : '남은 생활비'
+                }
+                amount={
+                  budgetSummary.remainingAmount === null
+                    ? null
+                    : Math.abs(budgetSummary.remainingAmount)
+                }
+                danger={
+                  budgetSummary.remainingAmount !== null && budgetSummary.remainingAmount < 0
+                }
+              />
+            </View>
+            {selectedBudget ? (
+              <View style={[styles.budgetContributions, { borderTopColor: theme.border }]}>
+                {snapshot.members.map((member) => (
+                  <View key={member.id} style={styles.contributionRow}>
+                    <Text style={[styles.contributionName, { color: theme.textSecondary }]}>
+                      {getMemberName(snapshot.members, member.id)} 부담금
+                    </Text>
+                    <Text style={[styles.contributionAmount, { color: theme.text }]}>
+                      {(selectedBudget.memberContributions[member.id] ?? 0).toLocaleString()}원
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <Text style={[styles.dashboardHelper, { color: theme.textSecondary }]}>
+                공동생활비를 설정하면 지출 후 남은 금액을 확인할 수 있어요.
+              </Text>
+            )}
           </Card>
 
           <SectionTitle>카테고리별 지출</SectionTitle>
@@ -353,6 +587,61 @@ function FormHeader({ title, onBack }: { title: string; onBack: () => void }) {
         <ChevronLeft size={22} color={theme.textSecondary} strokeWidth={2} />
       </Pressable>
       <Text style={[styles.formTitle, { color: theme.text }]}>{title}</Text>
+    </View>
+  );
+}
+
+function MonthSelector({
+  month,
+  onChange,
+}: {
+  month: YearMonth;
+  onChange: (month: YearMonth) => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={[styles.monthSelector, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="이전 달"
+        testID="expense-previous-month"
+        onPress={() => onChange(shiftYearMonth(month, -1))}
+        style={styles.monthButton}>
+        <ChevronLeft size={20} color={theme.textSecondary} strokeWidth={2} />
+      </Pressable>
+      <Text testID="expense-selected-month" style={[styles.monthLabel, { color: theme.text }]}>
+        {formatYearMonth(month)}
+      </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="다음 달"
+        testID="expense-next-month"
+        onPress={() => onChange(shiftYearMonth(month, 1))}
+        style={styles.monthButton}>
+        <ChevronRight size={20} color={theme.textSecondary} strokeWidth={2} />
+      </Pressable>
+    </View>
+  );
+}
+
+function BudgetMetric({
+  label,
+  amount,
+  danger = false,
+}: {
+  label: string;
+  amount: number | null;
+  danger?: boolean;
+}) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.budgetMetric}>
+      <Text style={[styles.budgetMetricLabel, { color: theme.textSecondary }]}>{label}</Text>
+      <Text style={[styles.budgetMetricValue, { color: danger ? theme.danger : theme.text }]}>
+        {amount === null ? '-' : `${amount.toLocaleString()}원`}
+      </Text>
     </View>
   );
 }
@@ -447,24 +736,12 @@ function ProgressRow({
   );
 }
 
-function getSettlement(expenses: Expense[], memberIds: string[]) {
-  if (memberIds.length !== 2 || expenses.length === 0) {
-    return null;
-  }
-  const paid = Object.fromEntries(memberIds.map((id) => [id, 0])) as Record<string, number>;
-  expenses.forEach((expense) => {
-    if (expense.payerId && paid[expense.payerId] !== undefined) {
-      paid[expense.payerId] += expense.amount;
-    }
-  });
-  const total = Object.values(paid).reduce((sum, value) => sum + value, 0);
-  const target = total / 2;
-  const from = memberIds.find((id) => paid[id] < target);
-  const to = memberIds.find((id) => paid[id] > target);
-  if (!from || !to) {
-    return null;
-  }
-  return { from, to, amount: Math.round(target - paid[from]) };
+function parseWon(value: string) {
+  return Number(value.replace(/,/g, '').trim());
+}
+
+function getDefaultDueDate(selectedMonth: YearMonth, currentMonth: YearMonth) {
+  return selectedMonth === currentMonth ? todayIso() : `${selectedMonth}-01`;
 }
 
 const expenseCategoryOptions = Object.entries(expenseCategoryLabels).map(([value, label]) => ({
@@ -478,6 +755,25 @@ const expenseStatusOptions = Object.entries(expenseStatusLabels).map(([value, la
 }));
 
 const styles = StyleSheet.create({
+  monthSelector: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  monthButton: {
+    width: 48,
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monthLabel: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
   group: {
     gap: 8,
     marginBottom: 4,
@@ -537,6 +833,77 @@ const styles = StyleSheet.create({
   },
   totalCard: {
     padding: 18,
+  },
+  budgetHeading: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  budgetTitleBlock: {
+    flex: 1,
+  },
+  budgetEditButton: {
+    minHeight: 34,
+    borderRadius: 100,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  budgetEditText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  budgetMetrics: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  budgetMetric: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  budgetMetricLabel: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  budgetMetricValue: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  budgetContributions: {
+    borderTopWidth: 1,
+    paddingTop: 10,
+    gap: 6,
+  },
+  contributionCard: {
+    borderRadius: 14,
+  },
+  contributionRow: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  contributionName: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  contributionAmount: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  contributionTotal: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    textAlign: 'right',
   },
   dashboardLabel: {
     fontSize: 13,

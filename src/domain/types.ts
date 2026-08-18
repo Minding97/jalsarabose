@@ -1,11 +1,13 @@
 export type ID = string;
 export type ISODate = string;
+export type YearMonth = string;
 
 export type HouseholdRole = 'admin' | 'member';
 export type EventType = 'expense' | 'fridge';
 
 export type ExpenseCategory = 'rent' | 'utilities' | 'living' | 'subscription' | 'other';
 export type ExpenseStatus = 'scheduled' | 'paid' | 'overdue';
+export type ContributionMode = 'equal' | 'custom';
 
 export type FridgeCategory = 'vegetable' | 'fruit' | 'meat' | 'dairy' | 'side' | 'sauce' | 'other';
 export type StorageType = 'fridge' | 'freezer' | 'room';
@@ -17,6 +19,7 @@ export type Household = {
   inviteCode: string;
   createdBy: ID;
   createdAt: ISODate;
+  memberIds: ID[];
 };
 
 export type HouseholdMember = {
@@ -46,6 +49,19 @@ export type Expense = {
   notificationEnabled: boolean;
 };
 
+export type MonthlyBudget = {
+  id: ID;
+  householdId: ID;
+  month: YearMonth;
+  totalAmount: number;
+  contributionMode: ContributionMode;
+  memberContributions: Record<ID, number>;
+  createdBy: ID;
+  createdAt: ISODate;
+  updatedBy: ID;
+  updatedAt: ISODate;
+  revision: number;
+};
 export type FridgeItem = {
   id: ID;
   householdId: ID;
@@ -64,6 +80,7 @@ export type FridgeItem = {
 export type HouseholdSnapshot = {
   household: Household;
   members: HouseholdMember[];
+  monthlyBudgets: MonthlyBudget[];
   expenses: Expense[];
   fridgeItems: FridgeItem[];
 };
@@ -103,6 +120,10 @@ export type ExpenseInput = Pick<
   | 'notificationEnabled'
 >;
 
+export type MonthlyBudgetInput = Pick<
+  MonthlyBudget,
+  'month' | 'totalAmount' | 'contributionMode' | 'memberContributions'
+>;
 export type FridgeItemInput = Pick<
   FridgeItem,
   | 'name'

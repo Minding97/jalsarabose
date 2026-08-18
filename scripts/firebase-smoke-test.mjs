@@ -159,6 +159,7 @@ async function ensureHousehold(user, today) {
       inviteCode,
       createdBy: user.uid,
       createdAt: today,
+      memberIds: [user.uid],
     });
     transaction.set(doc(db, 'households', householdRef.id, 'members', user.uid), {
       householdId: householdRef.id,
@@ -308,6 +309,21 @@ async function exerciseInviteJoin({ ownerUid, householdId, inviteCode, today }) 
     console.log('Creating invite member document.');
     try {
       await runTransaction(db, async (transaction) => {
+        const householdRef = doc(db, 'households', householdId);
+        const householdSnapshot = await transaction.get(householdRef);
+
+        if (!householdSnapshot.exists()) {
+          throw new Error('Smoke-test household no longer exists.');
+        }
+
+        const rawMemberIds = householdSnapshot.data().memberIds;
+        const memberIds = Array.isArray(rawMemberIds) ? rawMemberIds : [ownerUid];
+
+        if (memberIds.length !== 1) {
+          throw new Error('Smoke-test household already has two indexed members.');
+        }
+
+        transaction.update(householdRef, { memberIds: [...memberIds, inviteUser.uid] });
         transaction.set(memberRef, {
           householdId,
           userId: inviteUser.uid,
