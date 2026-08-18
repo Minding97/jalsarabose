@@ -170,7 +170,8 @@ service cloud.firestore {
       allow delete: if false;
 
       match /members/{uid} {
-        allow read: if isHouseholdMember(householdId);
+        allow get: if isSelf(uid) || isHouseholdMember(householdId);
+        allow list: if isHouseholdMember(householdId);
         allow create: if isSelf(uid)
           && request.resource.data.userId == request.auth.uid
           && request.resource.data.householdId == householdId

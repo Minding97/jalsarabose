@@ -166,15 +166,19 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   await runTransaction(db, async (transaction) => {
     const householdRef = doc(db, 'households', householdId);
     const memberRef = doc(db, 'households', householdId, 'members', user.uid);
-    transaction.update(householdRef, { memberIds: arrayUnion(user.uid) });
-    transaction.set(memberRef, {
-      householdId,
-      userId: user.uid,
-      name: user.displayName || user.email,
-      role: 'member',
-      joinedAt: today,
-      inviteCode: normalizedCode,
-    });
+    const memberSnapshot = await transaction.get(memberRef);
+
+    if (!memberSnapshot.exists()) {
+      transaction.update(householdRef, { memberIds: arrayUnion(user.uid) });
+      transaction.set(memberRef, {
+        householdId,
+        userId: user.uid,
+        name: user.displayName || user.email,
+        role: 'member',
+        joinedAt: today,
+        inviteCode: normalizedCode,
+      });
+    }
 
     transaction.set(
       doc(db, 'users', user.uid),

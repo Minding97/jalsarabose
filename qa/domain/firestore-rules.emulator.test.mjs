@@ -77,18 +77,27 @@ async function seedJoinableHousehold() {
   });
 }
 
-function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember = true } = {}) {
+function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember = true, joinedAt = '2026-08-19' } = {}) {
   return runTransaction(db, async (transaction) => {
+    const memberRef = doc(db, 'households', 'home', 'members', uid);
+    const memberSnapshot = await transaction.get(memberRef);
+    if (memberSnapshot.exists()) {
+      transaction.set(doc(db, 'users', uid), {
+        activeHouseholdId: 'home',
+        updatedAt: joinedAt,
+      }, { merge: true });
+      return;
+    }
     if (includeIndex) {
       transaction.update(doc(db, 'households', 'home'), { memberIds: arrayUnion(uid) });
     }
     if (includeMember) {
-      transaction.set(doc(db, 'households', 'home', 'members', uid), {
+      transaction.set(memberRef, {
         householdId: 'home',
         userId: uid,
         name: uid,
         role: 'member',
-        joinedAt: '2026-08-19',
+        joinedAt,
         inviteCode: 'JOINME',
       });
     }
@@ -129,6 +138,19 @@ test('monthly budget rules allow members and reject outsiders', { skip: !emulato
       budget({ month: '2026-09' }),
     ),
   );
+});
+
+test('joining an existing household is idempotent and preserves member metadata', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold();
+  const db = environment.authenticatedContext('bob').firestore();
+  await assertSucceeds(joinTransaction(db, 'bob', { joinedAt: '2026-08-19' }));
+  await assertSucceeds(joinTransaction(db, 'bob', { joinedAt: '2099-01-01' }));
+
+  const member = await getDoc(doc(db, 'households', 'home', 'members', 'bob'));
+  assert.equal(member.data().joinedAt, '2026-08-19');
+  assert.equal(member.data().role, 'member');
+  assert.equal(member.data().inviteCode, 'JOINME');
 });
 
 test('monthly budget rules enforce financial and identity invariants', { skip: !emulatorHost }, async () => {
