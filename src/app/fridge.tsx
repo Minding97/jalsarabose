@@ -1,20 +1,22 @@
 import { ChevronLeft, Plus } from 'lucide-react-native';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
 import { FormField } from '@/components/app/form-field';
+import { MultiSelectToolbar, SelectionIndicator } from '@/components/app/multi-select-toolbar';
 import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { fridgeCategoryLabels, fridgeStatusLabels, storageTypeLabels } from '@/domain/labels';
 import { FridgeCategory, FridgeItem, FridgeStatus, StorageType } from '@/domain/types';
+import { useMultiSelection } from '@/hooks/use-multi-selection';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { daysUntil, todayIso } from '@/utils/dates';
 import { getFridgeSummary } from '@/utils/dashboard';
-import { validateFridgeItemInput } from '@/utils/validation';
+import { isValidIsoDate, validateFridgeItemInput } from '@/utils/validation';
 
 type FridgeView = 'list' | 'dashboard';
 
@@ -37,6 +39,14 @@ export default function FridgeScreen() {
   const [status, setStatus] = useState<FridgeStatus>('stocked');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const selection = useMultiSelection();
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkExpiryDate, setBulkExpiryDate] = useState('');
+  const [bulkCategory, setBulkCategory] = useState<FridgeCategory | ''>('');
+  const [bulkStorageType, setBulkStorageType] = useState<StorageType | ''>('');
+  const [bulkStatus, setBulkStatus] = useState<FridgeStatus | ''>('');
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const longPressHandled = useRef(false);
 
   const stockedItems = snapshot.fridgeItems.filter((item) => item.status === 'stocked');
   const groups = useMemo(() => groupFridgeItems(stockedItems, today), [stockedItems, today]);
@@ -129,6 +139,69 @@ export default function FridgeScreen() {
     }
   };
 
+  const closeSelection = () => {
+    selection.clear();
+    setBulkEditOpen(false);
+    setBulkExpiryDate('');
+    setBulkCategory('');
+    setBulkStorageType('');
+    setBulkStatus('');
+    setBulkError(null);
+  };
+
+  const toggleSelected = (id: string) => {
+    if (selection.selectedCount === 1 && selection.isSelected(id)) {
+      closeSelection();
+      return;
+    }
+    selection.toggle(id);
+  };
+
+  const removeSelected = async () => {
+    setSubmitting(true);
+    setBulkError(null);
+    try {
+      await Promise.all([...selection.selectedIds].map((id) => deleteFridgeItemEntry(id)));
+      closeSelection();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '선택한 냉장고 항목을 삭제하지 못했어요.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const submitBulkEdit = async () => {
+    const expiryDate = bulkExpiryDate.trim();
+    if (expiryDate && !isValidIsoDate(expiryDate)) {
+      setBulkError('유통기한은 YYYY-MM-DD 형식으로 입력해주세요.');
+      return;
+    }
+    if (!expiryDate && !bulkCategory && !bulkStorageType && !bulkStatus) {
+      setBulkError('변경할 항목을 하나 이상 선택해주세요.');
+      return;
+    }
+
+    const patch = {
+      ...(expiryDate ? { expiryDate } : {}),
+      ...(bulkCategory ? { category: bulkCategory } : {}),
+      ...(bulkStorageType ? { storageType: bulkStorageType } : {}),
+      ...(bulkStatus ? { status: bulkStatus } : {}),
+    };
+
+    setSubmitting(true);
+    setBulkError(null);
+    try {
+      await Promise.all(
+        [...selection.selectedIds].map((id) => updateFridgeItemEntry(id, patch)),
+      );
+      closeSelection();
+    } catch (error) {
+      setBulkError(error instanceof Error ? error.message : '선택한 냉장고 항목을 수정하지 못했어요.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (formOpen) {
     return (
       <Screen testID="fridge-form-screen">
@@ -213,16 +286,77 @@ export default function FridgeScreen() {
     <Screen
       title="냉장고"
       testID="fridge-screen"
-      floatingAction={<FloatingButton onPress={openNewForm} />}>
+      floatingAction={selection.selectionMode ? undefined : <FloatingButton onPress={openNewForm} />}>
       <SegmentedControl
         value={view}
         options={[
           { value: 'list', label: '목록' },
           { value: 'dashboard', label: '대시보드' },
         ]}
-        onChange={setView}
+        onChange={(nextView) => {
+          closeSelection();
+          setView(nextView);
+        }}
         accessibilityLabel="냉장고 보기"
       />
+
+      {selection.selectionMode ? (
+        <>
+          <MultiSelectToolbar
+            count={selection.selectedCount}
+            onCancel={closeSelection}
+            onDelete={removeSelected}
+            onEdit={() => {
+              setBulkEditOpen((current) => !current);
+              setBulkError(null);
+            }}
+            busy={submitting}
+            testIDPrefix="fridge"
+          />
+          {bulkEditOpen ? (
+            <Card
+              title={`${selection.selectedCount}개 냉장고 항목 일괄 수정`}
+              style={styles.bulkEditCard}>
+              <FormField
+                label="유통기한"
+                value={bulkExpiryDate}
+                onChangeText={setBulkExpiryDate}
+                placeholder="변경 안 함 (YYYY-MM-DD)"
+                testID="fridge-bulk-expiry-date-input"
+              />
+              <ChipGroup
+                label="분류"
+                value={bulkCategory}
+                options={[{ value: '', label: '변경 안 함' }, ...categoryOptions]}
+                onChange={setBulkCategory}
+              />
+              <ChipGroup
+                label="보관 위치"
+                value={bulkStorageType}
+                options={[{ value: '', label: '변경 안 함' }, ...storageOptions]}
+                onChange={setBulkStorageType}
+              />
+              <ChipGroup
+                label="상태"
+                value={bulkStatus}
+                options={[{ value: '', label: '변경 안 함' }, ...statusOptions]}
+                onChange={setBulkStatus}
+              />
+              {bulkError ? (
+                <Text style={[styles.errorText, { color: theme.danger }]}>{bulkError}</Text>
+              ) : null}
+              <ActionButton
+                testID="fridge-bulk-save-button"
+                onPress={submitBulkEdit}
+                disabled={submitting}>
+                선택 항목 수정
+              </ActionButton>
+            </Card>
+          ) : bulkError ? (
+            <Text style={[styles.errorText, { color: theme.danger }]}>{bulkError}</Text>
+          ) : null}
+        </>
+      ) : null}
 
       {view === 'list' ? (
         stockedItems.length === 0 ? (
@@ -235,9 +369,36 @@ export default function FridgeScreen() {
                 {group.items.map((item) => {
                   const dday = getDday(item, today);
                   return (
-                    <Pressable key={item.id} onPress={() => editItem(item)}>
-                      <Card style={styles.listCard}>
+                    <Pressable
+                      key={item.id}
+                      testID={`fridge-item-${item.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${item.name}, 길게 눌러 다중 선택`}
+                      accessibilityState={{ selected: selection.isSelected(item.id) }}
+                      delayLongPress={450}
+                      onPressIn={() => {
+                        longPressHandled.current = false;
+                      }}
+                      onLongPress={() => {
+                        longPressHandled.current = true;
+                        selection.select(item.id);
+                      }}
+                      onPress={() => {
+                        if (longPressHandled.current) return;
+                        if (selection.selectionMode) toggleSelected(item.id);
+                        else editItem(item);
+                      }}>
+                      <Card
+                        style={[
+                          styles.listCard,
+                          selection.isSelected(item.id)
+                            ? { borderColor: theme.primary, backgroundColor: theme.primarySoft }
+                            : {},
+                        ]}>
                         <View style={styles.itemRow}>
+                          {selection.selectionMode ? (
+                            <SelectionIndicator selected={selection.isSelected(item.id)} />
+                          ) : null}
                           <View style={styles.itemText}>
                             <Text style={[styles.itemName, { color: theme.text }]}>{item.name}</Text>
                             <Text style={[styles.itemMeta, { color: theme.textSecondary }]}>
@@ -437,6 +598,10 @@ const statusOptions = Object.entries(fridgeStatusLabels).map(([value, label]) =>
 }));
 
 const styles = StyleSheet.create({
+  bulkEditCard: {
+    borderRadius: 16,
+    padding: 14,
+  },
   group: {
     gap: 8,
     marginBottom: 4,
