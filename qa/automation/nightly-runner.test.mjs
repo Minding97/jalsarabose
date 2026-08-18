@@ -47,7 +47,7 @@ test('exact-head re-review scope isolates one PR from the review-status queue', 
       inspected.push(number);
       return { number, state: 'OPEN', headRefName: 'feature', headRefOid: requestedHead };
     },
-    getCommitStatus: async () => null,
+    getCommitStatus: async () => ({ state: 'failure' }),
   };
 
   await reconcileReviewPullRequests(jira, github, { ...config, jiraReviewStatus: '검토 중' }, {

@@ -644,7 +644,7 @@ export async function reconcileReviewPullRequests(jira, github, config, dependen
       continue;
     }
     const status = await github.getCommitStatus(pullRequest.headRefOid);
-    if (!shouldReviewCommitStatus(status)) {
+    if (!scope && !shouldReviewCommitStatus(status)) {
       continue;
     }
     const issueDetails = await jira.getIssue(issue.key);
