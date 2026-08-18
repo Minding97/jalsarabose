@@ -72,22 +72,22 @@ async function seedJoinableHousehold() {
   });
 }
 
-function joinTransaction(db, { includeIndex = true, includeMember = true } = {}) {
+function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember = true } = {}) {
   return runTransaction(db, async (transaction) => {
     if (includeIndex) {
-      transaction.update(doc(db, 'households', 'home'), { memberIds: arrayUnion('bob') });
+      transaction.update(doc(db, 'households', 'home'), { memberIds: arrayUnion(uid) });
     }
     if (includeMember) {
-      transaction.set(doc(db, 'households', 'home', 'members', 'bob'), {
+      transaction.set(doc(db, 'households', 'home', 'members', uid), {
         householdId: 'home',
-        userId: 'bob',
-        name: 'Bob',
+        userId: uid,
+        name: uid,
         role: 'member',
         joinedAt: '2026-08-19',
         inviteCode: 'JOINME',
       });
     }
-    transaction.set(doc(db, 'users', 'bob'), {
+    transaction.set(doc(db, 'users', uid), {
       activeHouseholdId: 'home',
       updatedAt: '2026-08-19',
     }, { merge: true });
@@ -163,6 +163,18 @@ test('second-member authorization requires both sides of the existsAfter transac
   await seedJoinableHousehold();
   const db = environment.authenticatedContext('bob').firestore();
 
-  await assertFails(joinTransaction(db, { includeMember: false }));
-  await assertFails(joinTransaction(db, { includeIndex: false }));
+  await assertFails(joinTransaction(db, 'bob', { includeMember: false }));
+  await assertFails(joinTransaction(db, 'bob', { includeIndex: false }));
+});
+
+test('a third user cannot join or forge the household member index', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold();
+  await assertSucceeds(joinTransaction(environment.authenticatedContext('bob').firestore()));
+  const db = environment.authenticatedContext('mallory').firestore();
+
+  await assertFails(joinTransaction(db, 'mallory'));
+  await assertFails(
+    updateDoc(doc(db, 'households', 'home'), { memberIds: ['alice', 'mallory'] }),
+  );
 });
