@@ -295,7 +295,7 @@ async function commitAndPush(issue, worktree, branch) {
   return sha.stdout.trim();
 }
 
-function formatReviewComment(review, cycle) {
+function formatReviewComment(review, cycle, sha) {
   const findings = review.findings
     .map(
       (finding) =>
@@ -303,6 +303,7 @@ function formatReviewComment(review, cycle) {
     )
     .join('\n');
   return [
+    `<!-- qa-review-head:${sha} -->`,
     `<!-- qa-review-cycle:${cycle} -->`,
     `## Claude QA Review ${cycle}/${maxReviewCycles}`,
     '',
@@ -335,7 +336,7 @@ async function reviewAndGate({
   pullRequest,
   sha,
 }) {
-  const previousCycle = await github.getReviewCycle(pullRequest.number);
+  const previousCycle = await github.getReviewCycle(pullRequest.number, sha);
   const cycle = previousCycle + 1;
   await github.setCommitStatus(
     sha,
@@ -349,7 +350,7 @@ async function reviewAndGate({
     pullRequestNumber: pullRequest.number,
     outputPath: resolve(issueArtifacts, `claude-review-${cycle}.json`),
   });
-  await github.comment(pullRequest.number, formatReviewComment(review, cycle));
+  await github.comment(pullRequest.number, formatReviewComment(review, cycle, sha));
 
   const blockers = review.findings.filter((finding) =>
     ['P0', 'P1', 'P2'].includes(finding.severity),
@@ -612,7 +613,13 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
   }
 }
 
-async function reconcileMergedPullRequests(jira, github, config) {
+export function shouldReviewCommitStatus(status) {
+  return !status || !['success', 'failure'].includes(status.state);
+}
+
+export async function reconcileReviewPullRequests(jira, github, config, dependencies = {}) {
+  const createReviewWorktree = dependencies.createWorktree ?? createWorktree;
+  const runReviewAndGate = dependencies.reviewAndGate ?? reviewAndGate;
   const reviewIssues = await jira.searchIssuesByStatus(config.jiraReviewStatus);
   for (const issue of reviewIssues) {
     const pullRequestNumber = getPullRequestNumber(issue);
@@ -622,6 +629,30 @@ async function reconcileMergedPullRequests(jira, github, config) {
     const pullRequest = await github.getPullRequest(pullRequestNumber);
     if (pullRequest.state === 'MERGED' || pullRequest.mergedAt) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
+      continue;
+    }
+    const status = await github.getCommitStatus(pullRequest.headRefOid);
+    if (!shouldReviewCommitStatus(status)) {
+      continue;
+    }
+    const issueDetails = await jira.getIssue(issue.key);
+    const parentKey = issueDetails.fields.parent?.key ?? issue.key;
+    const issueArtifacts = resolve(artifactsRoot, new Date().toISOString().slice(0, 10), issue.key);
+    mkdirSync(issueArtifacts, { recursive: true, mode: 0o700 });
+    let worktree;
+    try {
+      worktree = await createReviewWorktree(issueDetails, pullRequest, pullRequest.headRefName);
+      await runReviewAndGate({
+        jira, github, config, issue: issueDetails, parentKey, worktree, issueArtifacts,
+        pullRequest, sha: pullRequest.headRefOid,
+      });
+    } finally {
+      if (worktree) {
+        await runCommand('git', ['worktree', 'remove', '--force', worktree], {
+          cwd: repositoryRoot,
+          allowFailure: true,
+        });
+      }
     }
   }
 }
@@ -676,7 +707,7 @@ async function main() {
     }
     await github.ensureAuthenticated();
     if (!dryRun) {
-      await reconcileMergedPullRequests(jira, github, config);
+      await reconcileReviewPullRequests(jira, github, config);
       await cleanupExpiredRecordings(jira, config);
     }
 

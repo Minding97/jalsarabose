@@ -1,5 +1,15 @@
 import { runCommand } from './command.mjs';
 
+export function getReviewCycleForHead(comments, headSha) {
+  return comments.reduce((maximum, comment) => {
+    const headMatch = comment.body?.match(/<!-- qa-review-head:([0-9a-f]{40}) -->/);
+    const cycleMatch = headMatch?.[1] === headSha
+      ? comment.body?.match(/<!-- qa-review-cycle:(\d+) -->/)
+      : null;
+    return Math.max(maximum, cycleMatch ? Number(cycleMatch[1]) : 0);
+  }, 0);
+}
+
 export class GitHubClient {
   constructor(repository) {
     this.repository = repository;
@@ -59,6 +69,15 @@ export class GitHubClient {
     await runCommand('gh', args);
   }
 
+  async getCommitStatus(sha) {
+    const response = await runCommand('gh', [
+      'api',
+      `repos/${this.repository}/commits/${sha}/statuses`,
+      '--paginate',
+    ]);
+    return JSON.parse(response.stdout).find((status) => status.context === 'claude-review') ?? null;
+  }
+
   async comment(pullRequestNumber, body) {
     await runCommand('gh', [
       'pr',
@@ -84,17 +103,13 @@ export class GitHubClient {
     ]);
   }
 
-  async getReviewCycle(pullRequestNumber) {
+  async getReviewCycle(pullRequestNumber, headSha) {
     const response = await runCommand('gh', [
       'api',
       `repos/${this.repository}/issues/${pullRequestNumber}/comments`,
       '--paginate',
     ]);
     const comments = JSON.parse(response.stdout);
-    return comments.reduce((maximum, comment) => {
-      const match = comment.body?.match(/<!-- qa-review-cycle:(\d+) -->/);
-      return Math.max(maximum, match ? Number(match[1]) : 0);
-    }, 0);
+    return getReviewCycleForHead(comments, headSha);
   }
 }
-

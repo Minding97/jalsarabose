@@ -4,13 +4,38 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue, reconcileReviewPullRequests, shouldReviewCommitStatus } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('reviews an open review-status PR when its current head has no final Claude status', async () => {
+  const issue = { key: 'JAL-47', fields: { labels: ['pr-17'], status: { name: '검토 중' } } };
+  const reviews = [];
+  const jira = {
+    searchIssuesByStatus: async () => [issue],
+    getIssue: async () => issue,
+  };
+  const github = {
+    getPullRequest: async () => ({ number: 17, state: 'OPEN', headRefName: 'feature', headRefOid: 'b'.repeat(40) }),
+    getCommitStatus: async () => null,
+  };
+  await reconcileReviewPullRequests(jira, github, { ...config, jiraReviewStatus: '검토 중' }, {
+    createWorktree: async () => undefined,
+    reviewAndGate: async (input) => reviews.push(input.sha),
+  });
+  assert.deepEqual(reviews, ['b'.repeat(40)]);
+});
+
+test('does not repeat a finalized review for the same head', () => {
+  assert.equal(shouldReviewCommitStatus({ state: 'success' }), false);
+  assert.equal(shouldReviewCommitStatus({ state: 'failure' }), false);
+  assert.equal(shouldReviewCommitStatus({ state: 'pending' }), true);
+  assert.equal(shouldReviewCommitStatus(null), true);
+});
 
 test('checks out an existing PR head without claiming its local branch', () => {
   assert.deepEqual(
