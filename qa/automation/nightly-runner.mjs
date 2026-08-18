@@ -48,6 +48,11 @@ function parseFlags(argv) {
   return new Set(argv.filter((value) => value.startsWith('--')));
 }
 
+function parseOption(argv, name) {
+  const index = argv.indexOf(name);
+  return index === -1 ? undefined : argv[index + 1];
+}
+
 function slugify(value) {
   const slug = value
     .toLowerCase()
@@ -115,7 +120,7 @@ export function acquireNightlyLock(path) {
   }
 }
 
-async function createWorktree(issue, existingPullRequest, branch) {
+async function createWorktree(issue, existingPullRequest, branch, exactHead = null) {
   const worktree = resolve(worktreesRoot, issue.key);
   mkdirSync(worktreesRoot, { recursive: true });
 
@@ -130,10 +135,10 @@ async function createWorktree(issue, existingPullRequest, branch) {
   await runCommand('git', ['worktree', 'prune'], { cwd: repositoryRoot });
 
   if (existingPullRequest) {
-    await runCommand('git', ['fetch', 'origin', branch], { cwd: repositoryRoot });
+    await runCommand('git', ['fetch', 'origin', exactHead ?? branch], { cwd: repositoryRoot });
     await runCommand(
       'git',
-      buildWorktreeAddArgs(worktree, `origin/${branch}`),
+      buildWorktreeAddArgs(worktree, exactHead ?? `origin/${branch}`),
       { cwd: repositoryRoot },
     );
   } else {
@@ -295,7 +300,7 @@ async function commitAndPush(issue, worktree, branch) {
   return sha.stdout.trim();
 }
 
-function formatReviewComment(review, cycle) {
+function formatReviewComment(review, cycle, sha) {
   const findings = review.findings
     .map(
       (finding) =>
@@ -303,6 +308,7 @@ function formatReviewComment(review, cycle) {
     )
     .join('\n');
   return [
+    `<!-- qa-review-head:${sha} -->`,
     `<!-- qa-review-cycle:${cycle} -->`,
     `## Claude QA Review ${cycle}/${maxReviewCycles}`,
     '',
@@ -335,7 +341,7 @@ async function reviewAndGate({
   pullRequest,
   sha,
 }) {
-  const previousCycle = await github.getReviewCycle(pullRequest.number);
+  const previousCycle = await github.getReviewCycle(pullRequest.number, sha);
   const cycle = previousCycle + 1;
   await github.setCommitStatus(
     sha,
@@ -349,7 +355,7 @@ async function reviewAndGate({
     pullRequestNumber: pullRequest.number,
     outputPath: resolve(issueArtifacts, `claude-review-${cycle}.json`),
   });
-  await github.comment(pullRequest.number, formatReviewComment(review, cycle));
+  await github.comment(pullRequest.number, formatReviewComment(review, cycle, sha));
 
   const blockers = review.findings.filter((finding) =>
     ['P0', 'P1', 'P2'].includes(finding.severity),
@@ -612,17 +618,83 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
   }
 }
 
-async function reconcileMergedPullRequests(jira, github, config) {
-  const reviewIssues = await jira.searchIssuesByStatus(config.jiraReviewStatus);
+export function shouldReviewCommitStatus(status) {
+  return !status || !['success', 'failure'].includes(status.state);
+}
+
+export function requireScopedRereview(flags, scope) {
+  if (flags.has('--require-review-scope') && !scope) {
+    throw new Error('qa:rereview requires both --review-pr and --review-head.');
+  }
+}
+
+export async function reconcileReviewPullRequests(jira, github, config, dependencies = {}, scope = null) {
+  const createReviewWorktree = dependencies.createWorktree ?? createWorktree;
+  const runReviewAndGate = dependencies.reviewAndGate ?? reviewAndGate;
+  const getWorktreeHead = dependencies.getWorktreeHead ?? (async (worktree) => {
+    const result = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: worktree });
+    return result.stdout.trim();
+  });
+  const scopedIssue = scope ? await jira.findIssueByPullRequest(scope.pullRequestNumber) : null;
+  const scopedReviewIssue = scopedIssue?.fields.status?.name === config.jiraReviewStatus
+    ? scopedIssue
+    : null;
+  const reviewIssues = scope
+    ? (scopedReviewIssue ? [scopedReviewIssue] : [])
+    : await jira.searchIssuesByStatus(config.jiraReviewStatus);
+  let matchedScope = false;
   for (const issue of reviewIssues) {
     const pullRequestNumber = getPullRequestNumber(issue);
-    if (!pullRequestNumber) {
+    if (!pullRequestNumber || (scope && pullRequestNumber !== scope.pullRequestNumber)) {
       continue;
     }
+    matchedScope = true;
     const pullRequest = await github.getPullRequest(pullRequestNumber);
+    if (scope && pullRequest.headRefOid !== scope.headSha) {
+      throw new Error(
+        `PR #${pullRequestNumber} head changed: expected ${scope.headSha}, found ${pullRequest.headRefOid}.`,
+      );
+    }
     if (pullRequest.state === 'MERGED' || pullRequest.mergedAt) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
+      continue;
     }
+    const status = await github.getCommitStatus(pullRequest.headRefOid);
+    if (!scope && !shouldReviewCommitStatus(status)) {
+      continue;
+    }
+    const issueDetails = await jira.getIssue(issue.key);
+    const parentKey = issueDetails.fields.parent?.key ?? issue.key;
+    const issueArtifacts = resolve(artifactsRoot, new Date().toISOString().slice(0, 10), issue.key);
+    mkdirSync(issueArtifacts, { recursive: true, mode: 0o700 });
+    let worktree;
+    try {
+      worktree = await createReviewWorktree(
+        issueDetails,
+        pullRequest,
+        pullRequest.headRefName,
+        pullRequest.headRefOid,
+      );
+      if (worktree && await getWorktreeHead(worktree) !== pullRequest.headRefOid) {
+        throw new Error(
+          `PR #${pullRequestNumber} review worktree head changed from ${pullRequest.headRefOid}.`,
+        );
+      }
+      await runReviewAndGate({
+        jira, github, config, issue: issueDetails, parentKey, worktree, issueArtifacts,
+        pullRequest, sha: pullRequest.headRefOid,
+      });
+    } finally {
+      if (worktree) {
+        await runCommand('git', ['worktree', 'remove', '--force', worktree], {
+          cwd: repositoryRoot,
+          allowFailure: true,
+        });
+      }
+    }
+  }
+  if (scope && !matchedScope) {
+    throw new Error(`PR #${scope.pullRequestNumber} is not present in the review-status queue.`);
   }
 }
 
@@ -641,7 +713,20 @@ async function cleanupExpiredRecordings(jira, config) {
 }
 
 async function main() {
-  const flags = parseFlags(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const flags = parseFlags(argv);
+  const reviewPrValue = parseOption(argv, '--review-pr');
+  const reviewHead = parseOption(argv, '--review-head');
+  if (Boolean(reviewPrValue) !== Boolean(reviewHead)) {
+    throw new Error('--review-pr and --review-head must be provided together.');
+  }
+  const reviewScope = reviewPrValue
+    ? { pullRequestNumber: Number(reviewPrValue), headSha: reviewHead }
+    : null;
+  if (reviewScope && (!Number.isSafeInteger(reviewScope.pullRequestNumber) || !/^[0-9a-f]{40}$/.test(reviewScope.headSha))) {
+    throw new Error('--review-pr must be an integer and --review-head must be an exact 40-character SHA.');
+  }
+  requireScopedRereview(flags, reviewScope);
   const dryRun = flags.has('--dry-run');
   const once = flags.has('--once');
   const force = flags.has('--force');
@@ -676,7 +761,12 @@ async function main() {
     }
     await github.ensureAuthenticated();
     if (!dryRun) {
-      await reconcileMergedPullRequests(jira, github, config);
+      await reconcileReviewPullRequests(jira, github, config, {}, reviewScope);
+      if (reviewScope) {
+        summary.verification = `PR #${reviewScope.pullRequestNumber} exact head ${reviewScope.headSha} review reconciled`;
+        summary.nextAction = 'scoped review result 확인';
+        return;
+      }
       await cleanupExpiredRecordings(jira, config);
     }
 

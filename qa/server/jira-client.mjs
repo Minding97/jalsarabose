@@ -266,6 +266,22 @@ export class JiraClient {
     return issues;
   }
 
+  async findIssueByPullRequest(pullRequestNumber) {
+    if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber <= 0) {
+      throw new TypeError('Pull request number must be a positive safe integer.');
+    }
+    const response = await this.request('/rest/api/3/search/jql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jql: `project = "${this.config.jiraProjectKey}" AND labels = "pr-${pullRequestNumber}" AND parent is EMPTY ORDER BY created ASC`,
+        maxResults: 1,
+        fields: ['summary', 'status', 'created', 'updated', 'labels', 'parent', 'attachment'],
+      }),
+    });
+    return response.issues?.[0] ?? null;
+  }
+
   async addLabel(issueKey, label) {
     await this.request(`/rest/api/3/issue/${issueKey}`, {
       method: 'PUT',
