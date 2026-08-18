@@ -24,6 +24,7 @@ import {
   deleteExpense,
   deleteFridgeItem,
   joinHouseholdByInviteCode,
+  migrateLegacyHouseholdMemberIndex,
   saveMonthlyBudget,
   signIn,
   signOutCurrentUser,
@@ -184,6 +185,10 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
           set({ ...emptySnapshot, currentUser: profile, dataStatus: 'empty' });
           return;
         }
+
+        void migrateLegacyHouseholdMemberIndex(profile.activeHouseholdId, user.uid).catch(() => {
+          // A non-admin legacy member can still rejoin and read; the admin performs migration.
+        });
 
         unsubscribeHousehold = subscribeHouseholdSnapshot(
           profile.activeHouseholdId,

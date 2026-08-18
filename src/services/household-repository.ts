@@ -13,6 +13,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
@@ -191,6 +192,23 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   });
 
   return householdId;
+}
+
+export async function migrateLegacyHouseholdMemberIndex(householdId: string, uid: string) {
+  const db = requireDb();
+  const householdRef = doc(db, 'households', householdId);
+  const householdSnapshot = await getDoc(householdRef);
+
+  if (!householdSnapshot.exists() || Array.isArray(householdSnapshot.data().memberIds)) return;
+  if (String(householdSnapshot.data().createdBy ?? '') !== uid) return;
+
+  const membersSnapshot = await getDocs(collection(db, 'households', householdId, 'members'));
+  const memberIds = membersSnapshot.docs.map((member) => member.id);
+  const orderedMemberIds = [uid, ...memberIds.filter((memberId) => memberId !== uid).sort()];
+  if (orderedMemberIds.length < 1 || orderedMemberIds.length > 2) {
+    throw new Error('기존 가구의 구성원 정보를 안전하게 전환할 수 없어요.');
+  }
+  await updateDoc(householdRef, { memberIds: orderedMemberIds });
 }
 
 export function subscribeHouseholdSnapshot(

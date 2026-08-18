@@ -175,6 +175,20 @@ test('an admin can migrate a legacy two-person household and its member can rejo
   assert.deepEqual(household.data().memberIds, ['alice', 'bob']);
 });
 
+test('an admin can migrate a legacy one-person household before a genuine second member joins', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold({ legacy: true });
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+
+  await assertFails(joinTransaction(bobDb));
+  await assertSucceeds(updateDoc(doc(aliceDb, 'households', 'home'), { memberIds: ['alice'] }));
+  await assertSucceeds(joinTransaction(bobDb));
+
+  const household = await getDoc(doc(bobDb, 'households', 'home'));
+  assert.deepEqual(household.data().memberIds, ['alice', 'bob']);
+});
+
 test('a third party cannot take over a legacy two-person household through its invite code', { skip: !emulatorHost }, async () => {
   await environment.clearFirestore();
   await seedJoinableHousehold({ legacy: true, legacySecondMember: true });

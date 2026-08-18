@@ -44,6 +44,7 @@ test('the authoritative member index is guarded while legacy two-member househol
   assert.match(rules, /&& 'memberIds' in resource\.data/);
   assert.match(rules, /!\('memberIds' in resource\.data\)/);
   assert.match(rules, /memberIds\[0\] == resource\.data\.createdBy/);
+  assert.match(rules, /memberIds\.size\(\) >= 1/);
   assert.match(rules, /exists\(memberPath\(householdId, memberIds\[1\]\)\)/);
   assert.match(rules, /requesterIsHouseholdAdmin\(householdId\)/);
 });

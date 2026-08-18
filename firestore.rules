@@ -94,11 +94,17 @@ service cloud.firestore {
         && !('memberIds' in resource.data)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberIds'])
         && memberIds is list
-        && memberIds.size() == 2
+        && memberIds.size() >= 1
+        && memberIds.size() <= 2
         && memberIds[0] == resource.data.createdBy
-        && memberIds[0] != memberIds[1]
         && exists(memberPath(householdId, memberIds[0]))
-        && exists(memberPath(householdId, memberIds[1]))
+        && (
+          memberIds.size() == 1
+          || (
+            memberIds[0] != memberIds[1]
+            && exists(memberPath(householdId, memberIds[1]))
+          )
+        )
         && requesterIsHouseholdAdmin(householdId);
     }
 
