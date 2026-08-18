@@ -8,6 +8,7 @@ import {
 import {
   Unsubscribe,
   addDoc,
+  arrayUnion,
   collection,
   deleteField,
   deleteDoc,
@@ -164,33 +165,15 @@ export async function joinHouseholdByInviteCode(code: string, user: UserProfile)
   await runTransaction(db, async (transaction) => {
     const householdRef = doc(db, 'households', householdId);
     const memberRef = doc(db, 'households', householdId, 'members', user.uid);
-    const householdSnapshot = await transaction.get(householdRef);
-    const memberSnapshot = await transaction.get(memberRef);
-
-    if (!householdSnapshot.exists()) {
-      throw new Error('초대할 가구를 찾을 수 없어요.');
-    }
-
-    if (!memberSnapshot.exists()) {
-      const rawMemberIds = householdSnapshot.data().memberIds;
-      const memberIds = Array.isArray(rawMemberIds)
-        ? rawMemberIds.map(String)
-        : [String(householdSnapshot.data().createdBy ?? '')];
-
-      if (memberIds.length !== 1 || !memberIds[0] || memberIds.includes(user.uid)) {
-        throw new Error('공동생활비 가구에는 두 명까지만 참여할 수 있어요.');
-      }
-
-      transaction.update(householdRef, { memberIds: [...memberIds, user.uid] });
-      transaction.set(memberRef, {
-        householdId,
-        userId: user.uid,
-        name: user.displayName || user.email,
-        role: 'member',
-        joinedAt: today,
-        inviteCode: normalizedCode,
-      });
-    }
+    transaction.update(householdRef, { memberIds: arrayUnion(user.uid) });
+    transaction.set(memberRef, {
+      householdId,
+      userId: user.uid,
+      name: user.displayName || user.email,
+      role: 'member',
+      joinedAt: today,
+      inviteCode: normalizedCode,
+    });
 
     transaction.set(
       doc(db, 'users', user.uid),

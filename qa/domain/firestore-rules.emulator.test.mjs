@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 
 const projectId = 'jalsarabose-rules-test';
@@ -6,16 +7,20 @@ const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 let environment;
 let assertFails;
 let assertSucceeds;
+let arrayUnion;
 let doc;
 let getDoc;
 let initializeTestEnvironment;
+let runTransaction;
 let setDoc;
 let updateDoc;
 
 before(async () => {
   if (!emulatorHost) return;
   ({ assertFails, assertSucceeds, initializeTestEnvironment } = await import('@firebase/rules-unit-testing'));
-  ({ doc, getDoc, setDoc, updateDoc } = await import('firebase/firestore'));
+  ({ arrayUnion, doc, getDoc, runTransaction, setDoc, updateDoc } = await import(
+    'firebase/firestore'
+  ));
   const [host, port] = emulatorHost.split(':');
   environment = await initializeTestEnvironment({
     projectId,
@@ -40,6 +45,52 @@ async function seedTwoMemberHousehold() {
         householdId: 'home', userId: uid, role: uid === 'alice' ? 'admin' : 'member', joinedAt: '2026-08-01',
       });
     }
+  });
+}
+
+async function seedJoinableHousehold() {
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'households', 'home'), {
+      createdBy: 'alice',
+      inviteCode: 'JOINME',
+      memberIds: ['alice'],
+      name: 'Alice home',
+    });
+    await setDoc(doc(db, 'households', 'home', 'members', 'alice'), {
+      householdId: 'home',
+      userId: 'alice',
+      role: 'admin',
+      joinedAt: '2026-08-01',
+    });
+    await setDoc(doc(db, 'inviteCodes', 'JOINME'), {
+      code: 'JOINME',
+      householdId: 'home',
+      createdBy: 'alice',
+      createdAt: '2026-08-01',
+    });
+  });
+}
+
+function joinTransaction(db, { includeIndex = true, includeMember = true } = {}) {
+  return runTransaction(db, async (transaction) => {
+    if (includeIndex) {
+      transaction.update(doc(db, 'households', 'home'), { memberIds: arrayUnion('bob') });
+    }
+    if (includeMember) {
+      transaction.set(doc(db, 'households', 'home', 'members', 'bob'), {
+        householdId: 'home',
+        userId: 'bob',
+        name: 'Bob',
+        role: 'member',
+        joinedAt: '2026-08-19',
+        inviteCode: 'JOINME',
+      });
+    }
+    transaction.set(doc(db, 'users', 'bob'), {
+      activeHouseholdId: 'home',
+      updatedAt: '2026-08-19',
+    }, { merge: true });
   });
 }
 
@@ -92,4 +143,26 @@ test('monthly budget rules enforce financial and identity invariants', { skip: !
       memberContributions: { alice: 60, bob: 41 },
     }),
   );
+});
+
+test('second member can join when the index and member document are created atomically', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold();
+  const db = environment.authenticatedContext('bob').firestore();
+
+  await assertSucceeds(joinTransaction(db));
+
+  const household = await getDoc(doc(db, 'households', 'home'));
+  const member = await getDoc(doc(db, 'households', 'home', 'members', 'bob'));
+  assert.deepEqual(household.data().memberIds, ['alice', 'bob']);
+  assert.equal(member.data().userId, 'bob');
+});
+
+test('second-member authorization requires both sides of the existsAfter transaction', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold();
+  const db = environment.authenticatedContext('bob').firestore();
+
+  await assertFails(joinTransaction(db, { includeMember: false }));
+  await assertFails(joinTransaction(db, { includeIndex: false }));
 });
