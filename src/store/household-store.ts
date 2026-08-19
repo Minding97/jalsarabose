@@ -17,6 +17,7 @@ import {
   UserProfile,
 } from '@/domain/types';
 import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
+import { getSignInErrorMessage } from '@/domain/auth-errors';
 import {
   addExpense,
   addFridgeItem,
@@ -209,7 +210,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
     try {
       await signIn(email, password);
     } catch (error) {
-      set({ errorMessage: getErrorMessage(error) });
+      set({ errorMessage: getSignInErrorMessage(error) });
       throw error;
     }
   },
