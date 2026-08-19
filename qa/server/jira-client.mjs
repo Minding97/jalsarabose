@@ -236,6 +236,26 @@ export class JiraClient {
     );
   }
 
+  async getIssues(issueKeys, fields = ['summary', 'status', 'labels', 'parent', 'issuelinks']) {
+    const keys = [...new Set(issueKeys)].filter(Boolean);
+    if (keys.length === 0) return [];
+    const issues = [];
+    for (let offset = 0; offset < keys.length; offset += 100) {
+      const page = keys.slice(offset, offset + 100);
+      const response = await this.request('/rest/api/3/search/jql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jql: `key in (${page.map((key) => `"${key.replaceAll('"', '\\"')}"`).join(', ')})`,
+          maxResults: page.length,
+          fields,
+        }),
+      });
+      issues.push(...(response.issues ?? []));
+    }
+    return issues;
+  }
+
   async searchIssuesByStatus(statusName, extraJql = '') {
     const issues = [];
     let nextPageToken;

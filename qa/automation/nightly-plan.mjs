@@ -48,7 +48,7 @@ function compareIssues(left, right) {
   return a[0] - b[0] || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]);
 }
 
-function dependencyKeys(issue) {
+export function dependencyKeys(issue) {
   return (issue.fields?.issuelinks ?? []).flatMap((link) => {
     if (link.outwardIssue && /blocked by/i.test(link.type?.inward ?? '')) {
       return [link.outwardIssue.key];
@@ -57,16 +57,59 @@ function dependencyKeys(issue) {
   });
 }
 
-export function buildNightlyPlan(issues, config) {
+function prNumber(issue) {
+  const match = (issue.fields?.labels ?? []).map((label) => /^pr-(\d+)$/.exec(label)).find(Boolean);
+  return match ? Number(match[1]) : null;
+}
+
+export function workGroupKey(issue) {
+  return prNumber(issue) ? `pr-${prNumber(issue)}` : `ticket-${issue.fields?.parent?.key ?? issue.key}`;
+}
+
+export async function resolveExternalDependencies({ issues, jira, github, doneStatus }) {
+  const queueKeys = new Set(issues.map(({ key }) => key));
+  const keys = [...new Set(issues.flatMap(dependencyKeys).filter((key) => !queueKeys.has(key)))];
+  if (keys.length === 0) return { satisfiedKeys: new Set(), failures: new Map() };
+  const satisfiedKeys = new Set();
+  const failures = new Map();
+  let external;
+  try {
+    external = await jira.getIssues(keys, ['status', 'labels']);
+  } catch (error) {
+    for (const key of keys) failures.set(key, `Jira batch lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    return { satisfiedKeys, failures };
+  }
+  const byKey = new Map(external.map((item) => [item.key, item]));
+  const prCache = new Map();
+  await Promise.all(keys.map(async (key) => {
+    const item = byKey.get(key);
+    if (!item) return failures.set(key, 'Jira did not return the dependency');
+    if (item.fields?.status?.name !== doneStatus) return failures.set(key, `Jira status is ${item.fields?.status?.name ?? 'unknown'}`);
+    const number = prNumber(item);
+    if (!number) return satisfiedKeys.add(key);
+    try {
+      if (!prCache.has(number)) prCache.set(number, github.getPullRequest(number));
+      const pull = await prCache.get(number);
+      if (pull.state === 'MERGED' || pull.mergedAt) satisfiedKeys.add(key);
+      else failures.set(key, `PR #${number} is ${pull.state ?? 'not merged'}`);
+    } catch (error) {
+      failures.set(key, `PR #${number} lookup failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }));
+  return { satisfiedKeys, failures };
+}
+
+export function buildNightlyPlan(issues, config, external = {}) {
   if (!Array.isArray(issues)) throw new Error('Jira queue snapshot is not an array.');
   const byKey = new Map(issues.map((issue) => [issue.key, issue]));
   const allDependencies = new Map(issues.map((issue) => [issue.key, dependencyKeys(issue)]));
+  const externallySatisfied = external.satisfiedKeys ?? new Set();
   const actionable = new Set(byKey.keys());
   let changed = true;
   while (changed) {
     changed = false;
     for (const key of actionable) {
-      if (allDependencies.get(key).some((dependency) => !actionable.has(dependency))) {
+      if (allDependencies.get(key).some((dependency) => !actionable.has(dependency) && !externallySatisfied.has(dependency))) {
         actionable.delete(key);
         changed = true;
       }
@@ -96,7 +139,15 @@ export function buildNightlyPlan(issues, config) {
 
   const bugType = config.jiraBugType.toLowerCase();
   const taskType = config.jiraTaskType.toLowerCase();
-  const classifications = ordered.map((issue) => {
+  const seenGroups = new Set();
+  const deduplicated = ordered.filter((issue) => {
+    const group = workGroupKey(issue);
+    if (seenGroups.has(group)) return false;
+    seenGroups.add(group);
+    return true;
+  });
+  const duplicateKeys = ordered.filter((issue) => !deduplicated.includes(issue)).map(({ key }) => key);
+  const classifications = deduplicated.map((issue) => {
     const actual = issue.fields?.issuetype?.name ?? 'Unknown';
     const normalized = actual.toLowerCase();
     return {
@@ -134,15 +185,30 @@ export function buildNightlyPlan(issues, config) {
   const ticketTexts = new Map(issues.map((issue) => [
     issue.key,
     [
-      ordered.some(({ key }) => key === issue.key)
-        ? `야간 자동수정 고정 계획에서 ${ordered.findIndex(({ key }) => key === issue.key) + 1}/${ordered.length} 순서로 배정되었습니다.`
+      deduplicated.some(({ key }) => key === issue.key)
+        ? `야간 자동수정 고정 계획에서 ${deduplicated.findIndex(({ key }) => key === issue.key) + 1}/${deduplicated.length} 순서로 배정되었습니다.`
+        : duplicateKeys.includes(issue.key)
+          ? `동일 PR/parent 작업 묶음 중복으로 별도 슬롯을 사용하지 않습니다 (${workGroupKey(issue)}).`
         : `야간 자동수정 계획에서 보류되었습니다${cyclicKeys.includes(issue.key) ? ' (의존 순환)' : ' (큐 밖 미완료 선행조건)'}.`,
       `${issue.key} ${issue.fields?.summary ?? ''}`,
       `우선순위 ${issue.fields?.priority?.name ?? '미지정'}${allDependencies.get(issue.key).length ? `; 선행 ${allDependencies.get(issue.key).join(', ')}` : ''}`,
       '실행 중 새 티켓은 오늘 계획에 추가하지 않으며, 모든 선행 티켓의 Jira 완료 및 PR merge가 확인된 경우에만 실행합니다. 선행 실패·사람 확인 필요·merge 미완료 시 보류됩니다.',
     ].join('\n'),
   ]));
-  return { issues: ordered, reportIssues: issues, text, ticketTexts, dependencies: allDependencies, cyclicKeys, externallyBlockedKeys, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
+  return { issues: deduplicated, reportIssues: issues, text, ticketTexts, dependencies: allDependencies, cyclicKeys, externallyBlockedKeys, duplicateKeys, externalFailures: external.failures ?? new Map(), counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
+}
+
+function expectedFiles(issue) {
+  return new Set((issue.fields?.labels ?? []).filter((label) => label.startsWith('file:')).map((label) => label.slice(5)));
+}
+
+export function canRunTogether(left, right, plan) {
+  if (workGroupKey(left) === workGroupKey(right)) return false;
+  const leftDeps = new Set(plan.dependencies.get(left.key) ?? []);
+  const rightDeps = new Set(plan.dependencies.get(right.key) ?? []);
+  if (leftDeps.has(right.key) || rightDeps.has(left.key)) return false;
+  const a = expectedFiles(left); const b = expectedFiles(right);
+  return ![...a].some((path) => b.has(path));
 }
 
 function runReportCommand(command, text) {
