@@ -3,9 +3,11 @@ import test from 'node:test';
 
 import {
   buildNightlyPlan,
+  canRunTogether,
   executePlannedIssue,
   isVerifiedCompletion,
   reportNightlyPlan,
+  resolveExternalDependencies,
   unsatisfiedDependencies,
 } from './nightly-plan.mjs';
 
@@ -62,6 +64,41 @@ test('holds a ticket whose blocker is outside the ready queue', () => {
   assert.deepEqual(plan.issues, []);
   assert.deepEqual(plan.externallyBlockedKeys, ['JAL-2']);
   assert.match(plan.ticketTexts.get('JAL-2'), /보류/);
+});
+
+test('admits JAL-54 when batched Jira and cached PR lookup verify external JAL-53', async () => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  let jiraCalls = 0; let githubCalls = 0;
+  const external = await resolveExternalDependencies({
+    issues: [downstream], doneStatus: '완료',
+    jira: { getIssues: async () => { jiraCalls += 1; return [{ key: 'JAL-53', fields: { status: { name: '완료' }, labels: ['pr-18'] } }]; } },
+    github: { getPullRequest: async () => { githubCalls += 1; return { state: 'MERGED' }; } },
+  });
+  const plan = buildNightlyPlan([downstream], config, external);
+  assert.deepEqual(plan.issues.map(({ key }) => key), ['JAL-54']);
+  assert.equal(jiraCalls, 1); assert.equal(githubCalls, 1);
+});
+
+test('fails closed with a concrete reason when external Jira lookup fails', async () => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  const external = await resolveExternalDependencies({ issues: [downstream], doneStatus: '완료', jira: { getIssues: async () => { throw new Error('timeout'); } }, github: {} });
+  assert.match(external.failures.get('JAL-53'), /timeout/);
+  assert.deepEqual(buildNightlyPlan([downstream], config, external).issues, []);
+});
+
+test('deduplicates parent/review tickets sharing a PR and serializes conflicts', () => {
+  const parent = { ...issue('JAL-47', 'Task', 'High', '2026-01-01'), fields: { ...issue('x','Task','High','').fields, labels: ['pr-17'] } };
+  const review = { ...issue('JAL-56', 'Task', 'Low', '2026-01-02'), fields: { ...issue('x','Task','Low','').fields, labels: ['pr-17'], parent: { key: 'JAL-47' } } };
+  const independent = issue('JAL-60', 'Task', 'Low', '2026-01-03');
+  const plan = buildNightlyPlan([parent, review, independent], config);
+  assert.deepEqual(plan.issues.map(({ key }) => key), ['JAL-47', 'JAL-60']);
+  assert.deepEqual(plan.duplicateKeys, ['JAL-56']);
+  assert.equal(canRunTogether(parent, review, plan), false);
+  assert.equal(canRunTogether(parent, independent, plan), true);
 });
 
 test('holds downstream after an unsuccessful blocker while independent work remains runnable', () => {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, blockedTicketReason, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyMergeStage, classifyNightlyStatus, finalizeNightlySummary, processIssue } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -36,7 +36,7 @@ test('processIssue verifies an existing merged PR and Jira Done before success',
   const jira = jiraWith(issue);
   jira.getIssue = async () => ({ ...issue, fields: { ...issue.fields, status: { name: '완료' } } });
   const github = { getPullRequest: async () => ({ number: 16, state: 'MERGED', mergedAt: '2026-08-12' }) };
-  assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), true);
+  assert.deepEqual(await processIssue({ jira, github, config, issue, dryRun: false }), { completed: true, result: '완료', category: 'complete', reason: '' });
   assert.deepEqual(jira.transitions, [['JAL-47', '완료']]);
 });
 
@@ -47,7 +47,7 @@ test('processIssue does not claim success when a parent needs human review', asy
   };
   const parent = { key: 'JAL-47', fields: { status: { name: '사람 확인 필요' } } };
   const jira = jiraWith(issue, parent);
-  assert.equal(await processIssue({ jira, github: {}, config, issue, dryRun: false }), false);
+  assert.equal((await processIssue({ jira, github: {}, config, issue, dryRun: false })).result, '재작업 예정');
   assert.deepEqual(jira.transitions, [['JAL-48', '사람 확인 필요']]);
 });
 
@@ -64,7 +64,7 @@ test('processIssue requires a merged PR when a completed parent closes its subta
     ? parent
     : { ...issue, fields: { ...issue.fields, status: { name: '완료' } } };
   const github = { getPullRequest: async () => ({ number: 16, state: 'OPEN' }) };
-  assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), false);
+  assert.equal((await processIssue({ jira, github, config, issue, dryRun: false })).result, '병합 상태 확인 필요');
 });
 
 test('processIssue uses a completed parent merged PR for a subtask without its own PR label', async () => {
@@ -73,13 +73,16 @@ test('processIssue uses a completed parent merged PR for a subtask without its o
   const jira = jiraWith(issue, parent);
   jira.getIssue = async (key) => key === 'JAL-47' ? parent : { ...issue, fields: { ...issue.fields, status: { name: '완료' } } };
   const github = { getPullRequest: async () => ({ number: 16, state: 'MERGED' }) };
-  assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), true);
+  assert.equal((await processIssue({ jira, github, config, issue, dryRun: false })).result, '완료');
 });
 
 test('processIssue contains PR lookup failures to the affected ticket', async () => {
   const issue = { key: 'JAL-47', fields: { summary: 'blocker', labels: ['pr-16'], status: { name: '해야 할 일' } } };
   const github = { getPullRequest: async () => { throw new Error('offline'); } };
-  assert.equal(await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false }), false);
+  const outcome = await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false });
+  assert.equal(outcome.result, 'PR 조회 실패');
+  assert.equal(outcome.category, 'failure');
+  assert.match(outcome.reason, /PR #16 조회 실패: offline/);
 });
 
 test('processIssue dry-run is conservative for unprocessed work', async () => {
@@ -87,18 +90,24 @@ test('processIssue dry-run is conservative for unprocessed work', async () => {
     key: 'JAL-47',
     fields: { summary: 'blocker', labels: [], status: { name: '해야 할 일' } },
   };
-  assert.equal(await processIssue({
+  assert.equal((await processIssue({
     jira: jiraWith(issue), github: {}, config, issue, dryRun: true,
-  }), false);
+  })).result, '실행 예정');
 });
 
 test('nightly completion status does not call an all-held queue successful', () => {
-  assert.equal(classifyNightlyStatus([{ key: 'JAL-48', result: '보류' }]), '보류/지연');
-  assert.equal(classifyNightlyStatus([], 2), '보류/지연');
-  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }, { key: 'JAL-48', result: '보류' }], 2), '보류/지연');
-  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }], 2), '보류/지연');
-  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '성공' }]), '성공');
-  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '실패/미병합' }]), '일부 실패');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-48', result: '선행 작업 대기', category: 'pending' }]), '후속 작업 있음');
+  assert.equal(classifyNightlyStatus([], 2), '후속 작업 있음');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '완료' }, { key: 'JAL-48', result: '병합 대기' }], 2), '후속 작업 있음');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '완료' }], 2), '후속 작업 있음');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '완료' }]), '성공');
+  assert.equal(classifyNightlyStatus([{ key: 'JAL-47', result: '구현/테스트 실패', category: 'failure' }]), '구현/테스트 실패 있음');
+});
+
+test('distinguishes merge conflicts from an ordinary merge wait', () => {
+  assert.equal(classifyMergeStage({ state: 'OPEN', mergeStateStatus: 'DIRTY' }), '재작업 예정');
+  assert.equal(classifyMergeStage({ state: 'OPEN', mergeStateStatus: 'BLOCKED' }), '병합 대기');
+  assert.equal(classifyMergeStage({ state: 'MERGED', mergeStateStatus: 'CLEAN' }), '완료');
 });
 
 test('captures the fixed plan snapshot and blocked queue before an empty actionable-plan return', () => {
@@ -109,11 +118,64 @@ test('captures the fixed plan snapshot and blocked queue before an empty actiona
   });
   assert.deepEqual(summary.plannedTickets, []);
   assert.deepEqual(summary.remainingQueue, ['JAL-47', 'JAL-53']);
-  assert.equal(summary.status, '보류/지연');
+  assert.equal(summary.status, '후속 작업 있음');
   assert.match(summary.verification, /큐 스냅샷 2건 확인/);
   assert.match(summary.nextAction, /JAL-47, JAL-53/);
 });
 
+test('records concrete external, cyclic, and cascaded blocker causes', () => {
+  const summary = { ticketResults: [] };
+  captureNightlyPlanSummary(summary, {
+    issues: [],
+    reportIssues: [{ key: 'JAL-70' }, { key: 'JAL-71' }],
+    externallyBlockedKeys: ['JAL-70'], cyclicKeys: ['JAL-71'], duplicateKeys: [],
+    dependencies: new Map([['JAL-70', ['JAL-28']], ['JAL-71', ['JAL-72']]]),
+    externalFailures: new Map([['JAL-28', 'PR #28 lookup failed: gh pr view 28 failed (1)']]),
+    counts: { total: 2 },
+  });
+  assert.match(summary.ticketResults.find(({ key }) => key === 'JAL-70').reason, /gh pr view 28 failed/);
+  assert.match(summary.ticketResults.find(({ key }) => key === 'JAL-71').reason, /Jira 의존 순환: JAL-72/);
+  assert.equal(blockedTicketReason(['JAL-70'], summary.ticketResults),
+    'JAL-70=외부 선행조건 차단: JAL-28: PR #28 lookup failed: gh pr view 28 failed (1)');
+});
+
+test('propagates a representative failure cause to every deduplicated work-group ticket', async () => {
+  const first = { key: 'JAL-60', fields: { labels: ['pr-28'] } };
+  const duplicate = { key: 'JAL-61', fields: { labels: ['pr-28'] } };
+  const summary = { ticketResults: [{ key: 'JAL-60', result: 'PR 조회 실패', category: 'failure', reason: 'gh pr view 28 failed (1)' }] };
+  await finalizeNightlySummary({
+    summary,
+    plan: { issues: [first], reportIssues: [first, duplicate], duplicateKeys: ['JAL-61'] },
+    jira: { searchReadyIssues: async () => [] },
+  });
+  const inherited = summary.ticketResults.find(({ key }) => key === 'JAL-61');
+  assert.equal(inherited.category, 'blocked');
+  assert.match(inherited.reason, /JAL-60 결과 전파.*gh pr view 28 failed/);
+});
+
+test('waits for recovered review follow-ups before building the one final summary', async () => {
+  const summary = {
+    plannedTickets: [], ticketResults: [{ key: 'JAL-47', result: '리뷰 반영 예정', category: 'pending' }],
+    pullRequests: ['#17 대기'], failures: [], remainingQueue: [], lateOutcomes: [],
+  };
+  const plan = { issues: [{ key: 'JAL-47' }], reportIssues: [{ key: 'JAL-47' }] };
+  let reviewFinished = false;
+  const jira = {
+    searchReadyIssues: async () => {
+      assert.equal(reviewFinished, true, 'final queue must be read after Claude/Jira recovery finishes');
+      return [
+        { key: 'JAL-55', fields: { summary: 'P2 first blocker' } },
+        { key: 'JAL-56', fields: { summary: 'P2 second blocker' } },
+      ];
+    },
+  };
+  await Promise.resolve().then(() => { reviewFinished = true; });
+  await finalizeNightlySummary({ summary, plan, jira });
+  assert.deepEqual(summary.remainingQueue, ['JAL-55', 'JAL-56']);
+  assert.deepEqual(summary.lateOutcomes, ['JAL-55=P2 first blocker', 'JAL-56=P2 second blocker']);
+  assert.deepEqual(summary.failures, []);
+  assert.match(summary.verification, /처리 단계 1\/1건 확인 · 완료 0건/);
+});
 test('labels only dry-runs or explicitly requested probes as test notifications', () => {
   assert.equal(isTestNotificationRun({ dryRun: true }), true);
   assert.equal(isTestNotificationRun({ dryRun: false, explicitTestNotification: true }), true);
