@@ -100,7 +100,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
   notificationMessage: null,
   currentUser: useMocks
     ? {
-        uid: 'mock-user',
+        uid: 'user-minseo',
         email: 'mock@jalsarabose.local',
         displayName: '민서',
         activeHouseholdId: seedState.household.id,
