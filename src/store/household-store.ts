@@ -54,7 +54,7 @@ type HouseholdActions = {
   errorMessage: string | null;
   configIssues: string[];
   initializeSession: () => Unsubscribe;
-  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signInWithEmail: (email: string, password: string, autoLogin: boolean) => Promise<void>;
   signUpWithEmail: (email: string, password: string, displayName: string) => Promise<void>;
   signOut: () => Promise<void>;
   createNewHousehold: (name: string) => Promise<void>;
@@ -204,10 +204,10 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
     };
   },
 
-  signInWithEmail: async (email, password) => {
+  signInWithEmail: async (email, password, autoLogin) => {
     set({ errorMessage: null });
     try {
-      await signIn(email, password);
+      await signIn(email, password, autoLogin);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
       throw error;

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
@@ -18,6 +18,7 @@ export function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [autoLogin, setAutoLogin] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,7 +44,7 @@ export function AuthScreen() {
     setSubmitting(true);
     try {
       if (mode === 'signIn') {
-        await signInWithEmail(trimmedEmail, password);
+        await signInWithEmail(trimmedEmail, password, autoLogin);
       } else {
         await signUpWithEmail(trimmedEmail, password, displayName);
       }
@@ -79,6 +80,8 @@ export function AuthScreen() {
             }}
             placeholder="you@example.com"
             keyboardType="email-address"
+            autoComplete="username"
+            textContentType="username"
             testID="auth-email-input"
           />
           <FormField
@@ -90,8 +93,36 @@ export function AuthScreen() {
             }}
             placeholder="6자 이상"
             secureTextEntry
+            autoComplete={mode === 'signIn' ? 'current-password' : 'new-password'}
+            textContentType={mode === 'signIn' ? 'password' : 'newPassword'}
             testID="auth-password-input"
           />
+          {mode === 'signIn' && Platform.OS === 'web' ? (
+            <View style={styles.loginOptions}>
+              <Pressable
+                testID="auth-auto-login-toggle"
+                accessibilityRole="checkbox"
+                accessibilityLabel="자동 로그인"
+                accessibilityState={{ checked: autoLogin }}
+                onPress={() => setAutoLogin((current) => !current)}
+                style={styles.autoLoginOption}>
+                <View
+                  style={[
+                    styles.checkbox,
+                    {
+                      borderColor: autoLogin ? theme.primary : theme.border,
+                      backgroundColor: autoLogin ? theme.primary : theme.backgroundElement,
+                    },
+                  ]}>
+                  {autoLogin ? <Text style={styles.checkmark}>✓</Text> : null}
+                </View>
+                <Text style={[styles.optionLabel, { color: theme.text }]}>자동 로그인</Text>
+              </Pressable>
+              <Text style={[styles.helper, { color: theme.textSecondary }]}>
+                비밀번호 저장은 이 기기의 안전한 비밀번호 관리 기능을 사용해요.
+              </Text>
+            </View>
+          ) : null}
           {formError ? <Text style={[styles.error, { color: theme.danger }]}>{formError}</Text> : null}
           {errorMessage ? <Text style={[styles.error, { color: theme.danger }]}>{errorMessage}</Text> : null}
           <ActionButton
@@ -123,5 +154,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '700',
+  },
+  loginOptions: {
+    gap: Spacing.one,
+  },
+  autoLoginOption: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 5,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkmark: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  optionLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  helper: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
   },
 });
