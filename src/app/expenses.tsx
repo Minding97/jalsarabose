@@ -9,6 +9,7 @@ import { FormField } from '@/components/app/form-field';
 import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { useTheme } from '@/hooks/use-theme';
+import { useReturnToTabMain } from '@/hooks/use-return-to-tab-main';
 import { expenseCategoryLabels, expenseStatusLabels } from '@/domain/labels';
 import {
   createEqualContributions,
@@ -76,6 +77,8 @@ export default function ExpensesScreen() {
   );
   const budgetSummary = getMonthlyBudgetSummary(selectedBudget, snapshot.expenses, selectedMonth);
 
+  useReturnToTabMain(setFormOpen);
+
   const groups = useMemo(() => {
     const grouped = selectedExpenses.reduce<Record<string, Expense[]>>((acc, expense) => {
       acc[expense.dueDate] ??= [];
@@ -88,8 +91,7 @@ export default function ExpensesScreen() {
 
   const maxCategoryAmount = Math.max(...summary.byCategory.map((item) => item.amount), 1);
 
-  const resetForm = () => {
-    setFormOpen(false);
+  const clearForm = () => {
     setEditingId(null);
     setTitle('');
     setAmount('');
@@ -102,8 +104,17 @@ export default function ExpensesScreen() {
     setFormError(null);
   };
 
+  const resetForm = () => {
+    setFormOpen(false);
+    clearForm();
+  };
+
   const openNewForm = () => {
-    resetForm();
+    if (editingId) {
+      clearForm();
+    } else {
+      setFormError(null);
+    }
     setFormOpen(true);
   };
 
