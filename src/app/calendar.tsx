@@ -164,10 +164,10 @@ export default function CalendarScreen() {
           />
           <TextInput
             testID="calendar-event-time-input"
-            accessibilityLabel="일정 시간"
+            accessibilityLabel="일정 상세 내용"
             value={newTime}
             onChangeText={setNewTime}
-            placeholder="시간 (예: 19:00)"
+            placeholder="상세 내용"
             placeholderTextColor={theme.textTertiary}
             style={[
               styles.input,
