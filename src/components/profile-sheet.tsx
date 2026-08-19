@@ -7,7 +7,9 @@ import { FormField } from '@/components/app/form-field';
 import { MaxContentWidth } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
+import { formatKoreanDate } from '@/utils/dates';
 import { getMemberDisplayName } from '@/utils/dashboard';
+import { getMyMemos } from '@/utils/my-page';
 
 type ProfileSheetProps = {
   visible: boolean;
@@ -18,6 +20,9 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const theme = useTheme();
   const members = useHouseholdStore((state) => state.members);
   const household = useHouseholdStore((state) => state.household);
+  const currentUser = useHouseholdStore((state) => state.currentUser);
+  const expenses = useHouseholdStore((state) => state.expenses);
+  const fridgeItems = useHouseholdStore((state) => state.fridgeItems);
   const joinHousehold = useHouseholdStore((state) => state.joinHousehold);
   const signOut = useHouseholdStore((state) => state.signOut);
   const scheduleNotifications = useHouseholdStore((state) => state.scheduleNotifications);
@@ -28,6 +33,11 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const [inviteCode, setInviteCode] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [submittingSwitch, setSubmittingSwitch] = useState(false);
+  const myMemos = getMyMemos({ members, expenses, fridgeItems }, currentUser);
+  const accountName =
+    currentUser?.displayName ||
+    members.find((member) => member.userId === currentUser?.uid)?.name ||
+    '사용자';
 
   const updateExpiryReminder = (enabled: boolean) => {
     setExpiryEnabled(enabled);
@@ -90,6 +100,71 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>계정</Text>
+            <View
+              testID="profile-account-section"
+              style={[
+                styles.accountCard,
+                { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+              ]}>
+              <View style={styles.accountRow}>
+                <View style={[styles.accountAvatar, { backgroundColor: '#2B2A28' }]}>
+                  <Text style={styles.accountInitial}>{accountName.slice(0, 1)}</Text>
+                </View>
+                <View style={styles.accountTextGroup}>
+                  <Text style={[styles.accountName, { color: theme.text }]} numberOfLines={1}>
+                    {accountName}
+                  </Text>
+                  <Text
+                    style={[styles.accountEmail, { color: theme.textSecondary }]}
+                    numberOfLines={1}>
+                    {currentUser?.email || '이메일 정보 없음'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>내가 남긴 메모</Text>
+            <View testID="profile-memo-section" style={styles.memoSection}>
+              {myMemos.length === 0 ? (
+                <View
+                  style={[
+                    styles.memoEmpty,
+                    { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                  ]}>
+                  <Text style={[styles.memoEmptyTitle, { color: theme.text }]}>남긴 메모가 없어요</Text>
+                  <Text style={[styles.memoEmptyDescription, { color: theme.textSecondary }]}>
+                    지출이나 냉장고 항목에 작성한 메모가 여기에 모여요.
+                  </Text>
+                </View>
+              ) : (
+                myMemos.map((memo) => (
+                  <View
+                    key={`${memo.kind}-${memo.id}`}
+                    testID={`profile-memo-${memo.kind}-${memo.id}`}
+                    style={[
+                      styles.memoCard,
+                      { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                    ]}>
+                    <View style={styles.memoHeading}>
+                      <Text style={[styles.memoKind, { color: theme.primary }]}>
+                        {memo.kindLabel}
+                      </Text>
+                      <Text style={[styles.memoDate, { color: theme.textTertiary }]}>
+                        {formatKoreanDate(memo.createdAt, 'M월 d일')}
+                      </Text>
+                    </View>
+                    <Text style={[styles.memoTitle, { color: theme.text }]} numberOfLines={1}>
+                      {memo.title}
+                    </Text>
+                    <Text style={[styles.memoBody, { color: theme.textSecondary }]}>
+                      {memo.memo}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </View>
+
             <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>우리 집</Text>
             <View
               style={[
@@ -264,6 +339,99 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '500',
     marginBottom: 8,
+  },
+  accountCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+  },
+  accountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  accountAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountInitial: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  accountTextGroup: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  accountName: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  accountEmail: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  memoSection: {
+    gap: 8,
+    marginBottom: 20,
+  },
+  memoCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 5,
+  },
+  memoHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  memoKind: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+  },
+  memoDate: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+  memoTitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  memoBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  memoEmpty: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 18,
+    alignItems: 'center',
+    gap: 4,
+  },
+  memoEmptyTitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  memoEmptyDescription: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   panel: {
     borderWidth: 1,
