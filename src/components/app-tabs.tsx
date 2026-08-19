@@ -2,7 +2,7 @@ import { Tabs } from 'expo-router';
 import { CalendarDays, House, ReceiptText, Refrigerator } from 'lucide-react-native';
 import { ColorValue, Platform, StyleSheet, Text } from 'react-native';
 
-import { Colors } from '@/constants/theme';
+import { Colors, WebBottomTabHeight } from '@/constants/theme';
 
 export default function AppTabs() {
   const colors = Colors.light;
@@ -19,7 +19,7 @@ export default function AppTabs() {
         tabBarStyle: {
           backgroundColor: colors.backgroundElement,
           borderTopColor: colors.border,
-          height: Platform.OS === 'web' ? 78 : 72,
+          height: Platform.OS === 'web' ? WebBottomTabHeight : 72,
           paddingBottom: Platform.OS === 'web' ? 18 : 12,
           paddingTop: 8,
           width: '100%',
