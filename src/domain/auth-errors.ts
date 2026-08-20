@@ -1,6 +1,7 @@
 export const MAX_SIGN_IN_ATTEMPTS = 5;
 
 export type SignInErrorKind =
+  | 'invalid-credential'
   | 'wrong-password'
   | 'wrong-email'
   | 'too-many-requests'
@@ -16,6 +17,7 @@ export function getSignInErrorKind(error: unknown): SignInErrorKind {
 
   switch (code) {
     case 'auth/invalid-credential':
+      return 'invalid-credential';
     case 'auth/wrong-password':
       return 'wrong-password';
     case 'auth/invalid-email':
@@ -32,6 +34,8 @@ export function getSignInErrorKind(error: unknown): SignInErrorKind {
 
 export function getSignInErrorMessage(error: unknown) {
   switch (getSignInErrorKind(error)) {
+    case 'invalid-credential':
+      return '아이디 또는 비밀번호가 틀렸습니다.';
     case 'wrong-password':
       return '비밀번호가 틀렸습니다.';
     case 'wrong-email':

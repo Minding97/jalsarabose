@@ -8,7 +8,10 @@ import {
 } from '../../src/domain/auth-errors.ts';
 
 test('maps Firebase credential failures to safe Korean login messages', () => {
-  assert.equal(getSignInErrorMessage({ code: 'auth/invalid-credential' }), '비밀번호가 틀렸습니다.');
+  assert.equal(
+    getSignInErrorMessage({ code: 'auth/invalid-credential' }),
+    '아이디 또는 비밀번호가 틀렸습니다.',
+  );
   assert.equal(getSignInErrorMessage({ code: 'auth/wrong-password' }), '비밀번호가 틀렸습니다.');
   assert.equal(getSignInErrorMessage({ code: 'auth/user-not-found' }), '아이디가 틀렸습니다.');
   assert.equal(getSignInErrorMessage({ code: 'auth/invalid-email' }), '아이디가 틀렸습니다.');
@@ -16,7 +19,7 @@ test('maps Firebase credential failures to safe Korean login messages', () => {
 
 test('identifies only password failures as attempts subject to the five try limit', () => {
   assert.equal(MAX_SIGN_IN_ATTEMPTS, 5);
-  assert.equal(getSignInErrorKind({ code: 'auth/invalid-credential' }), 'wrong-password');
+  assert.equal(getSignInErrorKind({ code: 'auth/invalid-credential' }), 'invalid-credential');
   assert.equal(getSignInErrorKind({ code: 'auth/user-not-found' }), 'wrong-email');
   assert.equal(getSignInErrorKind({ code: 'auth/too-many-requests' }), 'too-many-requests');
 });
