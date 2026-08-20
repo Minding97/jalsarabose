@@ -15,7 +15,7 @@ import { getCalendarEvents } from '@/utils/dashboard';
 type LocalEvent = {
   id: string;
   title: string;
-  time: string;
+  details: string;
   date: string;
 };
 
@@ -27,7 +27,7 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newTime, setNewTime] = useState('');
+  const [newDetails, setNewDetails] = useState('');
   const [localEvents, setLocalEvents] = useState<LocalEvent[]>([]);
 
   const monthDays = useMemo(() => {
@@ -49,12 +49,12 @@ export default function CalendarScreen() {
       {
         id: `local-${Date.now()}`,
         title: newTitle.trim(),
-        time: newTime.trim() || '종일',
+        details: newDetails.trim(),
         date: selectedDate,
       },
     ]);
     setNewTitle('');
-    setNewTime('');
+    setNewDetails('');
     setAdding(false);
   };
 
@@ -163,10 +163,10 @@ export default function CalendarScreen() {
             ]}
           />
           <TextInput
-            testID="calendar-event-time-input"
+            testID="calendar-event-details-input"
             accessibilityLabel="일정 상세 내용"
-            value={newTime}
-            onChangeText={setNewTime}
+            value={newDetails}
+            onChangeText={setNewDetails}
             placeholder="상세 내용"
             placeholderTextColor={theme.textTertiary}
             style={[
@@ -199,7 +199,7 @@ export default function CalendarScreen() {
                 <View style={[styles.eventDotLarge, { backgroundColor: theme.primary }]} />
                 <View style={styles.eventText}>
                   <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
-                  <Text style={[styles.eventTime, { color: theme.textSecondary }]}>
+                  <Text style={[styles.eventMetadata, { color: theme.textSecondary }]}>
                     {event.typeLabel}
                   </Text>
                 </View>
@@ -212,7 +212,11 @@ export default function CalendarScreen() {
                 <View style={[styles.eventDotLarge, { backgroundColor: theme.primary }]} />
                 <View style={styles.eventText}>
                   <Text style={[styles.eventTitle, { color: theme.text }]}>{event.title}</Text>
-                  <Text style={[styles.eventTime, { color: theme.textSecondary }]}>{event.time}</Text>
+                  {event.details ? (
+                    <Text style={[styles.eventDetails, { color: theme.textSecondary }]}>
+                      {event.details}
+                    </Text>
+                  ) : null}
                 </View>
                 <Pressable
                   accessibilityRole="button"
@@ -346,10 +350,16 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '500',
   },
-  eventTime: {
+  eventMetadata: {
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '500',
+  },
+  eventDetails: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '400',
   },
   deleteButton: {
     width: 28,
