@@ -1,4 +1,11 @@
-import { KeyboardTypeOptions, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  KeyboardTypeOptions,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
+import type { TextInputProps } from 'react-native';
 
 import { useTheme } from '@/hooks/use-theme';
 
@@ -10,6 +17,8 @@ type FormFieldProps = {
   keyboardType?: KeyboardTypeOptions;
   secureTextEntry?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoComplete?: TextInputProps['autoComplete'];
+  textContentType?: TextInputProps['textContentType'];
   testID?: string;
   accessibilityLabel?: string;
 };
@@ -22,6 +31,8 @@ export function FormField({
   keyboardType,
   secureTextEntry,
   autoCapitalize = 'none',
+  autoComplete,
+  textContentType,
   testID,
   accessibilityLabel,
 }: FormFieldProps) {
@@ -40,6 +51,8 @@ export function FormField({
         keyboardType={keyboardType}
         secureTextEntry={secureTextEntry}
         autoCapitalize={autoCapitalize}
+        autoComplete={autoComplete}
+        textContentType={textContentType}
         style={[
           styles.input,
           {

@@ -1,10 +1,14 @@
 import {
   User,
+  browserLocalPersistence,
+  browserSessionPersistence,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  setPersistence,
   signInWithEmailAndPassword,
   signOut,
 } from 'firebase/auth';
+import { Platform } from 'react-native';
 import {
   Unsubscribe,
   addDoc,
@@ -53,8 +57,17 @@ export function subscribeAuth(callback: (user: User | null) => void): Unsubscrib
   return onAuthStateChanged(requireAuth(), callback);
 }
 
-export async function signIn(email: string, password: string) {
-  return signInWithEmailAndPassword(requireAuth(), email.trim(), password);
+export async function signIn(email: string, password: string, autoLogin: boolean) {
+  const auth = requireAuth();
+
+  if (Platform.OS === 'web') {
+    try {
+      await setPersistence(auth, autoLogin ? browserLocalPersistence : browserSessionPersistence);
+    } catch {
+      // Firebase keeps its available default (including in-memory) persistence.
+    }
+  }
+  return signInWithEmailAndPassword(auth, email.trim(), password);
 }
 
 export async function signUp(email: string, password: string, displayName: string) {
