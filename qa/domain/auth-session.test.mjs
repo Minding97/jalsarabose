@@ -7,15 +7,20 @@ import { fileURLToPath } from 'node:url';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (path) => readFileSync(resolve(repositoryRoot, path), 'utf8');
 
-test('login selects durable or session-only Firebase persistence before authentication', () => {
+test('login attempts the selected web persistence without blocking authentication on failure', () => {
   const repository = read('src/services/household-repository.ts');
   const persistenceCall = repository.indexOf('await setPersistence(');
+  const persistenceFallback = repository.indexOf('} catch {', persistenceCall);
   const signInCall = repository.indexOf('return signInWithEmailAndPassword(');
 
   assert.match(repository, /autoLogin \? browserLocalPersistence : browserSessionPersistence/);
   assert.match(repository, /if \(Platform\.OS === 'web'\)/);
   assert.ok(persistenceCall >= 0, 'Firebase persistence must be configured');
-  assert.ok(signInCall > persistenceCall, 'persistence must be selected before submitting credentials');
+  assert.ok(persistenceFallback > persistenceCall, 'persistence failures must be handled');
+  assert.ok(
+    signInCall > persistenceFallback,
+    'credentials must still be submitted when persistence is unavailable',
+  );
 });
 
 test('login exposes an accessible auto-login choice and password-manager hints', () => {

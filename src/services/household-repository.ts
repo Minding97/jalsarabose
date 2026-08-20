@@ -61,7 +61,11 @@ export async function signIn(email: string, password: string, autoLogin: boolean
   const auth = requireAuth();
 
   if (Platform.OS === 'web') {
-    await setPersistence(auth, autoLogin ? browserLocalPersistence : browserSessionPersistence);
+    try {
+      await setPersistence(auth, autoLogin ? browserLocalPersistence : browserSessionPersistence);
+    } catch {
+      // Firebase keeps its available default (including in-memory) persistence.
+    }
   }
   return signInWithEmailAndPassword(auth, email.trim(), password);
 }
