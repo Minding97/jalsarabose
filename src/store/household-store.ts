@@ -17,7 +17,7 @@ import {
   UserProfile,
 } from '@/domain/types';
 import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
-import { getSignInErrorMessage } from '@/domain/auth-errors';
+import { getSignInErrorMessage, getSignUpErrorMessage } from '@/domain/auth-errors';
 import {
   addExpense,
   addFridgeItem,
@@ -220,7 +220,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
     try {
       await signUp(email, password, displayName);
     } catch (error) {
-      set({ errorMessage: getErrorMessage(error) });
+      set({ errorMessage: getSignUpErrorMessage(error) });
       throw error;
     }
   },

@@ -5,6 +5,7 @@ import {
   MAX_SIGN_IN_ATTEMPTS,
   getSignInErrorKind,
   getSignInErrorMessage,
+  getSignUpErrorMessage,
 } from '../../src/domain/auth-errors.ts';
 
 test('maps Firebase credential failures to safe Korean login messages', () => {
@@ -32,5 +33,20 @@ test('never exposes raw Firebase errors for operational or unknown failures', ()
   assert.equal(
     getSignInErrorMessage(new Error('Firebase: Error (auth/internal-error).')),
     '로그인에 실패했습니다. 잠시 후 다시 시도해주세요.',
+  );
+});
+
+test('maps sign-up failures without exposing raw Firebase errors', () => {
+  assert.equal(
+    getSignUpErrorMessage({ code: 'auth/email-already-in-use' }),
+    '이미 사용 중인 이메일입니다.',
+  );
+  assert.equal(
+    getSignUpErrorMessage({ code: 'auth/network-request-failed' }),
+    '네트워크 연결을 확인한 후 다시 시도해주세요.',
+  );
+  assert.equal(
+    getSignUpErrorMessage(new Error('Firebase: Error (auth/internal-error).')),
+    '회원가입에 실패했습니다. 잠시 후 다시 시도해주세요.',
   );
 });

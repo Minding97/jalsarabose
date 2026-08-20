@@ -49,6 +49,23 @@ export function getSignInErrorMessage(error: unknown) {
   }
 }
 
+export function getSignUpErrorMessage(error: unknown) {
+  switch (getErrorCode(error)) {
+    case 'auth/email-already-in-use':
+      return '이미 사용 중인 이메일입니다.';
+    case 'auth/invalid-email':
+      return '이메일 형식을 확인해주세요.';
+    case 'auth/weak-password':
+      return '더 안전한 비밀번호를 입력해주세요.';
+    case 'auth/too-many-requests':
+      return '회원가입 시도가 너무 많습니다. 잠시 후 다시 시도해주세요.';
+    case 'auth/network-request-failed':
+      return '네트워크 연결을 확인한 후 다시 시도해주세요.';
+    default:
+      return '회원가입에 실패했습니다. 잠시 후 다시 시도해주세요.';
+  }
+}
+
 function getErrorCode(error: unknown) {
   if (typeof error !== 'object' || error === null || !('code' in error)) {
     return null;
