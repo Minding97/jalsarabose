@@ -23,11 +23,12 @@ test('login attempts the selected web persistence without blocking authenticatio
   );
 });
 
-test('login exposes an accessible auto-login choice and password-manager hints', () => {
+test('login defaults to session-only persistence and exposes an accessible auto-login choice', () => {
   const authScreen = read('src/components/auth-screen.tsx');
   const formField = read('src/components/app/form-field.tsx');
 
-  assert.match(authScreen, /useState\(true\)/);
+  assert.match(authScreen, /const \[autoLogin, setAutoLogin\] = useState\(false\)/);
+  assert.doesNotMatch(authScreen, /const \[autoLogin, setAutoLogin\] = useState\(true\)/);
   assert.match(authScreen, /testID="auth-auto-login-toggle"/);
   assert.match(authScreen, /accessibilityRole="checkbox"/);
   assert.match(authScreen, /signInWithEmail\(trimmedEmail, password, autoLogin\)/);

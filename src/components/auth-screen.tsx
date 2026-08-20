@@ -18,7 +18,7 @@ export function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [autoLogin, setAutoLogin] = useState(true);
+  const [autoLogin, setAutoLogin] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
