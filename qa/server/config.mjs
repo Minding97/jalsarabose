@@ -23,7 +23,7 @@ export function loadQaConfig() {
     jiraProjectKey: process.env.JIRA_PROJECT_KEY ?? 'JAL',
     jiraReadyStatus: process.env.JIRA_READY_STATUS ?? '자동수정 대기',
     jiraInProgressStatus: process.env.JIRA_IN_PROGRESS_STATUS ?? '수정 중',
-    jiraReviewStatus: process.env.JIRA_REVIEW_STATUS ?? '리뷰 중',
+    jiraReviewStatus: process.env.JIRA_REVIEW_STATUS ?? '검토 중',
     jiraDoneStatus: process.env.JIRA_DONE_STATUS ?? '완료',
     jiraNeedsHumanStatus: process.env.JIRA_NEEDS_HUMAN_STATUS ?? '사람 확인 필요',
     jiraBugType: process.env.JIRA_BUG_TYPE ?? 'Bug',
