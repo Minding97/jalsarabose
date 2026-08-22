@@ -4,17 +4,32 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { runCodexCommand } from './codex-command.mjs';
+import { buildCodexEnvironment, runCodexCommand } from './codex-command.mjs';
+
+test('drops an inherited agent-specific CODEX_HOME', () => {
+  assert.deepEqual(
+    buildCodexEnvironment({
+      HOME: '/Users/operator',
+      CODEX_HOME: '/isolated/agent/codex-home',
+      PATH: '/usr/bin:/bin',
+    }),
+    {
+      HOME: '/Users/operator',
+      PATH: '/usr/bin:/bin',
+    },
+  );
+});
 
 test('runs Codex with an explicit noninteractive approval policy', async (context) => {
   const directory = mkdtempSync(resolve(tmpdir(), 'jalsarabose-codex-command-'));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const executable = resolve(directory, 'fake-codex');
   const capturedArgs = resolve(directory, 'args.json');
+  const capturedEnvironment = resolve(directory, 'environment.json');
 
   writeFileSync(
     executable,
-    `#!/usr/bin/env node\nrequire('node:fs').writeFileSync(${JSON.stringify(capturedArgs)}, JSON.stringify(process.argv.slice(2)));\n`,
+    `#!/usr/bin/env node\nconst fs = require('node:fs');\nfs.writeFileSync(${JSON.stringify(capturedArgs)}, JSON.stringify(process.argv.slice(2)));\nfs.writeFileSync(${JSON.stringify(capturedEnvironment)}, JSON.stringify({ codexHomePresent: Object.hasOwn(process.env, 'CODEX_HOME'), home: process.env.HOME }));\n`,
   );
   chmodSync(executable, 0o700);
 
@@ -38,4 +53,9 @@ test('runs Codex with an explicit noninteractive approval policy', async (contex
   ]);
   assert.equal(args.includes('-a'), false);
   assert.equal(args.includes('--ask-for-approval'), false);
+  const environment = JSON.parse(readFileSync(capturedEnvironment, 'utf8'));
+  assert.deepEqual(environment, {
+    codexHomePresent: false,
+    home: process.env.HOME,
+  });
 });
