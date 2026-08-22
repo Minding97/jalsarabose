@@ -48,7 +48,7 @@ function compareIssues(left, right) {
   return a[0] - b[0] || a[1].localeCompare(b[1]) || a[2].localeCompare(b[2]);
 }
 
-export function dependencyKeys(issue) {
+function dependencyKeys(issue) {
   return (issue.fields?.issuelinks ?? []).flatMap((link) => {
     if (link.outwardIssue && /blocked by/i.test(link.type?.inward ?? '')) {
       return [link.outwardIssue.key];
@@ -119,10 +119,11 @@ export function buildNightlyPlan(issues, config, externalDependencies = {}) {
   }
   const externallyBlockedKeys = [...byKey.keys()].filter((key) => !actionable.has(key)).sort();
   const externalBlockedReasons = new Map(externallyBlockedKeys.map((key) => {
-    const dependency = allDependencies.get(key).find((item) =>
+    const dependencies = allDependencies.get(key).filter((item) =>
       !byKey.has(item) && !externallySatisfiedKeys.has(item));
-    return [key, dependency
-      ? (externalDependencies.failureReasons?.get(dependency) ?? `선행 ${dependency} 상태를 확인할 수 없음`)
+    return [key, dependencies.length
+      ? dependencies.map((dependency) =>
+        externalDependencies.failureReasons?.get(dependency) ?? `선행 ${dependency} 상태를 확인할 수 없음`).join('; ')
       : '상위 선행 티켓이 외부 선행조건에 의해 차단됨'];
   }));
   const dependencies = new Map(
