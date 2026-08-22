@@ -200,13 +200,19 @@ export class JiraClient {
   async searchReadyIssues() {
     const issues = [];
     let nextPageToken;
+    const readyStatus = this.config.jiraReadyStatus ?? '자동수정 대기';
+    const reviewStatuses = [...new Set([this.config.jiraReviewStatus ?? '검토 중', '검토 중', '리뷰 중'])];
+    const candidateStatuses = [...new Set([readyStatus, ...reviewStatuses])];
+    const statusJql = candidateStatuses
+      .map((status) => `"${status.replaceAll('"', '\\"')}"`)
+      .join(', ');
 
     do {
       const response = await this.request('/rest/api/3/search/jql', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jql: `project = "${this.config.jiraProjectKey}" AND status = "${this.config.jiraReadyStatus}" AND labels = "auto-fix-ready" ORDER BY priority DESC, created ASC`,
+          jql: `project = "${this.config.jiraProjectKey}" AND status in (${statusJql}) AND labels = "auto-fix-ready" ORDER BY priority DESC, created ASC`,
           maxResults: 100,
           nextPageToken,
           fields: [
@@ -227,7 +233,12 @@ export class JiraClient {
       nextPageToken = response.nextPageToken;
     } while (nextPageToken);
 
-    return issues;
+    return issues.filter((issue) => {
+      const status = issue.fields?.status?.name;
+      if (status === readyStatus) return true;
+      return reviewStatuses.includes(status)
+        && (issue.fields?.labels ?? []).some((label) => /^pr-\d+$/.test(label));
+    });
   }
 
   async getIssue(issueKey) {

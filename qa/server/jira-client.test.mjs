@@ -15,20 +15,28 @@ const config = {
   jiraProjectKey: 'JAL',
 };
 
-test('requires the automation-ready label in the nightly queue JQL', async (context) => {
+test('searches both review aliases and only resumes review tickets with auto-fix-ready and pr-N', async (context) => {
   const originalFetch = globalThis.fetch;
   context.after(() => { globalThis.fetch = originalFetch; });
   let requestBody;
   globalThis.fetch = async (_url, init) => {
     requestBody = JSON.parse(init.body);
-    return Response.json({ issues: [] });
+    return Response.json({ issues: [
+      { key: 'JAL-1', fields: { status: { name: '해야 할 일' }, labels: ['auto-fix-ready'] } },
+      { key: 'JAL-2', fields: { status: { name: '검토 중' }, labels: ['auto-fix-ready', 'pr-22'] } },
+      { key: 'JAL-3', fields: { status: { name: '리뷰 중' }, labels: ['auto-fix-ready'] } },
+    ] });
   };
 
   const client = new JiraClient({ ...config, jiraReadyStatus: '해야 할 일' });
-  await client.searchReadyIssues();
+  const issues = await client.searchReadyIssues();
 
-  assert.match(requestBody.jql, /status = "해야 할 일"/);
+  assert.match(requestBody.jql, /status in \(/);
+  assert.match(requestBody.jql, /"해야 할 일"/);
+  assert.match(requestBody.jql, /"검토 중"/);
+  assert.match(requestBody.jql, /"리뷰 중"/);
   assert.match(requestBody.jql, /labels = "auto-fix-ready"/);
+  assert.deepEqual(issues.map(({ key }) => key), ['JAL-1', 'JAL-2']);
 });
 
 test('paginates status searches beyond 100 Jira issues', async (context) => {
