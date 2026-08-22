@@ -104,13 +104,25 @@ export function getFridgeSummary(snapshot: HouseholdSnapshot, today: ISODate) {
       return acc;
     }, {}),
   );
+  const recentItems = snapshot.fridgeItems
+    .filter((item) => {
+      const diff = daysUntil(item.createdAt, today);
+      return diff >= -3 && diff <= 0;
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const processedItems = snapshot.fridgeItems
+    .filter((item) => item.status === 'used' || item.status === 'discarded')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return {
     stockCount: stockedItems.length,
     expiringCount: expiringItems.length,
     expiredCount: expiredItems.length,
-    recentCount: snapshot.fridgeItems.filter((item) => daysUntil(item.createdAt, today) >= -3).length,
+    recentCount: recentItems.length,
+    processedCount: processedItems.length,
     byStorage,
+    recentItems,
+    processedItems,
   };
 }
 
