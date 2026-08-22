@@ -64,6 +64,20 @@ function getPullRequestNumber(issue) {
   return match ? Number(match[1]) : null;
 }
 
+export function reportVerifiedCompletion({ issue, pullRequest, doneStatus, reportFailure }) {
+  const completed = isVerifiedCompletion(issue, pullRequest, doneStatus);
+  if (!completed) {
+    const jiraStatus = issue?.fields?.status?.name ?? '조회 불가';
+    const prStatus = pullRequest?.state ?? (pullRequest?.mergedAt ? 'MERGED' : '조회 불가');
+    reportFailure(`완료 검증 실패: Jira=${jiraStatus}, PR=${prStatus}`);
+  }
+  return completed;
+}
+
+export function reportUnmergedReview(pullRequestNumber, reportFailure) {
+  reportFailure(`PR #${pullRequestNumber} 리뷰 또는 병합 미완료`);
+}
+
 function getCodexPath() {
   if (process.env.CODEX_CLI_PATH) {
     return process.env.CODEX_CLI_PATH;
@@ -427,7 +441,7 @@ async function reviewAndGate({
   return { needsHuman: false, merged };
 }
 
-export async function processIssue({ jira, github, config, issue, dryRun }) {
+export async function processIssue({ jira, github, config, issue, dryRun, reportFailure = () => {} }) {
   const issueDetails = await jira.getIssue(issue.key);
   const parentKey = issueDetails.fields.parent?.key ?? issue.key;
   const parentDetails =
@@ -440,18 +454,21 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       ? await github.getPullRequest(existingPullRequestNumber)
       : null;
   } catch (error) {
-    console.error(`${issue.key} PR lookup failed:`, error instanceof Error ? error.message : String(error));
+    const message = `PR 결과 조회 실패: ${error instanceof Error ? error.message : String(error)}`;
+    reportFailure(message);
+    console.error(`${issue.key} PR lookup failed:`, message);
     return false;
   }
 
   if (issue.key !== parentKey && parentDetails.fields.status?.name === config.jiraDoneStatus) {
     if (dryRun) {
       console.log(`[dry-run] ${issue.key}: mark done because ${parentKey} is done`);
+      return false;
     } else {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
     }
     const completed = await jira.getIssue(issue.key);
-    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
+    return reportVerifiedCompletion({ issue: completed, pullRequest: existingPullRequest, doneStatus: config.jiraDoneStatus, reportFailure });
   }
 
   if (
@@ -463,6 +480,7 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
     } else {
       await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
     }
+    reportFailure(`상위 티켓 ${parentKey}이 ${config.jiraNeedsHumanStatus} 상태`);
     return false;
   }
 
@@ -472,6 +490,7 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
   ) {
     if (dryRun) {
       console.log(`[dry-run] ${issue.key}: mark done because PR is merged`);
+      return false;
     } else {
       await jira.transitionIssue(parentKey, config.jiraDoneStatus);
       if (issue.key !== parentKey) {
@@ -479,7 +498,7 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       }
     }
     const completed = await jira.getIssue(issue.key);
-    return isVerifiedCompletion(completed, existingPullRequest, config.jiraDoneStatus);
+    return reportVerifiedCompletion({ issue: completed, pullRequest: existingPullRequest, doneStatus: config.jiraDoneStatus, reportFailure });
   }
   const branch =
     existingPullRequest?.headRefName ??
@@ -584,15 +603,17 @@ export async function processIssue({ jira, github, config, issue, dryRun }) {
       sha,
     });
     if (!reviewResult.merged) {
+      reportUnmergedReview(pullRequest.number, reportFailure);
       return false;
     }
     const [completedIssue, mergedPullRequest] = await Promise.all([
       jira.getIssue(issue.key),
       github.getPullRequest(pullRequest.number),
     ]);
-    return isVerifiedCompletion(completedIssue, mergedPullRequest, config.jiraDoneStatus);
+    return reportVerifiedCompletion({ issue: completedIssue, pullRequest: mergedPullRequest, doneStatus: config.jiraDoneStatus, reportFailure });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    reportFailure(message);
     try {
       await jira.addComment(issue.key, `야간 자동수정 실패: ${message.slice(0, 3000)}`);
     } catch (jiraError) {
@@ -712,6 +733,7 @@ async function main() {
         successfulKeys,
         processIssue: (plannedIssue) => processIssue({
           jira, github, config, issue: plannedIssue, dryRun,
+          reportFailure: (reason) => summary.failures.push(`${plannedIssue.key}: ${reason}`),
         }),
         holdIssue: async (heldIssue, blockers) => {
           const message = `야간 자동수정 보류: 같은 밤 선행 티켓 ${blockers.join(', ')}의 Jira 완료 및 PR merge가 확인되지 않았습니다. 다음 야간 큐에서 다시 확인합니다.`;
@@ -720,11 +742,13 @@ async function main() {
         },
       });
       if (result.held) {
+        const reason = `이번 실행에서 선행 티켓 ${result.blockers?.join(', ') || '미완료'} 처리가 성공하지 않음`;
         summary.ticketResults.push({
           key: issue.key,
           result: '보류',
-          reason: `이번 실행에서 선행 티켓 ${result.blockers?.join(', ') || '미완료'} 처리가 성공하지 않음`,
+          reason,
         });
+        summary.failures.push(`${issue.key}: ${reason}`);
         continue;
       }
       processedCount += 1;
