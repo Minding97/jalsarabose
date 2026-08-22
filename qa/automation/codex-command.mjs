@@ -1,5 +1,14 @@
 import { runCommand } from './command.mjs';
 
+export function buildCodexEnvironment(source = process.env) {
+  const environment = { ...source };
+  // CODEX_HOME is process-local configuration state.  Agent hosts such as
+  // OpenClaw set it to an isolated, unauthenticated directory, which must not
+  // override the operator's normal ~/.codex login for scheduled automation.
+  delete environment.CODEX_HOME;
+  return environment;
+}
+
 export function buildCodexExecArgs({ worktree, schemaPath, resultPath, prompt }) {
   return [
     'exec',
@@ -29,6 +38,8 @@ export function runCodexCommand({
     buildCodexExecArgs({ worktree, schemaPath, resultPath, prompt }),
     {
       cwd: worktree,
+      env: buildCodexEnvironment(),
+      inheritEnv: false,
       sensitive: true,
       timeoutMs: 90 * 60 * 1000,
     },
