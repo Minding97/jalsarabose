@@ -35,7 +35,7 @@ export class GitHubClient {
       '--repo',
       this.repository,
       '--json',
-      'number,url,state,mergedAt,headRefName,headRefOid',
+      'number,url,state,mergedAt,headRefName,headRefOid,mergeStateStatus',
     ]);
     return JSON.parse(response.stdout);
   }
@@ -97,4 +97,3 @@ export class GitHubClient {
     }, 0);
   }
 }
-

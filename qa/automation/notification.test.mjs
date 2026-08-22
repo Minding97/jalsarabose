@@ -8,16 +8,51 @@ import { formatAutomationSummary, isTestNotificationRun, notifyAutomationSummary
 
 test('formats a concise nightly completion report with tickets, gates, queue, and next action', () => {
   const text = formatAutomationSummary({
-    kind: 'nightly', status: '일부 실패', startedAt: 'start', completedAt: 'end',
+    kind: 'nightly', status: '후속 작업 있음', startedAt: 'start', completedAt: 'end',
     plannedTickets: ['JAL-47', 'JAL-53'],
-    ticketResults: [{ key: 'JAL-47', result: '성공' }, { key: 'JAL-53', result: '실패/미병합' }],
-    pullRequests: ['#17 merged', '#18 대기'], verification: '1/2 완료', failures: ['JAL-53 review'],
+    ticketResults: [
+      { key: 'JAL-47', result: '완료', reason: 'PR #17 병합 완료' },
+      { key: 'JAL-53', result: '리뷰 반영 예정', reason: 'PR #18 리뷰 후속 티켓 처리 대기' },
+    ],
+    pullRequests: ['#17 병합 완료', '#18 병합 대기'], verification: '처리 단계 2/2건 확인 · 완료 1건', failures: [],
     remainingQueue: ['JAL-53'], nextAction: '리뷰 재시도',
   });
-  assert.match(text, /JAL-47=성공/);
-  assert.match(text, /#18 대기/);
+  assert.match(text, /JAL-47=완료/);
+  assert.match(text, /JAL-53=리뷰 반영 예정/);
+  assert.match(text, /JAL-53=리뷰 반영 예정 \(PR #18 리뷰 후속 티켓 처리 대기\)/);
+  assert.match(text, /실제 실패: 없음/);
+  assert.match(text, /#18 병합 대기/);
   assert.match(text, /남은 큐: JAL-53/);
   assert.match(text, /다음 조치: 리뷰 재시도/);
+});
+
+test('lists only genuine implementation or test failures in the failure line', () => {
+  const text = formatAutomationSummary({
+    kind: 'nightly', status: '구현/테스트 실패 있음', startedAt: 'start', completedAt: 'end',
+    plannedTickets: ['JAL-1', 'JAL-2'],
+    ticketResults: [
+      { key: 'JAL-1', result: '병합 대기', category: 'pending', reason: 'PR #1 승인 대기' },
+      { key: 'JAL-2', result: '구현/테스트 실패', category: 'failure', reason: 'npm run verify failed' },
+    ],
+    pullRequests: ['#1 병합 대기'], failures: [], remainingQueue: ['JAL-1', 'JAL-2'],
+  });
+  assert.match(text, /실제 실패: JAL-2=구현\/테스트 실패/);
+  assert.match(text, /npm run verify failed/);
+  assert.doesNotMatch(text, /실제 실패: .*JAL-1/);
+});
+
+test('includes a short reason for every pending ticket in completion notifications', () => {
+  const text = formatAutomationSummary({
+    kind: 'nightly', status: '후속 작업 있음', startedAt: 'start', completedAt: 'end',
+    plannedTickets: ['JAL-58', 'JAL-59'],
+    ticketResults: [
+      { key: 'JAL-58', result: '재작업 예정', category: 'pending', reason: 'PR #17 merge conflict' },
+      { key: 'JAL-59', result: '병합 대기', category: 'pending', reason: 'PR #17 승인 대기' },
+    ],
+    pullRequests: ['#17 병합 대기'], failures: [], remainingQueue: ['JAL-58', 'JAL-59'],
+  });
+  assert.match(text, /JAL-58=재작업 예정 \(PR #17 merge conflict\)/);
+  assert.match(text, /JAL-59=병합 대기 \(PR #17 승인 대기\)/);
 });
 
 test('labels manual verification notifications as test messages, never scheduled completions', () => {
