@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, prepareNightlyPlan, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, prepareNightlyPlan, processIssue, reportUnmergedReview, reportVerifiedCompletion } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -66,8 +66,10 @@ test('processIssue does not claim success when a parent needs human review', asy
   };
   const parent = { key: 'JAL-47', fields: { status: { name: '사람 확인 필요' } } };
   const jira = jiraWith(issue, parent);
-  assert.equal(await processIssue({ jira, github: {}, config, issue, dryRun: false }), false);
+  const failures = [];
+  assert.equal(await processIssue({ jira, github: {}, config, issue, dryRun: false, reportFailure: (reason) => failures.push(reason) }), false);
   assert.deepEqual(jira.transitions, [['JAL-48', '사람 확인 필요']]);
+  assert.deepEqual(failures, ['상위 티켓 JAL-47이 사람 확인 필요 상태']);
 });
 
 test('processIssue requires a merged PR when a completed parent closes its subtask', async () => {
@@ -83,7 +85,40 @@ test('processIssue requires a merged PR when a completed parent closes its subta
     ? parent
     : { ...issue, fields: { ...issue.fields, status: { name: '완료' } } };
   const github = { getPullRequest: async () => ({ number: 16, state: 'OPEN' }) };
-  assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), false);
+  const failures = [];
+  assert.equal(await processIssue({ jira, github, config, issue, dryRun: false, reportFailure: (reason) => failures.push(reason) }), false);
+  assert.deepEqual(failures, ['완료 검증 실패: Jira=완료, PR=OPEN']);
+});
+
+test('completion verification always reports the Jira and PR states when it fails', () => {
+  const failures = [];
+  assert.equal(reportVerifiedCompletion({
+    issue: { fields: { status: { name: '검토 중' } } },
+    pullRequest: { state: 'MERGED' },
+    doneStatus: '완료',
+    reportFailure: (reason) => failures.push(reason),
+  }), false);
+  assert.deepEqual(failures, ['완료 검증 실패: Jira=검토 중, PR=MERGED']);
+});
+
+test('an unmerged review reports the affected PR number', () => {
+  const failures = [];
+  reportUnmergedReview(40, (reason) => failures.push(reason));
+  assert.deepEqual(failures, ['PR #40 리뷰 또는 병합 미완료']);
+});
+
+test('dry-run does not report false failures for already merged work', async () => {
+  const issue = { key: 'JAL-47', fields: { summary: 'done', labels: ['pr-16'], status: { name: '해야 할 일' } } };
+  const failures = [];
+  assert.equal(await processIssue({
+    jira: jiraWith(issue),
+    github: { getPullRequest: async () => ({ number: 16, state: 'MERGED' }) },
+    config,
+    issue,
+    dryRun: true,
+    reportFailure: (reason) => failures.push(reason),
+  }), false);
+  assert.deepEqual(failures, []);
 });
 
 test('processIssue uses a completed parent merged PR for a subtask without its own PR label', async () => {
@@ -98,7 +133,9 @@ test('processIssue uses a completed parent merged PR for a subtask without its o
 test('processIssue contains PR lookup failures to the affected ticket', async () => {
   const issue = { key: 'JAL-47', fields: { summary: 'blocker', labels: ['pr-16'], status: { name: '해야 할 일' } } };
   const github = { getPullRequest: async () => { throw new Error('offline'); } };
-  assert.equal(await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false }), false);
+  const failures = [];
+  assert.equal(await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false, reportFailure: (reason) => failures.push(reason) }), false);
+  assert.deepEqual(failures, ['PR 결과 조회 실패: offline']);
 });
 
 test('processIssue dry-run is conservative for unprocessed work', async () => {
@@ -106,9 +143,11 @@ test('processIssue dry-run is conservative for unprocessed work', async () => {
     key: 'JAL-47',
     fields: { summary: 'blocker', labels: [], status: { name: '해야 할 일' } },
   };
+  const failures = [];
   assert.equal(await processIssue({
-    jira: jiraWith(issue), github: {}, config, issue, dryRun: true,
+    jira: jiraWith(issue), github: {}, config, issue, dryRun: true, reportFailure: (reason) => failures.push(reason),
   }), false);
+  assert.deepEqual(failures, []);
 });
 
 test('nightly completion status does not call an all-held queue successful', () => {
