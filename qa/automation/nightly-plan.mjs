@@ -27,7 +27,7 @@ export async function executePlannedIssue({
   const blockers = unsatisfiedDependencies(plan, issue.key, successfulKeys);
   if (blockers.length > 0) {
     await holdIssue(issue, blockers);
-    return { held: true, succeeded: false };
+    return { held: true, succeeded: false, blockers };
   }
   const succeeded = await processIssue(issue);
   if (succeeded) successfulKeys.add(issue.key);
@@ -57,22 +57,75 @@ function dependencyKeys(issue) {
   });
 }
 
-export function buildNightlyPlan(issues, config) {
+function pullRequestNumber(issue) {
+  const match = (issue?.fields?.labels ?? [])
+    .map((label) => /^pr-(\d+)$/.exec(label))
+    .find(Boolean);
+  return match ? Number(match[1]) : null;
+}
+
+export async function resolveExternalDependencies({ issues, jira, github, doneStatus }) {
+  const queuedKeys = new Set(issues.map(({ key }) => key));
+  const externalKeys = [...new Set(
+    issues.flatMap(dependencyKeys).filter((key) => !queuedKeys.has(key)),
+  )];
+  const satisfiedKeys = new Set();
+  const failureReasons = new Map();
+
+  await Promise.all(externalKeys.map(async (key) => {
+    let dependency;
+    try {
+      dependency = await jira.getIssue(key);
+    } catch {
+      failureReasons.set(key, `선행 ${key} Jira 상태 조회 실패`);
+      return;
+    }
+    if (dependency?.fields?.status?.name !== doneStatus) {
+      failureReasons.set(key, `선행 ${key} Jira 상태가 ${doneStatus}가 아님`);
+      return;
+    }
+    const prNumber = pullRequestNumber(dependency);
+    if (!prNumber) {
+      failureReasons.set(key, `선행 ${key}의 연결 PR을 확인할 수 없음`);
+      return;
+    }
+    try {
+      const pullRequest = await github.getPullRequest(prNumber);
+      if (pullRequest?.state === 'MERGED' || pullRequest?.mergedAt) satisfiedKeys.add(key);
+      else failureReasons.set(key, `선행 ${key}의 PR #${prNumber}이 병합되지 않음`);
+    } catch {
+      failureReasons.set(key, `선행 ${key}의 PR #${prNumber} 상태 조회 실패`);
+    }
+  }));
+  return { satisfiedKeys, failureReasons };
+}
+
+export function buildNightlyPlan(issues, config, externalDependencies = {}) {
   if (!Array.isArray(issues)) throw new Error('Jira queue snapshot is not an array.');
   const byKey = new Map(issues.map((issue) => [issue.key, issue]));
   const allDependencies = new Map(issues.map((issue) => [issue.key, dependencyKeys(issue)]));
+  const externallySatisfiedKeys = externalDependencies.satisfiedKeys ?? new Set();
   const actionable = new Set(byKey.keys());
   let changed = true;
   while (changed) {
     changed = false;
     for (const key of actionable) {
-      if (allDependencies.get(key).some((dependency) => !actionable.has(dependency))) {
+      if (allDependencies.get(key).some((dependency) =>
+        !actionable.has(dependency) && !externallySatisfiedKeys.has(dependency))) {
         actionable.delete(key);
         changed = true;
       }
     }
   }
   const externallyBlockedKeys = [...byKey.keys()].filter((key) => !actionable.has(key)).sort();
+  const externalBlockedReasons = new Map(externallyBlockedKeys.map((key) => {
+    const dependencies = allDependencies.get(key).filter((item) =>
+      !byKey.has(item) && !externallySatisfiedKeys.has(item));
+    return [key, dependencies.length
+      ? dependencies.map((dependency) =>
+        externalDependencies.failureReasons?.get(dependency) ?? `선행 ${dependency} 상태를 확인할 수 없음`).join('; ')
+      : '상위 선행 티켓이 외부 선행조건에 의해 차단됨'];
+  }));
   const dependencies = new Map(
     [...actionable].map((key) => [key, allDependencies.get(key).filter((dependency) => actionable.has(dependency))]),
   );
@@ -124,7 +177,7 @@ export function buildNightlyPlan(issues, config) {
     ]),
     '',
     `제외/보류: ${[
-      externallyBlockedKeys.length ? `큐 밖 미완료 선행조건 ${externallyBlockedKeys.join(', ')}` : '',
+      externallyBlockedKeys.length ? `큐 밖 선행조건 미충족 ${externallyBlockedKeys.map((key) => `${key}(${externalBlockedReasons.get(key)})`).join(', ')}` : '',
       cyclicKeys.length ? `의존 순환 ${cyclicKeys.join(', ')}` : '',
     ].filter(Boolean).join('; ') || (issues.length ? '현재 없음.' : '큐가 비어 있어 처리 항목 없음.')} 비순환·선행완료 항목만 실행합니다.`,
     '예상 위험: 불완전한 티켓 설명/녹화, 외부 서비스 불안정, 테스트 비결정성, 의존 링크 누락, 야간 종료시각 도달로 인한 미처리.',
@@ -136,13 +189,13 @@ export function buildNightlyPlan(issues, config) {
     [
       ordered.some(({ key }) => key === issue.key)
         ? `야간 자동수정 고정 계획에서 ${ordered.findIndex(({ key }) => key === issue.key) + 1}/${ordered.length} 순서로 배정되었습니다.`
-        : `야간 자동수정 계획에서 보류되었습니다${cyclicKeys.includes(issue.key) ? ' (의존 순환)' : ' (큐 밖 미완료 선행조건)'}.`,
+        : `야간 자동수정 계획에서 보류되었습니다${cyclicKeys.includes(issue.key) ? ' (의존 순환)' : ` (${externalBlockedReasons.get(issue.key)})`}.`,
       `${issue.key} ${issue.fields?.summary ?? ''}`,
       `우선순위 ${issue.fields?.priority?.name ?? '미지정'}${allDependencies.get(issue.key).length ? `; 선행 ${allDependencies.get(issue.key).join(', ')}` : ''}`,
       '실행 중 새 티켓은 오늘 계획에 추가하지 않으며, 모든 선행 티켓의 Jira 완료 및 PR merge가 확인된 경우에만 실행합니다. 선행 실패·사람 확인 필요·merge 미완료 시 보류됩니다.',
     ].join('\n'),
   ]));
-  return { issues: ordered, reportIssues: issues, text, ticketTexts, dependencies: allDependencies, cyclicKeys, externallyBlockedKeys, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
+  return { issues: ordered, reportIssues: issues, text, ticketTexts, dependencies: allDependencies, externallySatisfiedKeys, cyclicKeys, externallyBlockedKeys, externalBlockedReasons, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
 }
 
 function runReportCommand(command, text) {

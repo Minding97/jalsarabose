@@ -6,6 +6,7 @@ import {
   executePlannedIssue,
   isVerifiedCompletion,
   reportNightlyPlan,
+  resolveExternalDependencies,
   unsatisfiedDependencies,
 } from './nightly-plan.mjs';
 
@@ -62,6 +63,85 @@ test('holds a ticket whose blocker is outside the ready queue', () => {
   assert.deepEqual(plan.issues, []);
   assert.deepEqual(plan.externallyBlockedKeys, ['JAL-2']);
   assert.match(plan.ticketTexts.get('JAL-2'), /보류/);
+});
+
+test('plan to execute handoff accepts a Jira-done and merged external dependency', async () => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  const external = await resolveExternalDependencies({
+    issues: [downstream],
+    doneStatus: '완료',
+    jira: { getIssue: async () => ({ key: 'JAL-53', fields: { status: { name: '완료' }, labels: ['pr-18'] } }) },
+    github: { getPullRequest: async () => ({ state: 'MERGED' }) },
+  });
+  const plan = buildNightlyPlan([downstream], config, external);
+  const heldWithNoHandoff = await executePlannedIssue({
+    plan, issue: downstream, successfulKeys: new Set(),
+    processIssue: async () => assert.fail('external dependency was not handed to execution'),
+    holdIssue: async () => {},
+  });
+  assert.deepEqual(heldWithNoHandoff, { held: true, succeeded: false, blockers: ['JAL-53'] });
+  let processed = false;
+  const result = await executePlannedIssue({
+    plan,
+    issue: downstream,
+    successfulKeys: new Set(plan.externallySatisfiedKeys),
+    processIssue: async () => { processed = true; return true; },
+    holdIssue: async () => assert.fail('verified external dependency must not be held'),
+  });
+  assert.equal(processed, true);
+  assert.deepEqual(result, { held: false, succeeded: true });
+});
+
+test('external dependency failure reports the actual Jira reason', async () => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  const external = await resolveExternalDependencies({
+    issues: [downstream], doneStatus: '완료',
+    jira: { getIssue: async () => { throw new Error('offline'); } }, github: {},
+  });
+  const plan = buildNightlyPlan([downstream], config, external);
+  assert.deepEqual(plan.issues, []);
+  assert.match(plan.ticketTexts.get('JAL-54'), /Jira 상태 조회 실패/);
+  assert.doesNotMatch(plan.ticketTexts.get('JAL-54'), /완료\/병합 미확인/);
+});
+
+test('external dependency validation fails closed for every incomplete verification branch', async (t) => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  const cases = [
+    ['Jira not done', { status: { name: '진행 중' }, labels: ['pr-18'] }, async () => ({ state: 'MERGED' }), /Jira 상태가 완료가 아님/],
+    ['missing PR label', { status: { name: '완료' }, labels: [] }, async () => ({ state: 'MERGED' }), /연결 PR을 확인할 수 없음/],
+    ['PR not merged', { status: { name: '완료' }, labels: ['pr-18'] }, async () => ({ state: 'OPEN' }), /병합되지 않음/],
+    ['GitHub lookup error', { status: { name: '완료' }, labels: ['pr-18'] }, async () => { throw new Error('offline'); }, /상태 조회 실패/],
+  ];
+  for (const [name, fields, getPullRequest, reason] of cases) {
+    await t.test(name, async () => {
+      const external = await resolveExternalDependencies({
+        issues: [downstream], doneStatus: '완료',
+        jira: { getIssue: async () => ({ key: 'JAL-53', fields }) },
+        github: { getPullRequest },
+      });
+      assert.equal(external.satisfiedKeys.has('JAL-53'), false);
+      assert.match(external.failureReasons.get('JAL-53'), reason);
+    });
+  }
+});
+
+test('ticket comment lists every unresolved external dependency', async () => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-48' } },
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  const external = {
+    satisfiedKeys: new Set(),
+    failureReasons: new Map([['JAL-48', '선행 JAL-48 미완료'], ['JAL-53', '선행 JAL-53 PR 미병합']]),
+  };
+  const plan = buildNightlyPlan([downstream], config, external);
+  assert.match(plan.ticketTexts.get('JAL-54'), /선행 JAL-48 미완료; 선행 JAL-53 PR 미병합/);
 });
 
 test('holds downstream after an unsuccessful blocker while independent work remains runnable', () => {
