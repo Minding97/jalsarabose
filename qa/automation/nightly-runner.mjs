@@ -31,6 +31,7 @@ import {
   executePlannedIssue,
   isVerifiedCompletion,
   reportNightlyPlan,
+  resolveExternalDependencies,
   shouldStopForDeadline,
 } from './nightly-plan.mjs';
 import { replayRecording } from './replay.mjs';
@@ -681,7 +682,10 @@ async function main() {
     }
 
     const queueSnapshot = await jira.searchReadyIssues();
-    const plan = buildNightlyPlan(queueSnapshot, config);
+    const externalDependencies = await resolveExternalDependencies({
+      issues: queueSnapshot, jira, github, doneStatus: config.jiraDoneStatus,
+    });
+    const plan = buildNightlyPlan(queueSnapshot, config, externalDependencies);
     captureNightlyPlanSummary(summary, plan);
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
@@ -692,7 +696,7 @@ async function main() {
         return;
     }
     let processedCount = 0;
-    const successfulKeys = new Set();
+    const successfulKeys = new Set(plan.externallySatisfiedKeys);
     for (const issue of plan.issues) {
       if (shouldStopForDeadline({ now: Date.now(), deadline, force, once, processedCount })) {
         console.log(`Nightly deadline reached; remaining fixed-plan tickets start with ${issue.key}.`);
@@ -712,7 +716,11 @@ async function main() {
         },
       });
       if (result.held) {
-        summary.ticketResults.push({ key: issue.key, result: '보류' });
+        summary.ticketResults.push({
+          key: issue.key,
+          result: '보류',
+          reason: `이번 실행에서 선행 티켓 ${result.blockers?.join(', ') || '미완료'} 처리가 성공하지 않음`,
+        });
         continue;
       }
       processedCount += 1;

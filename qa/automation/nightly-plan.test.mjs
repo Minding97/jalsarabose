@@ -6,6 +6,7 @@ import {
   executePlannedIssue,
   isVerifiedCompletion,
   reportNightlyPlan,
+  resolveExternalDependencies,
   unsatisfiedDependencies,
 } from './nightly-plan.mjs';
 
@@ -62,6 +63,43 @@ test('holds a ticket whose blocker is outside the ready queue', () => {
   assert.deepEqual(plan.issues, []);
   assert.deepEqual(plan.externallyBlockedKeys, ['JAL-2']);
   assert.match(plan.ticketTexts.get('JAL-2'), /보류/);
+});
+
+test('plan to execute handoff accepts a Jira-done and merged external dependency', async () => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  const external = await resolveExternalDependencies({
+    issues: [downstream],
+    doneStatus: '완료',
+    jira: { getIssue: async () => ({ key: 'JAL-53', fields: { status: { name: '완료' }, labels: ['pr-18'] } }) },
+    github: { getPullRequest: async () => ({ state: 'MERGED' }) },
+  });
+  const plan = buildNightlyPlan([downstream], config, external);
+  let processed = false;
+  const result = await executePlannedIssue({
+    plan,
+    issue: downstream,
+    successfulKeys: new Set(plan.externallySatisfiedKeys),
+    processIssue: async () => { processed = true; return true; },
+    holdIssue: async () => assert.fail('verified external dependency must not be held'),
+  });
+  assert.equal(processed, true);
+  assert.deepEqual(result, { held: false, succeeded: true });
+});
+
+test('external dependency failure reports the actual Jira reason', async () => {
+  const downstream = issue('JAL-54', 'Task', 'High', '2026-01-01', [
+    { type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } },
+  ]);
+  const external = await resolveExternalDependencies({
+    issues: [downstream], doneStatus: '완료',
+    jira: { getIssue: async () => { throw new Error('offline'); } }, github: {},
+  });
+  const plan = buildNightlyPlan([downstream], config, external);
+  assert.deepEqual(plan.issues, []);
+  assert.match(plan.ticketTexts.get('JAL-54'), /Jira 상태 조회 실패/);
+  assert.doesNotMatch(plan.ticketTexts.get('JAL-54'), /완료\/병합 미확인/);
 });
 
 test('holds downstream after an unsuccessful blocker while independent work remains runnable', () => {
