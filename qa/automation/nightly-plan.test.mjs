@@ -76,6 +76,12 @@ test('plan to execute handoff accepts a Jira-done and merged external dependency
     github: { getPullRequest: async () => ({ state: 'MERGED' }) },
   });
   const plan = buildNightlyPlan([downstream], config, external);
+  const heldWithNoHandoff = await executePlannedIssue({
+    plan, issue: downstream, successfulKeys: new Set(),
+    processIssue: async () => assert.fail('external dependency was not handed to execution'),
+    holdIssue: async () => {},
+  });
+  assert.deepEqual(heldWithNoHandoff, { held: true, succeeded: false, blockers: ['JAL-53'] });
   let processed = false;
   const result = await executePlannedIssue({
     plan,

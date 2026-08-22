@@ -4,13 +4,32 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, processIssue } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, prepareNightlyPlan, processIssue } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('runner preparation carries verified external dependencies into execution state', async () => {
+  const queueSnapshot = [{
+    key: 'JAL-54',
+    fields: {
+      summary: 'downstream', issuetype: { name: 'Task' }, priority: { name: 'High' }, created: '2026-01-01',
+      issuelinks: [{ type: { inward: 'is blocked by' }, outwardIssue: { key: 'JAL-53' } }],
+    },
+  }];
+  const plan = await prepareNightlyPlan({
+    queueSnapshot,
+    config: { ...config, jiraBugType: 'Bug', jiraTaskType: 'Task' },
+    jira: { getIssue: async () => ({ key: 'JAL-53', fields: { status: { name: '완료' }, labels: ['pr-18'] } }) },
+    github: { getPullRequest: async () => ({ state: 'MERGED' }) },
+  });
+  assert.deepEqual(plan.issues.map(({ key }) => key), ['JAL-54']);
+  assert.deepEqual([...plan.externallySatisfiedKeys], ['JAL-53']);
+  assert.deepEqual(plan.dependencies.get('JAL-54'), ['JAL-53']);
+});
 
 test('checks out an existing PR head without claiming its local branch', () => {
   assert.deepEqual(

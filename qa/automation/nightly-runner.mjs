@@ -101,6 +101,13 @@ export function captureNightlyPlanSummary(summary, plan) {
   return summary;
 }
 
+export async function prepareNightlyPlan({ queueSnapshot, jira, github, config }) {
+  const externalDependencies = await resolveExternalDependencies({
+    issues: queueSnapshot, jira, github, doneStatus: config.jiraDoneStatus,
+  });
+  return buildNightlyPlan(queueSnapshot, config, externalDependencies);
+}
+
 export function acquireNightlyLock(path) {
   try {
     const descriptor = openSync(path, 'wx', 0o600);
@@ -682,10 +689,7 @@ async function main() {
     }
 
     const queueSnapshot = await jira.searchReadyIssues();
-    const externalDependencies = await resolveExternalDependencies({
-      issues: queueSnapshot, jira, github, doneStatus: config.jiraDoneStatus,
-    });
-    const plan = buildNightlyPlan(queueSnapshot, config, externalDependencies);
+    const plan = await prepareNightlyPlan({ queueSnapshot, jira, github, config });
     captureNightlyPlanSummary(summary, plan);
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
