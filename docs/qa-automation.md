@@ -22,8 +22,8 @@ Jira Free에서 Software 프로젝트를 만들고 프로젝트 키를 `JAL`로 
 필요한 상태:
 
 - 자동수정 대기
-- 수정 중
-- 리뷰 중
+- 진행 중 (`JIRA_IN_PROGRESS_STATUS`)
+- 검토 중 (`JIRA_REVIEW_STATUS`)
 - 사람 확인 필요
 - 완료
 
