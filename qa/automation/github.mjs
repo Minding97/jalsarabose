@@ -40,6 +40,28 @@ export class GitHubClient {
     return JSON.parse(response.stdout);
   }
 
+  async getCompletionGate(reference) {
+    const response = await runCommand('gh', [
+      'pr', 'view', String(reference), '--repo', this.repository, '--json',
+      'number,state,mergedAt,headRefOid,statusCheckRollup',
+    ]);
+    const pullRequest = JSON.parse(response.stdout);
+    const checks = pullRequest.statusCheckRollup ?? [];
+    const verify = checks.find((check) => (check.name ?? check.context) === 'verify');
+    const claude = checks.find((check) => (check.name ?? check.context) === 'claude-review');
+    const succeeded = (check) =>
+      check?.conclusion === 'SUCCESS' || check?.state === 'SUCCESS';
+    return {
+      pullRequest,
+      merged: pullRequest.state === 'MERGED' || Boolean(pullRequest.mergedAt),
+      verifySuccess: succeeded(verify),
+      claudeSuccess: succeeded(claude),
+      complete:
+        (pullRequest.state === 'MERGED' || Boolean(pullRequest.mergedAt)) &&
+        succeeded(verify) && succeeded(claude),
+    };
+  }
+
   async setCommitStatus(sha, state, description, targetUrl = '') {
     const args = [
       'api',
@@ -97,4 +119,3 @@ export class GitHubClient {
     }, 0);
   }
 }
-

@@ -266,6 +266,19 @@ export class JiraClient {
     return issues;
   }
 
+  async searchReviewChildren(parentKey) {
+    const response = await this.request('/rest/api/3/search/jql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jql: `project = "${this.config.jiraProjectKey}" AND parent = "${parentKey}" AND labels = "qa-review-followup"`,
+        maxResults: 100,
+        fields: ['summary', 'status', 'labels', 'parent', 'comment'],
+      }),
+    });
+    return response.issues ?? [];
+  }
+
   async addLabel(issueKey, label) {
     await this.request(`/rest/api/3/issue/${issueKey}`, {
       method: 'PUT',

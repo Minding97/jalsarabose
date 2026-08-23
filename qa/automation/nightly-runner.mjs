@@ -9,7 +9,6 @@ import {
   openSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -168,17 +167,19 @@ async function createWorktree(issue, existingPullRequest, branch) {
     );
   }
 
-  const rootNodeModules = resolve(repositoryRoot, 'node_modules');
-  const worktreeNodeModules = resolve(worktree, 'node_modules');
-  if (existsSync(rootNodeModules) && !existsSync(worktreeNodeModules)) {
-    symlinkSync(rootNodeModules, worktreeNodeModules, 'dir');
-  }
-
   const rootEnv = resolve(repositoryRoot, '.env.local');
   if (existsSync(rootEnv)) {
     copyFileSync(rootEnv, resolve(worktree, '.env.local'));
     chmodSync(resolve(worktree, '.env.local'), 0o600);
   }
+
+  // Each detached worktree owns a reproducible dependency tree. Sharing the
+  // operator checkout's node_modules by symlink makes module availability
+  // depend on another run's cleanup and has previously leaked absolute paths.
+  await runCommand('npm', ['ci', '--ignore-scripts'], {
+    cwd: worktree,
+    timeoutMs: 10 * 60 * 1000,
+  });
 
   return worktree;
 }
@@ -650,16 +651,37 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
   }
 }
 
-async function reconcileMergedPullRequests(jira, github, config) {
+export async function completeReviewFamily(jira, config, parent, pullRequestNumber) {
+  const marker = `<!-- qa-review-family:${parent.key}:pr-${pullRequestNumber} -->`;
+  const children = await jira.searchReviewChildren(parent.key);
+  for (const child of children) {
+    if (child.fields?.parent?.key !== parent.key) continue;
+    if (child.fields?.status?.name !== config.jiraDoneStatus) {
+      await jira.transitionIssue(child.key, config.jiraDoneStatus);
+    }
+    const comments = child.fields?.comment?.comments ?? [];
+    if (!comments.some((comment) => JSON.stringify(comment.body).includes(marker))) {
+      await jira.addComment(
+        child.key,
+        `${marker}\n상위 ${parent.key}의 PR #${pullRequestNumber}가 main에 병합되고 verify 및 최신 head Claude P0/P1/P2=0 gate를 통과하여 검토 하위 티켓을 완료 처리합니다.`,
+      );
+    }
+  }
+}
+
+export async function reconcileMergedPullRequests(jira, github, config) {
   const reviewIssues = await jira.searchIssuesByStatus(config.jiraReviewStatus);
   for (const issue of reviewIssues) {
     const pullRequestNumber = getPullRequestNumber(issue);
     if (!pullRequestNumber) {
       continue;
     }
-    const pullRequest = await github.getPullRequest(pullRequestNumber);
-    if (pullRequest.state === 'MERGED' || pullRequest.mergedAt) {
+    const gate = await github.getCompletionGate(pullRequestNumber);
+    if (gate.complete) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
+      if (!issue.fields?.parent) {
+        await completeReviewFamily(jira, config, issue, pullRequestNumber);
+      }
     }
   }
 }

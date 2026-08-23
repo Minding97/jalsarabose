@@ -4,13 +4,44 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, prepareNightlyPlan, processIssue, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('reconcile fails closed unless merged, verify, and latest-head Claude gates all pass', async () => {
+  const transitions = [];
+  const issue = { key: 'JAL-47', fields: { labels: ['pr-17'], status: { name: '검토 중' } } };
+  const jira = {
+    searchIssuesByStatus: async () => [issue],
+    transitionIssue: async (...args) => transitions.push(args),
+    searchReviewChildren: async () => [],
+  };
+  await reconcileMergedPullRequests(jira, { getCompletionGate: async () => ({ complete: false, merged: true, verifySuccess: true, claudeSuccess: false }) }, { ...config, jiraReviewStatus: '검토 중' });
+  assert.deepEqual(transitions, []);
+  await reconcileMergedPullRequests(jira, { getCompletionGate: async () => ({ complete: true }) }, { ...config, jiraReviewStatus: '검토 중' });
+  assert.deepEqual(transitions, [['JAL-47', '완료']]);
+});
+
+test('completion closes only review children of the exact parent and records idempotent evidence', async () => {
+  const transitions = [];
+  const comments = [];
+  const jira = {
+    searchReviewChildren: async () => [
+      { key: 'JAL-56', fields: { parent: { key: 'JAL-47' }, status: { name: '검토 중' }, comment: { comments: [] } } },
+      { key: 'JAL-X', fields: { parent: { key: 'JAL-99' }, status: { name: '검토 중' }, comment: { comments: [] } } },
+    ],
+    transitionIssue: async (...args) => transitions.push(args),
+    addComment: async (...args) => comments.push(args),
+  };
+  await completeReviewFamily(jira, config, { key: 'JAL-47' }, 17);
+  assert.deepEqual(transitions, [['JAL-56', '완료']]);
+  assert.equal(comments.length, 1);
+  assert.match(comments[0][1], /qa-review-family:JAL-47:pr-17/);
+});
 
 test('runner preparation carries verified external dependencies into execution state', async () => {
   const queueSnapshot = [{
