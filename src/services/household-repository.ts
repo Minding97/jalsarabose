@@ -20,12 +20,16 @@ import {
   runTransaction,
   setDoc,
   updateDoc,
+  where,
+  writeBatch,
 } from 'firebase/firestore';
 
 import {
   expenseFromDoc,
   fridgeItemFromDoc,
   householdFromDoc,
+  householdNoteCommentFromDoc,
+  householdNoteFromDoc,
   memberFromDoc,
   monthlyBudgetFromDoc,
   userProfileFromDoc,
@@ -36,6 +40,8 @@ import {
   FridgeItem,
   Household,
   HouseholdMember,
+  HouseholdNote,
+  HouseholdNoteComment,
   HouseholdSnapshot,
   MonthlyBudget,
   UserProfile,
@@ -222,9 +228,12 @@ export function subscribeHouseholdSnapshot(
   let monthlyBudgets: MonthlyBudget[] = [];
   let expenses: Expense[] = [];
   let fridgeItems: FridgeItem[] = [];
+  let notes: HouseholdNote[] = [];
+  let noteComments: HouseholdNoteComment[] = [];
+  const initializedSources = new Set<string>();
 
   const emit = () => {
-    if (!household) {
+    if (!household || initializedSources.size < 7) {
       return;
     }
 
@@ -243,8 +252,18 @@ export function subscribeHouseholdSnapshot(
       return leftIndex - rightIndex || left.id.localeCompare(right.id);
     });
 
-    callback({ household, members: orderedMembers, monthlyBudgets, expenses, fridgeItems });
+    callback({
+      household,
+      members: orderedMembers,
+      monthlyBudgets,
+      expenses,
+      fridgeItems,
+      notes,
+      noteComments,
+    });
   };
+
+  const markInitialized = (source: string) => initializedSources.add(source);
 
   const unsubs = [
     onSnapshot(
@@ -255,6 +274,7 @@ export function subscribeHouseholdSnapshot(
           return;
         }
         household = householdFromDoc(snapshot);
+        markInitialized('household');
         emit();
       },
       onError,
@@ -263,6 +283,7 @@ export function subscribeHouseholdSnapshot(
       collection(db, 'households', householdId, 'members'),
       (snapshot) => {
         members = snapshot.docs.map(memberFromDoc);
+        markInitialized('members');
         emit();
       },
       onError,
@@ -271,6 +292,7 @@ export function subscribeHouseholdSnapshot(
       query(collection(db, 'households', householdId, 'monthlyBudgets'), orderBy('month', 'desc')),
       (snapshot) => {
         monthlyBudgets = snapshot.docs.map(monthlyBudgetFromDoc);
+        markInitialized('monthlyBudgets');
         emit();
       },
       onError,
@@ -279,6 +301,7 @@ export function subscribeHouseholdSnapshot(
       query(collection(db, 'households', householdId, 'expenses'), orderBy('dueDate', 'asc')),
       (snapshot) => {
         expenses = snapshot.docs.map(expenseFromDoc);
+        markInitialized('expenses');
         emit();
       },
       onError,
@@ -287,6 +310,25 @@ export function subscribeHouseholdSnapshot(
       query(collection(db, 'households', householdId, 'fridgeItems'), orderBy('createdAt', 'desc')),
       (snapshot) => {
         fridgeItems = snapshot.docs.map(fridgeItemFromDoc);
+        markInitialized('fridgeItems');
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
+      query(collection(db, 'households', householdId, 'notes'), orderBy('updatedAt', 'desc')),
+      (snapshot) => {
+        notes = snapshot.docs.map(householdNoteFromDoc);
+        markInitialized('notes');
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
+      query(collection(db, 'households', householdId, 'noteComments'), orderBy('createdAt', 'asc')),
+      (snapshot) => {
+        noteComments = snapshot.docs.map(householdNoteCommentFromDoc);
+        markInitialized('noteComments');
         emit();
       },
       onError,
@@ -338,6 +380,53 @@ export function updateFridgeItem(householdId: string, itemId: string, patch: Par
 
 export function deleteFridgeItem(householdId: string, itemId: string) {
   return deleteDoc(doc(requireDb(), 'households', householdId, 'fridgeItems', itemId));
+}
+
+export function addHouseholdNote(householdId: string, note: Omit<HouseholdNote, 'id'>) {
+  return addDoc(collection(requireDb(), 'households', householdId, 'notes'), omitUndefined(note));
+}
+
+export function updateHouseholdNote(
+  householdId: string,
+  noteId: string,
+  patch: Partial<HouseholdNote>,
+) {
+  return updateDoc(
+    doc(requireDb(), 'households', householdId, 'notes', noteId),
+    replaceUndefinedWithDelete(patch),
+  );
+}
+
+export async function deleteHouseholdNote(householdId: string, noteId: string) {
+  const db = requireDb();
+  const comments = await getDocs(
+    query(
+      collection(db, 'households', householdId, 'noteComments'),
+      where('noteId', '==', noteId),
+    ),
+  );
+  const batch = writeBatch(db);
+  comments.docs.forEach((comment) => batch.delete(comment.ref));
+  batch.delete(doc(db, 'households', householdId, 'notes', noteId));
+  await batch.commit();
+}
+
+export async function addHouseholdNoteComment(
+  householdId: string,
+  noteId: string,
+  comment: Omit<HouseholdNoteComment, 'id'>,
+  notePatch: Pick<HouseholdNote, 'updatedAt' | 'updatedBy'>,
+) {
+  const db = requireDb();
+  const batch = writeBatch(db);
+  const commentRef = doc(collection(db, 'households', householdId, 'noteComments'));
+  batch.set(commentRef, omitUndefined(comment));
+  batch.update(doc(db, 'households', householdId, 'notes', noteId), notePatch);
+  await batch.commit();
+}
+
+export function deleteHouseholdNoteComment(householdId: string, commentId: string) {
+  return deleteDoc(doc(requireDb(), 'households', householdId, 'noteComments', commentId));
 }
 
 function createInviteCode() {

@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { CalendarDays, House, ReceiptText, Refrigerator } from 'lucide-react-native';
+import { CalendarDays, House, ReceiptText, Refrigerator, StickyNote } from 'lucide-react-native';
 import { ColorValue, Platform, StyleSheet, Text } from 'react-native';
 
 import { Colors } from '@/constants/theme';
@@ -34,6 +34,16 @@ export default function AppTabs() {
           title: '홈',
           tabBarLabel: ({ color }) => <TabLabel color={color}>홈</TabLabel>,
           tabBarIcon: ({ color, size }) => <House color={color} size={size} strokeWidth={2.2} />,
+        }}
+      />
+      <Tabs.Screen
+        name="notes"
+        options={{
+          title: '우리집',
+          tabBarLabel: ({ color }) => <TabLabel color={color}>우리집</TabLabel>,
+          tabBarIcon: ({ color, size }) => (
+            <StickyNote color={color} size={size} strokeWidth={2.2} />
+          ),
         }}
       />
       <Tabs.Screen

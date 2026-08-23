@@ -5,7 +5,10 @@ import {
   FridgeItem,
   Household,
   HouseholdMember,
+  HouseholdNote,
+  HouseholdNoteComment,
   ISODate,
+  ISODateTime,
   MonthlyBudget,
   UserProfile,
 } from '@/domain/types';
@@ -24,6 +27,13 @@ function asIsoDate(value: unknown): ISODate {
     return toIsoDate(value);
   }
   return toIsoDate(new Date());
+}
+
+function asIsoDateTime(value: unknown): ISODateTime {
+  if (typeof value === 'string') return value;
+  if (value instanceof Timestamp) return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
+  return new Date().toISOString();
 }
 
 function withIsoDates<T extends DatedRecord>(data: T, fields: string[]) {
@@ -142,5 +152,37 @@ export function fridgeItemFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Fri
     createdBy: String(data.createdBy ?? ''),
     createdAt: data.createdAt as ISODate,
     notificationEnabled: data.notificationEnabled !== false,
+  };
+}
+
+export function householdNoteFromDoc(
+  doc: QueryDocumentSnapshot<DocumentData>,
+): HouseholdNote {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    householdId: String(data.householdId ?? ''),
+    type: data.type === 'shopping' ? 'shopping' : 'memo',
+    title: String(data.title ?? ''),
+    memo: data.memo ? String(data.memo) : undefined,
+    status: data.status === 'completed' ? 'completed' : 'active',
+    createdBy: String(data.createdBy ?? ''),
+    createdAt: asIsoDateTime(data.createdAt),
+    updatedBy: String(data.updatedBy ?? data.createdBy ?? ''),
+    updatedAt: asIsoDateTime(data.updatedAt ?? data.createdAt),
+  };
+}
+
+export function householdNoteCommentFromDoc(
+  doc: QueryDocumentSnapshot<DocumentData>,
+): HouseholdNoteComment {
+  const data = doc.data();
+  return {
+    id: doc.id,
+    householdId: String(data.householdId ?? ''),
+    noteId: String(data.noteId ?? ''),
+    content: String(data.content ?? ''),
+    createdBy: String(data.createdBy ?? ''),
+    createdAt: asIsoDateTime(data.createdAt),
   };
 }

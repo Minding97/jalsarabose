@@ -1,5 +1,6 @@
 export type ID = string;
 export type ISODate = string;
+export type ISODateTime = string;
 export type YearMonth = string;
 
 export type HouseholdRole = 'admin' | 'member';
@@ -12,6 +13,8 @@ export type ContributionMode = 'equal' | 'custom';
 export type FridgeCategory = 'vegetable' | 'fruit' | 'meat' | 'dairy' | 'side' | 'sauce' | 'other';
 export type StorageType = 'fridge' | 'freezer' | 'room';
 export type FridgeStatus = 'stocked' | 'used' | 'discarded';
+export type HouseholdNoteType = 'memo' | 'shopping';
+export type HouseholdNoteStatus = 'active' | 'completed';
 
 export type Household = {
   id: ID;
@@ -77,12 +80,36 @@ export type FridgeItem = {
   notificationEnabled: boolean;
 };
 
+export type HouseholdNote = {
+  id: ID;
+  householdId: ID;
+  type: HouseholdNoteType;
+  title: string;
+  memo?: string;
+  status: HouseholdNoteStatus;
+  createdBy: ID;
+  createdAt: ISODateTime;
+  updatedBy: ID;
+  updatedAt: ISODateTime;
+};
+
+export type HouseholdNoteComment = {
+  id: ID;
+  householdId: ID;
+  noteId: ID;
+  content: string;
+  createdBy: ID;
+  createdAt: ISODateTime;
+};
+
 export type HouseholdSnapshot = {
   household: Household;
   members: HouseholdMember[];
   monthlyBudgets: MonthlyBudget[];
   expenses: Expense[];
   fridgeItems: FridgeItem[];
+  notes: HouseholdNote[];
+  noteComments: HouseholdNoteComment[];
 };
 
 export type HouseholdEvent = {
@@ -135,3 +162,4 @@ export type FridgeItemInput = Pick<
   | 'memo'
   | 'notificationEnabled'
 >;
+export type HouseholdNoteInput = Pick<HouseholdNote, 'type' | 'title' | 'memo'>;

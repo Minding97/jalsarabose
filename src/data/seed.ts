@@ -16,6 +16,7 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
   const jihoonId = 'member-jihoon';
   const currentMonth = getYearMonth(today);
   const monthlyBudgetAmount = 1_000_000;
+  const now = baseDate.toISOString();
 
   return {
     household: {
@@ -162,6 +163,42 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         createdBy: jihoonId,
         createdAt: today,
         notificationEnabled: true,
+      },
+    ],
+    notes: [
+      {
+        id: 'note-door-code',
+        householdId,
+        type: 'memo',
+        title: '공동현관 안내',
+        memo: '택배는 경비실에 맡겨달라고 요청하기',
+        status: 'active',
+        createdBy: minseoId,
+        createdAt: now,
+        updatedBy: jihoonId,
+        updatedAt: now,
+      },
+      {
+        id: 'note-buy-detergent',
+        householdId,
+        type: 'shopping',
+        title: '세탁세제',
+        memo: '무향 제품으로',
+        status: 'active',
+        createdBy: jihoonId,
+        createdAt: now,
+        updatedBy: jihoonId,
+        updatedAt: now,
+      },
+    ],
+    noteComments: [
+      {
+        id: 'comment-door-code-1',
+        householdId,
+        noteId: 'note-door-code',
+        content: '내가 관리실에 이야기해둘게.',
+        createdBy: jihoonId,
+        createdAt: now,
       },
     ],
   };
