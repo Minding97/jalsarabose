@@ -49,3 +49,16 @@ test('the authoritative member index is guarded while legacy two-member househol
   assert.match(rules, /requesterIsHouseholdAdmin\(householdId\)/);
   assert.match(rules, /request\.auth\.uid == memberIds\[1\]/);
 });
+
+test('invite joins cannot create an already-elevated member role', () => {
+  const roleValidator = rules.match(
+    /function newMemberHasAuthorizedRole\(householdId\) \{([\s\S]*?)\n    \}/,
+  )?.[1];
+
+  assert.ok(roleValidator, 'new member role validator is missing');
+  assert.match(roleValidator, /householdCreatorAfterWrite\(householdId\)/);
+  assert.match(roleValidator, /request\.resource\.data\.role == 'admin'/);
+  assert.match(roleValidator, /inviteMatchesHousehold\(householdId\)/);
+  assert.match(roleValidator, /request\.resource\.data\.role == 'member'/);
+  assert.match(rules, /&& newMemberHasAuthorizedRole\(householdId\);/);
+});

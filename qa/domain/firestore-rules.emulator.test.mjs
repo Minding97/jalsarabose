@@ -10,6 +10,7 @@ let assertSucceeds;
 let doc;
 let getDoc;
 let initializeTestEnvironment;
+let onSnapshot;
 let runTransaction;
 let setDoc;
 let updateDoc;
@@ -19,7 +20,7 @@ let MonthlyBudgetConflictError;
 before(async () => {
   if (!emulatorHost) return;
   ({ assertFails, assertSucceeds, initializeTestEnvironment } = await import('@firebase/rules-unit-testing'));
-  ({ doc, getDoc, runTransaction, setDoc, updateDoc } = await import(
+  ({ doc, getDoc, onSnapshot, runTransaction, setDoc, updateDoc } = await import(
     'firebase/firestore'
   ));
   ({ saveMonthlyBudgetWithRevision, MonthlyBudgetConflictError } = await import(
@@ -85,7 +86,17 @@ async function seedJoinableHousehold({ legacy = false, legacySecondMember = fals
   });
 }
 
-function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember = true, joinedAt = '2026-08-19' } = {}) {
+function joinTransaction(
+  db,
+  uid = 'bob',
+  {
+    includeIndex = true,
+    includeMember = true,
+    inviteCode = 'JOINME',
+    joinedAt = '2026-08-19',
+    role = 'member',
+  } = {},
+) {
   return runTransaction(db, async (transaction) => {
     const householdRef = doc(db, 'households', 'home');
     const memberRef = doc(db, 'households', 'home', 'members', uid);
@@ -105,9 +116,9 @@ function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember =
         householdId: 'home',
         userId: uid,
         name: uid,
-        role: 'member',
+        role,
         joinedAt,
-        inviteCode: 'JOINME',
+        inviteCode,
       });
     }
     transaction.set(doc(db, 'users', uid), {
@@ -115,6 +126,54 @@ function joinTransaction(db, uid = 'bob', { includeIndex = true, includeMember =
       updatedAt: '2026-08-19',
     }, { merge: true });
   });
+}
+
+async function seedIsolatedHousehold() {
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'households', 'other-home'), {
+      createdBy: 'carol',
+      memberIds: ['carol'],
+      name: 'Carol home',
+    });
+    await setDoc(doc(db, 'households', 'other-home', 'members', 'carol'), {
+      householdId: 'other-home',
+      userId: 'carol',
+      role: 'admin',
+      joinedAt: '2026-08-01',
+    });
+    await setDoc(doc(db, 'households', 'other-home', 'expenses', 'private-expense'), {
+      householdId: 'other-home',
+      title: 'Carol private expense',
+    });
+  });
+}
+
+function waitForExistingSnapshot(ref) {
+  let unsubscribe = () => {};
+  const snapshotPromise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      unsubscribe();
+      reject(new Error(`Timed out waiting for realtime snapshot: ${ref.path}`));
+    }, 5_000);
+
+    unsubscribe = onSnapshot(
+      ref,
+      (snapshot) => {
+        if (!snapshot.exists()) return;
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve(snapshot);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        unsubscribe();
+        reject(error);
+      },
+    );
+  });
+
+  return snapshotPromise;
 }
 
 function budget(overrides = {}) {
@@ -160,6 +219,34 @@ test('joining an existing household is idempotent and preserves member metadata'
   assert.equal(member.data().joinedAt, '2026-08-19');
   assert.equal(member.data().role, 'member');
   assert.equal(member.data().inviteCode, 'JOINME');
+});
+
+test('two-account invite flow is realtime, idempotent, isolated, and cannot elevate roles', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedJoinableHousehold();
+  await seedIsolatedHousehold();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  const bobMemberRef = doc(aliceDb, 'households', 'home', 'members', 'bob');
+
+  const missingInvite = await assertSucceeds(getDoc(doc(bobDb, 'inviteCodes', 'WRONG')));
+  assert.equal(missingInvite.exists(), false);
+  await assertFails(joinTransaction(bobDb, 'bob', { inviteCode: 'WRONG' }));
+  await assertFails(joinTransaction(bobDb, 'bob', { role: 'admin' }));
+
+  const realtimeMember = waitForExistingSnapshot(bobMemberRef);
+  await assertSucceeds(joinTransaction(bobDb));
+  assert.equal((await realtimeMember).data().role, 'member');
+
+  await assertSucceeds(joinTransaction(bobDb, 'bob', { joinedAt: '2099-01-01' }));
+  const member = await getDoc(doc(bobDb, 'households', 'home', 'members', 'bob'));
+  assert.equal(member.data().joinedAt, '2026-08-19');
+  await assertFails(updateDoc(member.ref, { role: 'admin' }));
+
+  await assertFails(getDoc(doc(bobDb, 'households', 'other-home')));
+  await assertFails(
+    getDoc(doc(bobDb, 'households', 'other-home', 'expenses', 'private-expense')),
+  );
 });
 
 test('an admin can migrate a legacy two-person household and its member can rejoin', { skip: !emulatorHost }, async () => {

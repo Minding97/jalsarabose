@@ -122,6 +122,16 @@ service cloud.firestore {
         && memberIds.hasAny([request.auth.uid]);
     }
 
+    function newMemberHasAuthorizedRole(householdId) {
+      return (
+        householdCreatorAfterWrite(householdId)
+        && request.resource.data.role == 'admin'
+      ) || (
+        inviteMatchesHousehold(householdId)
+        && request.resource.data.role == 'member'
+      );
+    }
+
     function validMonthlyBudget(householdId) {
       let memberIds = getAfter(householdPath(householdId)).data.memberIds;
       let contributions = request.resource.data.memberContributions;
@@ -189,10 +199,7 @@ service cloud.firestore {
           && request.resource.data.userId == request.auth.uid
           && request.resource.data.householdId == householdId
           && requesterIsIndexedAfterWrite(householdId)
-          && (
-            householdCreatorAfterWrite(householdId)
-            || inviteMatchesHousehold(householdId)
-          );
+          && newMemberHasAuthorizedRole(householdId);
         allow update: if memberStaysSameUser(householdId, uid)
           && (
             (isSelf(uid) && request.resource.data.role == resource.data.role)
