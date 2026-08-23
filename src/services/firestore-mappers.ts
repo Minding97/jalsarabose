@@ -9,6 +9,7 @@ import {
   MonthlyBudget,
   UserProfile,
 } from '@/domain/types';
+import { normalizeFridgeItemEnums } from '@/domain/fridge';
 import { toIsoDate } from '@/utils/dates';
 
 type DatedRecord = Record<string, unknown>;
@@ -128,16 +129,17 @@ export function monthlyBudgetFromDoc(
 export function fridgeItemFromDoc(doc: QueryDocumentSnapshot<DocumentData>): FridgeItem {
   const data = withIsoDates(doc.data(), ['createdAt']);
   const expiryDate = data.expiryDate ? asIsoDate(data.expiryDate) : undefined;
+  const { category, storageType, status } = normalizeFridgeItemEnums(data);
 
   return {
     id: doc.id,
     householdId: String(data.householdId ?? ''),
     name: String(data.name ?? ''),
-    category: (data.category as FridgeItem['category']) ?? 'other',
+    category,
     quantity: data.quantity ? String(data.quantity) : undefined,
-    storageType: (data.storageType as FridgeItem['storageType']) ?? 'fridge',
+    storageType,
     expiryDate,
-    status: (data.status as FridgeItem['status']) ?? 'stocked',
+    status,
     memo: data.memo ? String(data.memo) : undefined,
     createdBy: String(data.createdBy ?? ''),
     createdAt: data.createdAt as ISODate,
