@@ -19,10 +19,11 @@ test('recurring expense rules preserve deterministic and linked records', () => 
   assert.match(scheduled, /scheduledExpenseSnapshotStaysSame\(\)/);
   assert.match(scheduled, /validScheduledExpenseSnapshot\(householdId\)/);
   assert.match(rules, /request\.resource\.data\.amount == template\.data\.expectedAmount/);
+  assert.match(rules, /template\.data\.active == true/);
   assert.match(scheduled, /processesScheduledExpense\(householdId, scheduledExpenseId\)/);
   assert.match(rules, /expense\.data\.scheduledExpenseId == scheduledExpenseId/);
   assert.match(rules, /validLinkedScheduledExpense\(householdId, expenseId\)/);
   assert.match(rules, /scheduled\.data\.expenseId == expenseId/);
   assert.match(rules, /request\.resource\.data\.amount == scheduled\.data\.amount/);
-  assert.match(rules, /!\('scheduledExpenseId' in resource\.data\)/);
+  assert.match(rules, /!\('scheduledExpenseId' in request\.resource\.data\)/);
 });

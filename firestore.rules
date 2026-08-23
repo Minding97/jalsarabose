@@ -186,6 +186,7 @@ service cloud.firestore {
       let due = timestamp(request.resource.data.dueDate + 'T00:00:00Z');
       let nextDay = due + duration.value(1, 'd');
       return request.resource.data.title == template.data.title
+        && template.data.active == true
         && request.resource.data.category == template.data.category
         && (
           (!('paymentMethod' in template.data) && !('paymentMethod' in request.resource.data))
@@ -307,7 +308,7 @@ service cloud.firestore {
           );
         allow update: if isHouseholdMember(householdId)
           && itemStaysInHousehold(householdId)
-          && !('scheduledExpenseId' in resource.data);
+          && !('scheduledExpenseId' in request.resource.data);
         allow delete: if isHouseholdMember(householdId)
           && existingItemBelongsToHousehold(householdId)
           && !('scheduledExpenseId' in resource.data);

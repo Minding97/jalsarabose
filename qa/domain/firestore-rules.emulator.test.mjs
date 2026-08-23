@@ -206,6 +206,21 @@ test('scheduled expense creation rejects fields forged away from its template', 
   await assertSucceeds(setDoc(ref, scheduled));
 });
 
+test('plain expenses cannot gain a forged scheduled link through update', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'households', 'home', 'expenses', 'plain'), {
+      householdId: 'home', title: 'Plain', amount: 100, status: 'paid', createdBy: 'alice', createdAt: '2026-08-01',
+    });
+  });
+  const db = environment.authenticatedContext('alice').firestore();
+  await assertFails(updateDoc(doc(db, 'households', 'home', 'expenses', 'plain'), {
+    scheduledExpenseId: 'forged__2026-08', recurringTemplateId: 'forged',
+  }));
+});
+
 test('joining an existing household is idempotent and preserves member metadata', { skip: !emulatorHost }, async () => {
   await environment.clearFirestore();
   await seedJoinableHousehold();
