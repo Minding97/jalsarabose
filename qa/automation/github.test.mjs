@@ -3,6 +3,28 @@ import test from 'node:test';
 
 import { GitHubClient } from './github.mjs';
 
+test('pull request lookup includes the immutable merge commit', async () => {
+  const calls = [];
+  const payload = {
+    number: 47,
+    state: 'MERGED',
+    mergeCommit: { oid: 'a'.repeat(40) },
+  };
+  const client = new GitHubClient('owner/repository', async (...args) => {
+    calls.push(args);
+    return { stdout: JSON.stringify(payload) };
+  });
+
+  assert.deepEqual(await client.getPullRequest(47), payload);
+  assert.deepEqual(calls, [[
+    'gh',
+    [
+      'pr', 'view', '47', '--repo', 'owner/repository', '--json',
+      'number,url,state,mergedAt,mergeCommit,headRefName,headRefOid',
+    ],
+  ]]);
+});
+
 async function getGate(pullRequest) {
   const calls = [];
   const commandRunner = async (...args) => {

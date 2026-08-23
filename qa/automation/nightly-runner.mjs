@@ -34,7 +34,11 @@ import {
   resolveExternalDependencies,
   shouldStopForDeadline,
 } from './nightly-plan.mjs';
-import { previewEligibility, refreshLanPreview, resolveVerifiedMainSha } from './preview-refresh.mjs';
+import {
+  previewEligibility,
+  refreshLanPreview,
+  resolveRunVerifiedMainSha,
+} from './preview-refresh.mjs';
 import { replayRecording } from './replay.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
@@ -135,6 +139,50 @@ export function acquireNightlyLock(path) {
       throw contention;
     }
     throw error;
+  }
+}
+
+export async function runNightlyPreviewFollowUp({
+  summary,
+  dryRun = false,
+  runFailed = false,
+  refresh = refreshLanPreview,
+} = {}) {
+  const eligibility = previewEligibility(summary, { dryRun, runFailed });
+  if (!eligibility.eligible) {
+    summary.preview = { status: '미반영', reason: eligibility.reason };
+    return summary.preview;
+  }
+
+  try {
+    const expectedSha = resolveRunVerifiedMainSha(summary);
+    summary.preview = await refresh({ expectedSha });
+  } catch (error) {
+    summary.preview = {
+      status: '미반영',
+      reason: error instanceof Error ? error.message : String(error),
+    };
+    summary.status = '일부 실패';
+  }
+  return summary.preview;
+}
+
+export async function completeNightlyRun({
+  summary,
+  dryRun = false,
+  runFailed = false,
+  lockFile,
+  activeLockPath = lockPath,
+  refresh = refreshLanPreview,
+} = {}) {
+  summary.completedAt = new Date().toISOString();
+  try {
+    await runNightlyPreviewFollowUp({ summary, dryRun, runFailed, refresh });
+  } finally {
+    if (lockFile !== undefined) {
+      closeSync(lockFile);
+      rmSync(activeLockPath, { force: true });
+    }
   }
 }
 
@@ -735,6 +783,7 @@ async function main() {
       explicitTestNotification: flags.has('--test-notification'),
     }),
     status: '성공', plannedTickets: [], ticketResults: [], pullRequests: [],
+    verifiedPullRequests: [],
     verification: '처리 티켓 없음', failures: [], remainingQueue: [], nextAction: '다음 야간 실행',
   };
 
@@ -814,6 +863,10 @@ async function main() {
           const pullRequest = await github.getPullRequest(prNumber);
           const merged = pullRequest.state === 'MERGED' || Boolean(pullRequest.mergedAt);
           summary.pullRequests.push(`#${prNumber} ${merged ? 'merged' : '대기'}`);
+          const mergeSha = pullRequest.mergeCommit?.oid;
+          if (result.succeeded && merged && /^[0-9a-f]{40}$/i.test(mergeSha ?? '')) {
+            summary.verifiedPullRequests.push({ number: prNumber, mergeSha });
+          }
         }
       } catch (error) {
         if (prNumber) summary.pullRequests.push(`#${prNumber} 확인 실패`);
@@ -838,26 +891,7 @@ async function main() {
     summary.nextAction = lockContention ? '진행 중인 야간 실행의 완료 알림 대기' : '야간 로그 확인 후 안전 재실행';
     throw error;
   } finally {
-    if (lockFile !== undefined) {
-      closeSync(lockFile);
-    }
-    if (lockFile !== undefined) rmSync(lockPath, { force: true });
-    summary.completedAt = new Date().toISOString();
-    const eligibility = previewEligibility(summary, { dryRun, runFailed });
-    if (eligibility.eligible) {
-      try {
-        const expectedSha = await resolveVerifiedMainSha(repositoryRoot);
-        summary.preview = await refreshLanPreview({ expectedSha });
-      } catch (error) {
-        summary.preview = {
-          status: '미반영',
-          reason: error instanceof Error ? error.message : String(error),
-        };
-        summary.status = '일부 실패';
-      }
-    } else {
-      summary.preview = { status: '미반영', reason: eligibility.reason };
-    }
+    await completeNightlyRun({ summary, dryRun, runFailed, lockFile });
     try {
       await notifyAutomationSummary({ summary, config, dryRun });
     } catch (error) {

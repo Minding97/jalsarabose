@@ -4,13 +4,37 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion } from './nightly-runner.mjs';
+import {
+  acquireNightlyLock,
+  buildWorktreeAddArgs,
+  captureNightlyPlanSummary,
+  classifyNightlyStatus,
+  completeNightlyRun,
+  completeReviewFamily,
+  prepareNightlyPlan,
+  processIssue,
+  reconcileMergedPullRequests,
+  removeGeneratedWorktreeLinks,
+  reportUnmergedReview,
+  reportVerifiedCompletion,
+} from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+const verifiedMergeSha = 'a'.repeat(40);
+
+function successfulNightlySummary() {
+  return {
+    status: '성공',
+    ticketResults: [{ key: 'JAL-47', result: '성공' }],
+    pullRequests: ['#47 merged'],
+    verifiedPullRequests: [{ number: 47, mergeSha: verifiedMergeSha }],
+    remainingQueue: [],
+  };
+}
 
 test('reconcile fails closed unless merged, verify, and latest-head Claude gates all pass', async () => {
   const transitions = [];
@@ -284,6 +308,65 @@ test('nightly lock contention leaves the existing owner lock untouched', () => {
     const descriptor = acquireNightlyLock(path);
     closeSync(descriptor);
     assert.equal(existsSync(path), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('nightly finally integration downgrades status when preview refresh throws', async () => {
+  const summary = successfulNightlySummary();
+
+  await completeNightlyRun({
+    summary,
+    refresh: async ({ expectedSha }) => {
+      assert.equal(expectedSha, verifiedMergeSha);
+      throw new Error('preview restart failed');
+    },
+  });
+
+  assert.equal(summary.status, '일부 실패');
+  assert.deepEqual(summary.preview, { status: '미반영', reason: 'preview restart failed' });
+  assert.match(summary.completedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('nightly lock stays live until an eligible preview refresh completes', async () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-preview-lock-test-'));
+  const path = resolve(root, 'nightly.lock');
+  const descriptor = acquireNightlyLock(path);
+  let signalRefreshStarted;
+  let finishRefresh;
+  const refreshStarted = new Promise((resolvePromise) => {
+    signalRefreshStarted = resolvePromise;
+  });
+  const refreshCanFinish = new Promise((resolvePromise) => {
+    finishRefresh = resolvePromise;
+  });
+
+  try {
+    const finishing = completeNightlyRun({
+      summary: successfulNightlySummary(),
+      lockFile: descriptor,
+      activeLockPath: path,
+      refresh: async () => {
+        signalRefreshStarted();
+        await refreshCanFinish;
+        return { status: '반영', sha: verifiedMergeSha };
+      },
+    });
+    await refreshStarted;
+
+    assert.throws(
+      () => acquireNightlyLock(path),
+      (error) => error.code === 'QA_NIGHTLY_LOCKED',
+    );
+    assert.equal(existsSync(path), true);
+
+    finishRefresh();
+    await finishing;
+    assert.equal(existsSync(path), false);
+
+    const nextDescriptor = acquireNightlyLock(path);
+    closeSync(nextDescriptor);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
