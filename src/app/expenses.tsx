@@ -13,16 +13,20 @@ import { expenseCategoryLabels, expenseStatusLabels } from '@/domain/labels';
 import {
   createEqualContributions,
   formatYearMonth,
-  getMonthlyBudgetSummary,
   getYearMonth,
   shiftYearMonth,
   validateMonthlyBudgetInput,
 } from '@/domain/monthly-budget';
 import {
+  getMonthlyExpenseCommitmentSummary,
+  validateRecurringExpenseTemplateInput,
+} from '@/domain/recurring-expenses';
+import {
   ContributionMode,
   Expense,
   ExpenseCategory,
   ExpenseStatus,
+  RecurringExpenseTemplate,
   YearMonth,
 } from '@/domain/types';
 import { getExpenseOverview } from '@/domain/settlement';
@@ -31,7 +35,7 @@ import { formatKoreanDate, todayIso } from '@/utils/dates';
 import { getExpenseSummary, getMemberName } from '@/utils/dashboard';
 import { validateExpenseInput } from '@/utils/validation';
 
-type ExpenseView = 'list' | 'dashboard';
+type ExpenseView = 'list' | 'dashboard' | 'fixed';
 type SplitMode = 'equal' | 'custom';
 
 export default function ExpensesScreen() {
@@ -41,6 +45,24 @@ export default function ExpensesScreen() {
   const updateExpenseItem = useHouseholdStore((state) => state.updateExpenseItem);
   const deleteExpenseItem = useHouseholdStore((state) => state.deleteExpenseItem);
   const saveMonthlyBudgetItem = useHouseholdStore((state) => state.saveMonthlyBudgetItem);
+  const addRecurringExpenseTemplateItem = useHouseholdStore(
+    (state) => state.addRecurringExpenseTemplateItem,
+  );
+  const updateRecurringExpenseTemplateItem = useHouseholdStore(
+    (state) => state.updateRecurringExpenseTemplateItem,
+  );
+  const deleteRecurringExpenseTemplateItem = useHouseholdStore(
+    (state) => state.deleteRecurringExpenseTemplateItem,
+  );
+  const generateScheduledExpenseItems = useHouseholdStore(
+    (state) => state.generateScheduledExpenseItems,
+  );
+  const confirmScheduledExpenseItem = useHouseholdStore(
+    (state) => state.confirmScheduledExpenseItem,
+  );
+  const processScheduledExpenseItem = useHouseholdStore(
+    (state) => state.processScheduledExpenseItem,
+  );
   const currentMonth = getYearMonth(todayIso());
   const [selectedMonth, setSelectedMonth] = useState<YearMonth>(currentMonth);
   const summary = getExpenseSummary(snapshot, `${selectedMonth}-01`);
@@ -63,6 +85,22 @@ export default function ExpensesScreen() {
   const [budgetShares, setBudgetShares] = useState<Record<string, string>>({});
   const [budgetFormError, setBudgetFormError] = useState<string | null>(null);
   const [budgetSubmitting, setBudgetSubmitting] = useState(false);
+  const [templateFormOpen, setTemplateFormOpen] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [templateTitle, setTemplateTitle] = useState('');
+  const [templateCategory, setTemplateCategory] = useState<ExpenseCategory>('utilities');
+  const [templatePaymentDay, setTemplatePaymentDay] = useState('1');
+  const [templateAmount, setTemplateAmount] = useState('');
+  const [templateAmountKnown, setTemplateAmountKnown] = useState(true);
+  const [templatePaymentMethod, setTemplatePaymentMethod] = useState('');
+  const [templatePayerId, setTemplatePayerId] = useState(snapshot.members[0]?.id ?? '');
+  const [templateStartsOn, setTemplateStartsOn] = useState<YearMonth>(currentMonth);
+  const [templateActive, setTemplateActive] = useState(true);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+  const [templateSubmitting, setTemplateSubmitting] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirmingAmount, setConfirmingAmount] = useState('');
+  const [scheduledMessage, setScheduledMessage] = useState<string | null>(null);
 
   const selectedBudget = snapshot.monthlyBudgets.find((budget) => budget.month === selectedMonth);
   const { monthlyExpenses: selectedExpenses, settlement } = useMemo(
@@ -74,7 +112,15 @@ export default function ExpensesScreen() {
       ),
     [selectedMonth, snapshot.expenses, snapshot.members],
   );
-  const budgetSummary = getMonthlyBudgetSummary(selectedBudget, snapshot.expenses, selectedMonth);
+  const selectedScheduledExpenses = snapshot.scheduledExpenses.filter(
+    (item) => item.month === selectedMonth,
+  );
+  const budgetSummary = getMonthlyExpenseCommitmentSummary(
+    selectedBudget,
+    snapshot.expenses,
+    snapshot.scheduledExpenses,
+    selectedMonth,
+  );
 
   const groups = useMemo(() => {
     const grouped = selectedExpenses.reduce<Record<string, Expense[]>>((acc, expense) => {
@@ -105,6 +151,117 @@ export default function ExpensesScreen() {
   const openNewForm = () => {
     resetForm();
     setFormOpen(true);
+  };
+
+  const resetTemplateForm = () => {
+    setTemplateFormOpen(false);
+    setEditingTemplateId(null);
+    setTemplateTitle('');
+    setTemplateCategory('utilities');
+    setTemplatePaymentDay('1');
+    setTemplateAmount('');
+    setTemplateAmountKnown(true);
+    setTemplatePaymentMethod('');
+    setTemplatePayerId(snapshot.members[0]?.id ?? '');
+    setTemplateStartsOn(currentMonth);
+    setTemplateActive(true);
+    setTemplateError(null);
+  };
+
+  const openNewTemplateForm = () => {
+    resetTemplateForm();
+    setTemplateStartsOn(selectedMonth);
+    setTemplateFormOpen(true);
+  };
+
+  const editTemplate = (template: RecurringExpenseTemplate) => {
+    setEditingTemplateId(template.id);
+    setTemplateTitle(template.title);
+    setTemplateCategory(template.category);
+    setTemplatePaymentDay(String(template.paymentDay));
+    setTemplateAmount(template.expectedAmount === null ? '' : String(template.expectedAmount));
+    setTemplateAmountKnown(template.expectedAmount !== null);
+    setTemplatePaymentMethod(template.paymentMethod ?? '');
+    setTemplatePayerId(template.payerId ?? snapshot.members[0]?.id ?? '');
+    setTemplateStartsOn(template.startsOn);
+    setTemplateActive(template.active);
+    setTemplateError(null);
+    setTemplateFormOpen(true);
+  };
+
+  const submitTemplate = async () => {
+    const payload = {
+      title: templateTitle.trim(),
+      category: templateCategory,
+      frequency: 'monthly' as const,
+      paymentDay: Number(templatePaymentDay),
+      expectedAmount: templateAmountKnown ? parseWon(templateAmount) : null,
+      paymentMethod: templatePaymentMethod.trim() || undefined,
+      payerId: templatePayerId || undefined,
+      startsOn: templateStartsOn,
+      active: templateActive,
+    };
+    const validationMessage = validateRecurringExpenseTemplateInput(payload);
+    if (validationMessage) {
+      setTemplateError(validationMessage);
+      return;
+    }
+    setTemplateSubmitting(true);
+    try {
+      if (editingTemplateId) {
+        await updateRecurringExpenseTemplateItem(editingTemplateId, payload);
+      } else {
+        await addRecurringExpenseTemplateItem(payload);
+      }
+      resetTemplateForm();
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : '고정지출을 저장하지 못했어요.');
+    } finally {
+      setTemplateSubmitting(false);
+    }
+  };
+
+  const removeTemplate = async () => {
+    if (!editingTemplateId) return;
+    setTemplateSubmitting(true);
+    try {
+      await deleteRecurringExpenseTemplateItem(editingTemplateId);
+      resetTemplateForm();
+    } catch (error) {
+      setTemplateError(error instanceof Error ? error.message : '고정지출을 삭제하지 못했어요.');
+    } finally {
+      setTemplateSubmitting(false);
+    }
+  };
+
+  const generateForSelectedMonth = async () => {
+    setScheduledMessage(null);
+    try {
+      const count = await generateScheduledExpenseItems(selectedMonth);
+      setScheduledMessage(count ? `${count}개 예정 지출을 만들었어요.` : '이미 모두 생성되어 있어요.');
+    } catch (error) {
+      setScheduledMessage(error instanceof Error ? error.message : '예정 지출을 만들지 못했어요.');
+    }
+  };
+
+  const confirmAmount = async (scheduledExpenseId: string) => {
+    try {
+      await confirmScheduledExpenseItem(scheduledExpenseId, parseWon(confirmingAmount));
+      setConfirmingId(null);
+      setConfirmingAmount('');
+      setScheduledMessage('금액을 확정했어요.');
+    } catch (error) {
+      setScheduledMessage(error instanceof Error ? error.message : '금액을 확정하지 못했어요.');
+    }
+  };
+
+  const processScheduled = async (scheduledExpenseId: string) => {
+    try {
+      await processScheduledExpenseItem(scheduledExpenseId);
+      setScheduledMessage('실제 지출로 처리했어요.');
+    } catch (error) {
+      setScheduledMessage(error instanceof Error ? error.message : '지출로 처리하지 못했어요.');
+    }
   };
 
   const openBudgetForm = () => {
@@ -245,6 +402,115 @@ export default function ExpensesScreen() {
       setSubmitting(false);
     }
   };
+
+  if (templateFormOpen) {
+    return (
+      <Screen testID="recurring-expense-template-form-screen">
+        <FormHeader
+          title={editingTemplateId ? '고정지출 수정' : '고정지출 등록'}
+          onBack={resetTemplateForm}
+        />
+        <FormField
+          label="고정지출명"
+          value={templateTitle}
+          onChangeText={setTemplateTitle}
+          placeholder="예: 월세"
+          testID="recurring-expense-title-input"
+        />
+        <ChipGroup
+          label="카테고리"
+          value={templateCategory}
+          options={expenseCategoryOptions}
+          onChange={setTemplateCategory}
+        />
+        <FormField
+          label="매월 결제일"
+          value={templatePaymentDay}
+          onChangeText={setTemplatePaymentDay}
+          placeholder="1~31"
+          keyboardType="numeric"
+          testID="recurring-expense-payment-day-input"
+        />
+        <ChipGroup
+          label="금액"
+          value={templateAmountKnown ? 'fixed' : 'variable'}
+          options={[
+            { value: 'fixed', label: '고정금액' },
+            { value: 'variable', label: '매월 입력' },
+          ]}
+          onChange={(value) => setTemplateAmountKnown(value === 'fixed')}
+        />
+        {templateAmountKnown ? (
+          <FormField
+            label="예상금액"
+            value={templateAmount}
+            onChangeText={setTemplateAmount}
+            placeholder="0"
+            keyboardType="numeric"
+            testID="recurring-expense-amount-input"
+          />
+        ) : null}
+        <FormField
+          label="결제수단"
+          value={templatePaymentMethod}
+          onChangeText={setTemplatePaymentMethod}
+          placeholder="예: 생활비 계좌"
+          testID="recurring-expense-payment-method-input"
+        />
+        <ChipGroup
+          label="결제자"
+          value={templatePayerId}
+          options={snapshot.members.map((member) => ({
+            value: member.id,
+            label: getMemberName(snapshot.members, member.id),
+          }))}
+          onChange={setTemplatePayerId}
+        />
+        <FormField
+          label="시작 월"
+          value={templateStartsOn}
+          onChangeText={(value) => setTemplateStartsOn(value as YearMonth)}
+          placeholder="YYYY-MM"
+          testID="recurring-expense-start-month-input"
+        />
+        <ChipGroup
+          label="상태"
+          value={templateActive ? 'active' : 'inactive'}
+          options={[
+            { value: 'active', label: '활성' },
+            { value: 'inactive', label: '비활성' },
+          ]}
+          onChange={(value) => setTemplateActive(value === 'active')}
+        />
+        {templateError ? (
+          <Text style={[styles.errorText, { color: theme.danger }]}>{templateError}</Text>
+        ) : null}
+        <View style={styles.formActions}>
+          {editingTemplateId ? (
+            <ActionButton
+              testID="recurring-expense-delete-button"
+              variant="secondary"
+              onPress={removeTemplate}
+              disabled={templateSubmitting}
+              style={styles.deleteAction}>
+              삭제
+            </ActionButton>
+          ) : null}
+          <ActionButton
+            testID="recurring-expense-submit-button"
+            onPress={submitTemplate}
+            disabled={
+              templateSubmitting ||
+              !templateTitle.trim() ||
+              (templateAmountKnown && !templateAmount)
+            }
+            style={styles.saveAction}>
+            저장
+          </ActionButton>
+        </View>
+      </Screen>
+    );
+  }
 
   if (budgetFormOpen) {
     const parsedTotal = parseWon(budgetTotal);
@@ -434,12 +700,18 @@ export default function ExpensesScreen() {
     <Screen
       title="지출"
       testID="expenses-screen"
-      floatingAction={<FloatingButton onPress={openNewForm} label="지출 등록" />}>
+      floatingAction={
+        <FloatingButton
+          onPress={view === 'fixed' ? openNewTemplateForm : openNewForm}
+          label={view === 'fixed' ? '고정지출 등록' : '지출 등록'}
+        />
+      }>
       <SegmentedControl
         value={view}
         options={[
           { value: 'list', label: '목록' },
           { value: 'dashboard', label: '대시보드' },
+          { value: 'fixed', label: '고정지출' },
         ]}
         onChange={setView}
         accessibilityLabel="지출 보기"
@@ -448,43 +720,154 @@ export default function ExpensesScreen() {
       <MonthSelector month={selectedMonth} onChange={setSelectedMonth} />
 
       {view === 'list' ? (
-        groups.length === 0 ? (
-          <EmptyState title="등록된 지출이 없어요." description="새 공동 지출을 등록해보세요." />
-        ) : (
-          groups.map(([date, expenses]) => (
-            <View key={date} style={styles.group}>
-              <Text style={[styles.groupLabel, { color: theme.textSecondary }]}>
-                {formatKoreanDate(date)}
-              </Text>
-              {expenses.map((expense) => (
-                <Pressable key={expense.id} onPress={() => editExpense(expense)}>
-                  <Card style={styles.listCard}>
-                    <View style={styles.expenseRow}>
-                      <View style={[styles.categoryBadge, { backgroundColor: theme.chip }]}>
-                        <Text style={[styles.categoryShort, { color: theme.textSecondary }]}>
-                          {expenseCategoryLabels[expense.category].slice(0, 2)}
-                        </Text>
+        <>
+          <View style={styles.sectionHeadingRow}>
+            <SectionTitle>예정 지출</SectionTitle>
+            <ActionButton
+              testID="scheduled-expense-generate-button"
+              variant="secondary"
+              onPress={generateForSelectedMonth}
+              style={styles.compactAction}>
+              생성
+            </ActionButton>
+          </View>
+          {scheduledMessage ? (
+            <Text style={[styles.helperText, { color: theme.textSecondary }]}>{scheduledMessage}</Text>
+          ) : null}
+          {selectedScheduledExpenses.length === 0 ? (
+            <Text style={[styles.helperText, { color: theme.textSecondary }]}>
+              고정지출에서 이번 달 예정 항목을 생성해보세요.
+            </Text>
+          ) : (
+            selectedScheduledExpenses.map((scheduled) => (
+              <Card key={scheduled.id} style={styles.listCard}>
+                <View style={styles.rowHeading}>
+                  <View style={styles.rowText}>
+                    <Text style={[styles.rowTitle, { color: theme.text }]}>{scheduled.title}</Text>
+                    <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
+                      {formatKoreanDate(scheduled.dueDate)} ·{' '}
+                      {scheduled.status === 'processed' ? '지출 처리 완료' : '예정'}
+                    </Text>
+                  </View>
+                  <Text style={[styles.rowAmount, { color: theme.text }]}>
+                    {scheduled.amount === null
+                      ? '금액 입력 필요'
+                      : `${scheduled.amount.toLocaleString()}원`}
+                  </Text>
+                </View>
+                {scheduled.status === 'scheduled' ? (
+                  confirmingId === scheduled.id ? (
+                    <View style={styles.inlineActions}>
+                      <View style={styles.inlineField}>
+                        <FormField
+                          label="확정금액"
+                          value={confirmingAmount}
+                          onChangeText={setConfirmingAmount}
+                          placeholder="0"
+                          keyboardType="numeric"
+                          testID={`scheduled-expense-amount-${scheduled.id}`}
+                        />
                       </View>
-                      <View style={styles.rowText}>
-                        <View style={styles.rowHeading}>
-                          <Text style={[styles.rowTitle, { color: theme.text }]}>
-                            {expense.title}
-                          </Text>
-                          <Text style={[styles.rowAmount, { color: theme.text }]}>
-                            {expense.amount.toLocaleString()}원
+                      <ActionButton
+                        onPress={() => confirmAmount(scheduled.id)}
+                        disabled={!confirmingAmount}>
+                        확정
+                      </ActionButton>
+                    </View>
+                  ) : (
+                    <View style={styles.inlineActions}>
+                      {scheduled.amountStatus === 'needs-confirmation' ? (
+                        <ActionButton
+                          variant="secondary"
+                          onPress={() => {
+                            setConfirmingId(scheduled.id);
+                            setConfirmingAmount('');
+                          }}>
+                          금액 입력
+                        </ActionButton>
+                      ) : null}
+                      <ActionButton
+                        testID={`scheduled-expense-process-${scheduled.id}`}
+                        onPress={() => processScheduled(scheduled.id)}
+                        disabled={scheduled.amountStatus === 'needs-confirmation'}>
+                        지출 처리
+                      </ActionButton>
+                    </View>
+                  )
+                ) : null}
+              </Card>
+            ))
+          )}
+
+          <SectionTitle>실제 지출</SectionTitle>
+          {groups.length === 0 ? (
+            <EmptyState title="등록된 지출이 없어요." description="새 공동 지출을 등록해보세요." />
+          ) : (
+            groups.map(([date, expenses]) => (
+              <View key={date} style={styles.group}>
+                <Text style={[styles.groupLabel, { color: theme.textSecondary }]}>
+                  {formatKoreanDate(date)}
+                </Text>
+                {expenses.map((expense) => (
+                  <Pressable
+                    key={expense.id}
+                    disabled={Boolean(expense.scheduledExpenseId)}
+                    onPress={() => editExpense(expense)}>
+                    <Card style={styles.listCard}>
+                      <View style={styles.expenseRow}>
+                        <View style={[styles.categoryBadge, { backgroundColor: theme.chip }]}>
+                          <Text style={[styles.categoryShort, { color: theme.textSecondary }]}>
+                            {expenseCategoryLabels[expense.category].slice(0, 2)}
                           </Text>
                         </View>
-                        <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
-                          {getMemberName(snapshot.members, expense.payerId)} 결제 ·{' '}
-                          {expense.splitRatio ? '직접 분배' : '균등 분배'} ·{' '}
-                          {expenseStatusLabels[expense.status]}
-                        </Text>
+                        <View style={styles.rowText}>
+                          <View style={styles.rowHeading}>
+                            <Text style={[styles.rowTitle, { color: theme.text }]}>{expense.title}</Text>
+                            <Text style={[styles.rowAmount, { color: theme.text }]}>
+                              {expense.amount.toLocaleString()}원
+                            </Text>
+                          </View>
+                          <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
+                            {getMemberName(snapshot.members, expense.payerId)} 결제 ·{' '}
+                            {expense.splitRatio ? '직접 분배' : '균등 분배'} ·{' '}
+                            {expenseStatusLabels[expense.status]}
+                            {expense.scheduledExpenseId ? ' · 고정지출에서 생성' : ''}
+                          </Text>
+                        </View>
                       </View>
-                    </View>
-                  </Card>
-                </Pressable>
-              ))}
-            </View>
+                    </Card>
+                  </Pressable>
+                ))}
+              </View>
+            ))
+          )}
+        </>
+      ) : view === 'fixed' ? (
+        snapshot.recurringExpenseTemplates.length === 0 ? (
+          <EmptyState
+            title="고정지출이 없어요."
+            description="월세·공과금 템플릿을 등록하면 월별 예정 지출을 만들 수 있어요."
+          />
+        ) : (
+          snapshot.recurringExpenseTemplates.map((template) => (
+            <Pressable key={template.id} onPress={() => editTemplate(template)}>
+              <Card style={styles.listCard}>
+                <View style={styles.rowHeading}>
+                  <View style={styles.rowText}>
+                    <Text style={[styles.rowTitle, { color: theme.text }]}>{template.title}</Text>
+                    <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
+                      매월 {template.paymentDay}일 · {template.active ? '활성' : '비활성'} ·{' '}
+                      {template.paymentMethod || '결제수단 미지정'}
+                    </Text>
+                  </View>
+                  <Text style={[styles.rowAmount, { color: theme.text }]}>
+                    {template.expectedAmount === null
+                      ? '매월 입력'
+                      : `${template.expectedAmount.toLocaleString()}원`}
+                  </Text>
+                </View>
+              </Card>
+            </Pressable>
           ))
         )
       ) : (
@@ -514,6 +897,7 @@ export default function ExpensesScreen() {
             </View>
             <View style={styles.budgetMetrics}>
               <BudgetMetric label="실제 지출 합계" amount={budgetSummary.expenseTotal} />
+              <BudgetMetric label="예정 지출 합계" amount={budgetSummary.scheduledTotal} />
               <BudgetMetric
                 label={
                   budgetSummary.remainingAmount !== null && budgetSummary.remainingAmount < 0
@@ -777,6 +1161,31 @@ const styles = StyleSheet.create({
   group: {
     gap: 8,
     marginBottom: 4,
+  },
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  compactAction: {
+    minHeight: 36,
+    paddingVertical: 6,
+  },
+  helperText: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '500',
+  },
+  inlineActions: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 10,
+  },
+  inlineField: {
+    flex: 1,
   },
   groupLabel: {
     fontSize: 13,

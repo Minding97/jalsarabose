@@ -154,6 +154,71 @@ service cloud.firestore {
         );
     }
 
+    function validRecurringExpenseTemplate(householdId) {
+      return itemBelongsToHousehold(householdId)
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.frequency == 'monthly'
+        && request.resource.data.paymentDay is int
+        && request.resource.data.paymentDay >= 1
+        && request.resource.data.paymentDay <= 31
+        && (
+          request.resource.data.expectedAmount == null
+          || (
+            request.resource.data.expectedAmount is int
+            && request.resource.data.expectedAmount >= 0
+          )
+        )
+        && request.resource.data.startsOn is string
+        && request.resource.data.active is bool;
+    }
+
+    function scheduledExpenseSnapshotStaysSame() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'amount', 'amountStatus', 'status', 'expenseId', 'updatedAt'
+      ]);
+    }
+
+    function confirmsScheduledExpenseAmount() {
+      return resource.data.status == 'scheduled'
+        && request.resource.data.status == 'scheduled'
+        && request.resource.data.amount is int
+        && request.resource.data.amount >= 0
+        && request.resource.data.amountStatus == 'confirmed'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'amount', 'amountStatus', 'updatedAt'
+        ]);
+    }
+
+    function processesScheduledExpense(householdId) {
+      return resource.data.status == 'scheduled'
+        && request.resource.data.status == 'processed'
+        && request.resource.data.amount is int
+        && request.resource.data.amount >= 0
+        && request.resource.data.amountStatus in ['estimated', 'confirmed']
+        && request.resource.data.expenseId is string
+        && existsAfter(
+          /databases/$(database)/documents/households/$(householdId)/expenses/$(request.resource.data.expenseId)
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'expenseId', 'updatedAt'
+        ]);
+    }
+
+    function validLinkedScheduledExpense(householdId, expenseId) {
+      let scheduledId = request.resource.data.scheduledExpenseId;
+      let scheduled = getAfter(
+        /databases/$(database)/documents/households/$(householdId)/scheduledExpenses/$(scheduledId)
+      );
+      return scheduledId is string
+        && scheduled.data.status == 'processed'
+        && scheduled.data.expenseId == expenseId
+        && request.resource.data.recurringTemplateId == scheduled.data.templateId
+        && request.resource.data.amount == scheduled.data.amount
+        && request.resource.data.dueDate == scheduled.data.dueDate
+        && request.resource.data.status == 'paid';
+    }
+
     match /users/{uid} {
       allow read, create, update: if isSelf(uid);
       allow delete: if false;
@@ -203,9 +268,66 @@ service cloud.firestore {
 
       match /expenses/{expenseId} {
         allow read: if isHouseholdMember(householdId);
-        allow create: if isHouseholdMember(householdId) && itemBelongsToHousehold(householdId);
-        allow update: if isHouseholdMember(householdId) && itemStaysInHousehold(householdId);
-        allow delete: if isHouseholdMember(householdId) && existingItemBelongsToHousehold(householdId);
+        allow create: if isHouseholdMember(householdId)
+          && itemBelongsToHousehold(householdId)
+          && (
+            !('scheduledExpenseId' in request.resource.data)
+            || validLinkedScheduledExpense(householdId, expenseId)
+          );
+        allow update: if isHouseholdMember(householdId)
+          && itemStaysInHousehold(householdId)
+          && !('scheduledExpenseId' in resource.data);
+        allow delete: if isHouseholdMember(householdId)
+          && existingItemBelongsToHousehold(householdId)
+          && !('scheduledExpenseId' in resource.data);
+      }
+
+      match /recurringExpenseTemplates/{templateId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create: if isHouseholdMember(householdId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid
+          && validRecurringExpenseTemplate(householdId);
+        allow update: if isHouseholdMember(householdId)
+          && itemStaysInHousehold(householdId)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedBy == request.auth.uid
+          && validRecurringExpenseTemplate(householdId);
+        allow delete: if isHouseholdMember(householdId)
+          && existingItemBelongsToHousehold(householdId);
+      }
+
+      match /scheduledExpenses/{scheduledExpenseId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create: if isHouseholdMember(householdId)
+          && itemBelongsToHousehold(householdId)
+          && request.resource.data.templateId is string
+          && scheduledExpenseId == request.resource.data.templateId + '__' + request.resource.data.month
+          && exists(
+            /databases/$(database)/documents/households/$(householdId)/recurringExpenseTemplates/$(request.resource.data.templateId)
+          )
+          && request.resource.data.status == 'scheduled'
+          && request.resource.data.amountStatus in ['estimated', 'needs-confirmation']
+          && (
+            (
+              request.resource.data.amount == null
+              && request.resource.data.amountStatus == 'needs-confirmation'
+            )
+            || (
+              request.resource.data.amount is int
+              && request.resource.data.amount >= 0
+              && request.resource.data.amountStatus == 'estimated'
+            )
+          );
+        allow update: if isHouseholdMember(householdId)
+          && itemStaysInHousehold(householdId)
+          && scheduledExpenseSnapshotStaysSame()
+          && (
+            confirmsScheduledExpenseAmount()
+            || processesScheduledExpense(householdId)
+          );
+        allow delete: if false;
       }
 
       match /monthlyBudgets/{month} {

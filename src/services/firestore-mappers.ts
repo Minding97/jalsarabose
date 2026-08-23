@@ -7,6 +7,8 @@ import {
   HouseholdMember,
   ISODate,
   MonthlyBudget,
+  RecurringExpenseTemplate,
+  ScheduledExpense,
   UserProfile,
 } from '@/domain/types';
 import { toIsoDate } from '@/utils/dates';
@@ -94,6 +96,60 @@ export function expenseFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Expens
     createdBy: String(data.createdBy ?? ''),
     createdAt: data.createdAt as ISODate,
     notificationEnabled: data.notificationEnabled !== false,
+    recurringTemplateId: data.recurringTemplateId ? String(data.recurringTemplateId) : undefined,
+    scheduledExpenseId: data.scheduledExpenseId ? String(data.scheduledExpenseId) : undefined,
+  };
+}
+
+export function recurringExpenseTemplateFromDoc(
+  doc: QueryDocumentSnapshot<DocumentData>,
+): RecurringExpenseTemplate {
+  const data = withIsoDates(doc.data(), ['createdAt', 'updatedAt']);
+  return {
+    id: doc.id,
+    householdId: String(data.householdId ?? ''),
+    title: String(data.title ?? ''),
+    category: (data.category as RecurringExpenseTemplate['category']) ?? 'other',
+    frequency: 'monthly',
+    paymentDay: Number(data.paymentDay ?? 1),
+    expectedAmount:
+      data.expectedAmount === null || data.expectedAmount === undefined
+        ? null
+        : Number(data.expectedAmount),
+    paymentMethod: data.paymentMethod ? String(data.paymentMethod) : undefined,
+    payerId: data.payerId ? String(data.payerId) : undefined,
+    startsOn: String(data.startsOn ?? String(data.createdAt).slice(0, 7)),
+    active: data.active !== false,
+    createdBy: String(data.createdBy ?? ''),
+    createdAt: data.createdAt as ISODate,
+    updatedBy: String(data.updatedBy ?? data.createdBy ?? ''),
+    updatedAt: data.updatedAt as ISODate,
+  };
+}
+
+export function scheduledExpenseFromDoc(
+  doc: QueryDocumentSnapshot<DocumentData>,
+): ScheduledExpense {
+  const data = withIsoDates(doc.data(), ['dueDate', 'generatedAt', 'updatedAt']);
+  return {
+    id: doc.id,
+    householdId: String(data.householdId ?? ''),
+    templateId: String(data.templateId ?? ''),
+    month: String(data.month ?? ''),
+    title: String(data.title ?? ''),
+    category: (data.category as ScheduledExpense['category']) ?? 'other',
+    dueDate: data.dueDate as ISODate,
+    amount: data.amount === null || data.amount === undefined ? null : Number(data.amount),
+    amountStatus:
+      data.amountStatus === 'confirmed' || data.amountStatus === 'estimated'
+        ? data.amountStatus
+        : 'needs-confirmation',
+    paymentMethod: data.paymentMethod ? String(data.paymentMethod) : undefined,
+    payerId: data.payerId ? String(data.payerId) : undefined,
+    status: data.status === 'processed' ? 'processed' : 'scheduled',
+    expenseId: data.expenseId ? String(data.expenseId) : undefined,
+    generatedAt: data.generatedAt as ISODate,
+    updatedAt: data.updatedAt as ISODate,
   };
 }
 

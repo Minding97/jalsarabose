@@ -16,6 +16,8 @@ PRD의 모델을 TypeScript 타입과 Firestore 컬렉션으로 옮긴 기준 �
 - `households/{householdId}`: 가구 이름, 초대 코드, 생성자, 가입 순서의 구성원 ID 2개 이하(`memberIds`)
 - `households/{householdId}/members/{uid}`: 가구원 이름, 역할, 참여일
 - `households/{householdId}/expenses/{expenseId}`: 공동 지출
+- `households/{householdId}/recurringExpenseTemplates/{templateId}`: 매월 반복되는 고정지출 원본. 예상금액이 `null`이면 변동금액이다.
+- `households/{householdId}/scheduledExpenses/{templateId}__{YYYY-MM}`: 템플릿에서 생성한 월별 예정 지출 스냅샷
 - `households/{householdId}/monthlyBudgets/{YYYY-MM}`: 월별 공동생활비와 구성원 부담금
 - 월 예산은 `revision`을 1부터 증가시키는 낙관적 동시성 제어를 사용한다. 같은 버전을 편집한 두 저장 중 먼저 커밋된 저장만 성공하고, 나중 저장은 최신 내용을 다시 확인하도록 충돌 오류를 반환한다.
 - `households/{householdId}/fridgeItems/{itemId}`: 냉장고 항목
@@ -43,3 +45,11 @@ PRD의 모델을 TypeScript 타입과 Firestore 컬렉션으로 옮긴 기준 �
 - 기존 문서의 `status`와 무관하게 등록된 공동 지출 금액 전체를 합산한다. 기존 데이터에서 납부 상태가 실제 결제 여부를 일관되게 나타내지 않기 때문이다.
 - 남은 생활비는 `월 공동생활비 - 선택 월 공동 지출 합계`이며, 예산과 지출이 같으면 0원, 지출이 더 크면 음수(화면에서는 초과 생활비)로 유지한다.
 - 정산 안내 금액은 선택한 월과 무관하게 저장된 전체 공동 지출의 누적 납부액을 기준으로 계산한다.
+
+## 반복 고정지출 정책
+
+- 활성 템플릿은 `templateId__YYYY-MM` 결정적 문서 ID로 월별 예정 지출을 생성한다. 트랜잭션 재시도나 여러 기기의 동시 생성에도 같은 월에 한 건만 존재한다.
+- 29~31일 결제일이 없는 달에는 해당 월 말일을 사용하며 윤년 2월 29일을 포함한다.
+- 예정 지출은 생성 시 템플릿 값을 복사한 스냅샷이다. 이후 템플릿 수정·비활성화·삭제는 이미 생성된 과거/현재 월 항목을 바꾸거나 삭제하지 않고 새 월 생성에만 반영된다.
+- 예상금액이 없는 예정 지출은 금액 확정 전 실제 지출로 처리할 수 없다. 처리 트랜잭션은 연결된 실제 지출을 만들고 예정 항목을 `processed`로 바꾼다.
+- 남은 생활비는 실제 지출과 아직 처리되지 않은 예정 지출을 각각 한 번만 차감한다. 처리된 예정 항목은 예정 합계에서 제외되고 연결된 실제 지출만 실제 합계에 포함된다.

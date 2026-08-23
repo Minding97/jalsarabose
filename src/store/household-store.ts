@@ -14,17 +14,31 @@ import {
   HouseholdSnapshot,
   MonthlyBudget,
   MonthlyBudgetInput,
+  RecurringExpenseTemplate,
+  RecurringExpenseTemplateInput,
   UserProfile,
+  YearMonth,
 } from '@/domain/types';
 import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
 import {
+  confirmScheduledExpenseAmount,
+  expenseFromScheduledExpense,
+  getMissingScheduledExpenses,
+  validateRecurringExpenseTemplateInput,
+} from '@/domain/recurring-expenses';
+import {
+  addRecurringExpenseTemplate,
   addExpense,
   addFridgeItem,
+  confirmScheduledExpense,
   createHousehold,
   deleteExpense,
   deleteFridgeItem,
+  deleteRecurringExpenseTemplate,
+  generateScheduledExpenses,
   joinHouseholdByInviteCode,
   migrateLegacyHouseholdMemberIndex,
+  processScheduledExpense,
   saveMonthlyBudget,
   signIn,
   signOutCurrentUser,
@@ -34,6 +48,7 @@ import {
   subscribeUserProfile,
   updateExpense,
   updateFridgeItem,
+  updateRecurringExpenseTemplate,
   upsertUserProfile,
 } from '@/services/household-repository';
 import { firebaseConfigIssues, isFirebaseConfigured, useMocks } from '@/services/firebase';
@@ -60,6 +75,15 @@ type HouseholdActions = {
   createNewHousehold: (name: string) => Promise<void>;
   joinHousehold: (code: string) => Promise<void>;
   saveMonthlyBudgetItem: (input: MonthlyBudgetInput) => Promise<void>;
+  addRecurringExpenseTemplateItem: (input: RecurringExpenseTemplateInput) => Promise<void>;
+  updateRecurringExpenseTemplateItem: (
+    templateId: string,
+    input: RecurringExpenseTemplateInput,
+  ) => Promise<void>;
+  deleteRecurringExpenseTemplateItem: (templateId: string) => Promise<void>;
+  generateScheduledExpenseItems: (month: YearMonth) => Promise<number>;
+  confirmScheduledExpenseItem: (scheduledExpenseId: string, amount: number) => Promise<void>;
+  processScheduledExpenseItem: (scheduledExpenseId: string) => Promise<void>;
   addExpenseItem: (input: ExpenseInput) => Promise<void>;
   updateExpenseItem: (expenseId: string, input: ExpenseInput) => Promise<void>;
   deleteExpenseItem: (expenseId: string) => Promise<void>;
@@ -87,6 +111,8 @@ const emptySnapshot: HouseholdSnapshot = {
   },
   members: [],
   monthlyBudgets: [],
+  recurringExpenseTemplates: [],
+  scheduledExpenses: [],
   expenses: [],
   fridgeItems: [],
 };
@@ -299,6 +325,126 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       set({ errorMessage: getErrorMessage(error) });
       throw error;
     }
+  },
+
+  addRecurringExpenseTemplateItem: async (input) => {
+    const state = get();
+    const validationMessage = validateRecurringExpenseTemplateInput(input);
+    if (validationMessage) throw new Error(validationMessage);
+    const template = createRecurringExpenseTemplatePayload(state, input);
+    if (useMocks) {
+      set((current) => ({
+        recurringExpenseTemplates: [
+          ...current.recurringExpenseTemplates,
+          { ...template, id: createLocalId('recurring-template') },
+        ],
+      }));
+      return;
+    }
+    await addRecurringExpenseTemplate(requireHouseholdId(state), template);
+  },
+
+  updateRecurringExpenseTemplateItem: async (templateId, input) => {
+    const state = get();
+    const validationMessage = validateRecurringExpenseTemplateInput(input);
+    if (validationMessage) throw new Error(validationMessage);
+    const existing = state.recurringExpenseTemplates.find((template) => template.id === templateId);
+    if (!existing) throw new Error('고정지출 템플릿을 찾을 수 없어요.');
+    const user = requireCurrentUser(state);
+    const patch = { ...input, updatedBy: user.uid, updatedAt: todayIso() };
+    if (useMocks) {
+      set((current) => ({
+        recurringExpenseTemplates: current.recurringExpenseTemplates.map((template) =>
+          template.id === templateId ? { ...template, ...patch } : template,
+        ),
+      }));
+      return;
+    }
+    await updateRecurringExpenseTemplate(requireHouseholdId(state), templateId, patch);
+  },
+
+  deleteRecurringExpenseTemplateItem: async (templateId) => {
+    const state = get();
+    if (useMocks) {
+      set((current) => ({
+        recurringExpenseTemplates: current.recurringExpenseTemplates.filter(
+          (template) => template.id !== templateId,
+        ),
+      }));
+      return;
+    }
+    await deleteRecurringExpenseTemplate(requireHouseholdId(state), templateId);
+  },
+
+  generateScheduledExpenseItems: async (month) => {
+    const state = get();
+    const generatedAt = todayIso();
+    if (useMocks) {
+      const missing = getMissingScheduledExpenses(
+        state.recurringExpenseTemplates,
+        state.scheduledExpenses,
+        month,
+        generatedAt,
+      );
+      set((current) => ({ scheduledExpenses: [...current.scheduledExpenses, ...missing] }));
+      return missing.length;
+    }
+    return generateScheduledExpenses(
+      requireHouseholdId(state),
+      state.recurringExpenseTemplates,
+      month,
+      generatedAt,
+    );
+  },
+
+  confirmScheduledExpenseItem: async (scheduledExpenseId, amount) => {
+    const state = get();
+    const existing = state.scheduledExpenses.find((item) => item.id === scheduledExpenseId);
+    if (!existing) throw new Error('예정 지출을 찾을 수 없어요.');
+    const confirmed = confirmScheduledExpenseAmount(existing, amount, todayIso());
+    if (useMocks) {
+      set((current) => ({
+        scheduledExpenses: current.scheduledExpenses.map((item) =>
+          item.id === scheduledExpenseId ? confirmed : item,
+        ),
+      }));
+      return;
+    }
+    await confirmScheduledExpense(
+      requireHouseholdId(state),
+      scheduledExpenseId,
+      amount,
+      confirmed.updatedAt,
+    );
+  },
+
+  processScheduledExpenseItem: async (scheduledExpenseId) => {
+    const state = get();
+    const user = requireCurrentUser(state);
+    const existing = state.scheduledExpenses.find((item) => item.id === scheduledExpenseId);
+    if (!existing) throw new Error('예정 지출을 찾을 수 없어요.');
+    const createdAt = todayIso();
+    if (useMocks) {
+      const expenseId = `recurring__${scheduledExpenseId}`;
+      const expense = expenseFromScheduledExpense(existing, expenseId, user.uid, createdAt);
+      set((current) => ({
+        expenses: current.expenses.some((item) => item.id === expenseId)
+          ? current.expenses
+          : [...current.expenses, expense],
+        scheduledExpenses: current.scheduledExpenses.map((item) =>
+          item.id === scheduledExpenseId
+            ? { ...item, status: 'processed', expenseId, updatedAt: createdAt }
+            : item,
+        ),
+      }));
+      return;
+    }
+    await processScheduledExpense(
+      requireHouseholdId(state),
+      scheduledExpenseId,
+      user.uid,
+      createdAt,
+    );
   },
 
   addExpenseItem: async (input) => {
@@ -517,6 +663,22 @@ function createMonthlyBudgetPayload(
     createdAt: existing?.createdAt ?? updatedAt,
     updatedBy: user.uid,
     updatedAt,
+  };
+}
+
+function createRecurringExpenseTemplatePayload(
+  state: StoreState,
+  input: RecurringExpenseTemplateInput,
+): Omit<RecurringExpenseTemplate, 'id'> {
+  const user = requireCurrentUser(state);
+  const now = todayIso();
+  return {
+    ...input,
+    householdId: requireHouseholdId(state),
+    createdBy: user.uid,
+    createdAt: now,
+    updatedBy: user.uid,
+    updatedAt: now,
   };
 }
 function createFridgePayload(state: StoreState, input: FridgeItemInput): Omit<FridgeItem, 'id'> {
