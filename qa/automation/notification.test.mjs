@@ -57,6 +57,16 @@ test('removes arbitrary unconfigured email addresses from failure summaries', ()
   assert.equal(sanitizeNotificationFailure('Jira mentioned outsider@example.org'), 'Jira mentioned [EMAIL]');
 });
 
+test('removes local paths from preview non-deployment reasons', () => {
+  const message = formatAutomationSummary({
+    kind: 'nightly', status: '일부 실패', startedAt: 'start', completedAt: 'end',
+    plannedTickets: [], ticketResults: [], pullRequests: [], failures: [], remainingQueue: [],
+    preview: { status: '미반영', reason: 'checkout /Users/example/private failed' },
+  });
+  assert.doesNotMatch(message, /\/Users\/example/);
+  assert.match(message, /Preview: 미반영/);
+});
+
 test('fails closed when the required Telegram destination is not configured', async () => {
   await assert.rejects(
     notifyAutomationSummary({ config: {}, dryRun: true, summary: { kind: 'daily' } }),

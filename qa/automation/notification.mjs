@@ -41,6 +41,10 @@ export function formatAutomationSummary(summary, sensitiveValues = []) {
     lines.push(`계획: ${lineList(summary.plannedTickets)}`);
     lines.push(`처리: ${lineList(summary.ticketResults?.map((item) => `${item.key}=${item.result}`))}`);
     lines.push(`PR/병합: ${lineList(summary.pullRequests)}`);
+    const preview = summary.preview;
+    lines.push(preview?.status === '반영'
+      ? `Preview: ${preview.sha?.slice(0, 8) || 'SHA 확인 실패'} · sync=${preview.sync} · restart=${preview.restart} · health=${preview.health}`
+      : `Preview: 미반영 · ${sanitizeNotificationFailure(preview?.reason || '성공 종료 조건 미충족', sensitiveValues)}`);
   } else {
     lines.push(`대상: main@${summary.commitSha?.slice(0, 8) || '확인 실패'}`);
     lines.push(`테스트: ${lineList(summary.suites?.map((item) => `${item.name}=${item.passed ? 'PASS' : 'FAIL'}`))}`);

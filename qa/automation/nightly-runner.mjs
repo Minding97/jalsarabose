@@ -35,6 +35,7 @@ import {
   resolveExternalDependencies,
   shouldStopForDeadline,
 } from './nightly-plan.mjs';
+import { previewEligibility, refreshLanPreview, resolveVerifiedMainSha } from './preview-refresh.mjs';
 import { replayRecording } from './replay.mjs';
 
 const automationDirectory = dirname(fileURLToPath(import.meta.url));
@@ -706,6 +707,7 @@ async function main() {
   let lockFile;
   const jira = new JiraClient(config);
   const github = new GitHubClient(config.githubRepository);
+  let runFailed = false;
 
   try {
     lockFile = acquireNightlyLock(lockPath);
@@ -786,6 +788,7 @@ async function main() {
     summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
     summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
   } catch (error) {
+    runFailed = true;
     const message = error instanceof Error ? error.message : String(error);
     const lockContention = error?.code === 'QA_NIGHTLY_LOCKED';
     summary.status = lockContention ? '중복 실행 건너뜀' : '실패';
@@ -798,6 +801,21 @@ async function main() {
     }
     if (lockFile !== undefined) rmSync(lockPath, { force: true });
     summary.completedAt = new Date().toISOString();
+    const eligibility = previewEligibility(summary, { dryRun, runFailed });
+    if (eligibility.eligible) {
+      try {
+        const expectedSha = await resolveVerifiedMainSha(repositoryRoot);
+        summary.preview = await refreshLanPreview({ expectedSha });
+      } catch (error) {
+        summary.preview = {
+          status: '미반영',
+          reason: error instanceof Error ? error.message : String(error),
+        };
+        summary.status = '일부 실패';
+      }
+    } else {
+      summary.preview = { status: '미반영', reason: eligibility.reason };
+    }
     try {
       await notifyAutomationSummary({ summary, config, dryRun });
     } catch (error) {
