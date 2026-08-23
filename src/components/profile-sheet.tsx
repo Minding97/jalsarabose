@@ -1,10 +1,11 @@
-import { X } from 'lucide-react-native';
+import { Pencil, X } from 'lucide-react-native';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { FormField } from '@/components/app/form-field';
 import { MaxContentWidth } from '@/constants/theme';
+import { HOUSEHOLD_NAME_MAX_LENGTH, validateHouseholdName } from '@/domain/household-settings';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { getMemberDisplayName } from '@/utils/dashboard';
@@ -19,6 +20,7 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const members = useHouseholdStore((state) => state.members);
   const household = useHouseholdStore((state) => state.household);
   const joinHousehold = useHouseholdStore((state) => state.joinHousehold);
+  const renameHousehold = useHouseholdStore((state) => state.renameHousehold);
   const signOut = useHouseholdStore((state) => state.signOut);
   const scheduleNotifications = useHouseholdStore((state) => state.scheduleNotifications);
   const cancelNotifications = useHouseholdStore((state) => state.cancelNotifications);
@@ -28,6 +30,11 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const [inviteCode, setInviteCode] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [submittingSwitch, setSubmittingSwitch] = useState(false);
+  const [editingHouseholdName, setEditingHouseholdName] = useState(false);
+  const [householdName, setHouseholdName] = useState(household.name);
+  const [householdError, setHouseholdError] = useState<string | null>(null);
+  const [householdMessage, setHouseholdMessage] = useState<string | null>(null);
+  const [submittingHousehold, setSubmittingHousehold] = useState(false);
 
   const updateExpiryReminder = (enabled: boolean) => {
     setExpiryEnabled(enabled);
@@ -58,6 +65,27 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
       setSwitchError(error instanceof Error ? error.message : '가구를 변경하지 못했어요.');
     } finally {
       setSubmittingSwitch(false);
+    }
+  };
+
+  const saveHouseholdName = async () => {
+    const nameError = validateHouseholdName(householdName);
+    if (nameError) {
+      setHouseholdError(nameError);
+      return;
+    }
+
+    setSubmittingHousehold(true);
+    setHouseholdError(null);
+    setHouseholdMessage(null);
+    try {
+      await renameHousehold(householdName);
+      setEditingHouseholdName(false);
+      setHouseholdMessage('가구 이름을 변경했어요.');
+    } catch (error) {
+      setHouseholdError(error instanceof Error ? error.message : '가구 이름을 변경하지 못했어요.');
+    } finally {
+      setSubmittingHousehold(false);
     }
   };
 
@@ -96,6 +124,70 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
                 styles.panel,
                 { backgroundColor: theme.backgroundElement, borderColor: theme.border },
               ]}>
+              <View style={[styles.householdHeader, { borderBottomColor: theme.border }]}>
+                <View style={styles.householdHeaderText}>
+                  <Text
+                    testID="profile-household-name"
+                    style={[styles.householdName, { color: theme.text }]}
+                    numberOfLines={1}>
+                    {household.name}
+                  </Text>
+                  <Text style={[styles.householdCount, { color: theme.textSecondary }]}>
+                    가구원 {members.length}명
+                  </Text>
+                </View>
+                <Pressable
+                  testID="profile-household-name-edit-button"
+                  accessibilityRole="button"
+                  accessibilityLabel="가구 이름 수정"
+                  onPress={() => {
+                    setHouseholdName(household.name);
+                    setEditingHouseholdName(true);
+                    setHouseholdError(null);
+                    setHouseholdMessage(null);
+                  }}
+                  style={styles.iconButton}>
+                  <Pencil size={17} color={theme.textSecondary} strokeWidth={2} />
+                </Pressable>
+              </View>
+              {editingHouseholdName ? (
+                <View style={[styles.householdNameForm, { borderBottomColor: theme.border }]}>
+                  <FormField
+                    label="가구 이름"
+                    value={householdName}
+                    onChangeText={(value) => {
+                      setHouseholdName(value);
+                      setHouseholdError(null);
+                    }}
+                    placeholder="예: 우리집"
+                    maxLength={HOUSEHOLD_NAME_MAX_LENGTH}
+                    testID="profile-household-name-input"
+                  />
+                  <View style={styles.switchActions}>
+                    <ActionButton
+                      testID="profile-household-name-cancel-button"
+                      variant="secondary"
+                      onPress={() => {
+                        setEditingHouseholdName(false);
+                        setHouseholdName(household.name);
+                        setHouseholdError(null);
+                      }}
+                      disabled={submittingHousehold}
+                      style={styles.switchAction}>
+                      취소
+                    </ActionButton>
+                    <ActionButton
+                      testID="profile-household-name-save-button"
+                      onPress={() => void saveHouseholdName()}
+                      disabled={
+                        submittingHousehold || householdName.trim() === household.name.trim()
+                      }
+                      style={styles.switchAction}>
+                      {submittingHousehold ? '저장 중' : '저장'}
+                    </ActionButton>
+                  </View>
+                </View>
+              ) : null}
               {members.map((member, index) => {
                 const memberName = getMemberDisplayName(member, index);
                 return (
@@ -111,6 +203,16 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
                 );
               })}
             </View>
+            {householdError ? (
+              <Text style={[styles.householdFeedback, { color: theme.danger }]}>
+                {householdError}
+              </Text>
+            ) : null}
+            {householdMessage ? (
+              <Text style={[styles.householdFeedback, { color: theme.primary }]}>
+                {householdMessage}
+              </Text>
+            ) : null}
 
             <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>알림 설정</Text>
             <View
@@ -271,6 +373,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     marginBottom: 20,
+  },
+  householdHeader: {
+    minHeight: 58,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+  },
+  householdHeaderText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  householdName: {
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  householdCount: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  iconButton: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  householdNameForm: {
+    borderBottomWidth: 1,
+    gap: 10,
+    paddingVertical: 12,
+  },
+  householdFeedback: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '600',
+    marginTop: -12,
+    marginBottom: 18,
   },
   memberRow: {
     flexDirection: 'row',

@@ -354,5 +354,7 @@ test('a member cannot rewrite security-sensitive household identity fields', { s
 
   await assertFails(updateDoc(householdRef, { createdBy: 'bob' }));
   await assertFails(updateDoc(householdRef, { inviteCode: 'TAKEOVER' }));
+  await assertFails(updateDoc(householdRef, { name: '집' }));
+  await assertFails(updateDoc(householdRef, { name: '가'.repeat(31) }));
   await assertSucceeds(updateDoc(householdRef, { name: 'Our home' }));
 });

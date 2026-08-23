@@ -4,6 +4,8 @@ import { Platform } from 'react-native';
 import { create } from 'zustand';
 
 import { createSeedState } from '@/data/seed';
+import { normalizeHouseholdName, validateHouseholdName } from '@/domain/household-settings';
+import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
 import {
   Expense,
   ExpenseInput,
@@ -16,7 +18,6 @@ import {
   MonthlyBudgetInput,
   UserProfile,
 } from '@/domain/types';
-import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
 import {
   addExpense,
   addFridgeItem,
@@ -34,6 +35,7 @@ import {
   subscribeUserProfile,
   updateExpense,
   updateFridgeItem,
+  updateHouseholdName,
   upsertUserProfile,
 } from '@/services/household-repository';
 import { firebaseConfigIssues, isFirebaseConfigured, useMocks } from '@/services/firebase';
@@ -59,6 +61,7 @@ type HouseholdActions = {
   signOut: () => Promise<void>;
   createNewHousehold: (name: string) => Promise<void>;
   joinHousehold: (code: string) => Promise<void>;
+  renameHousehold: (name: string) => Promise<void>;
   saveMonthlyBudgetItem: (input: MonthlyBudgetInput) => Promise<void>;
   addExpenseItem: (input: ExpenseInput) => Promise<void>;
   updateExpenseItem: (expenseId: string, input: ExpenseInput) => Promise<void>;
@@ -233,19 +236,27 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
   createNewHousehold: async (name) => {
     const user = requireCurrentUser(get());
+    const nameError = validateHouseholdName(name);
+    if (nameError) {
+      set({ errorMessage: nameError });
+      throw new Error(nameError);
+    }
+
+    const normalizedName = normalizeHouseholdName(name);
+    set({ errorMessage: null });
 
     if (useMocks) {
       set((state) => ({
         household: {
           ...state.household,
-          name: name.trim(),
+          name: normalizedName,
         },
       }));
       return;
     }
 
     try {
-      await createHousehold({ name, owner: user });
+      await createHousehold({ name: normalizedName, owner: user });
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
       throw error;
@@ -254,6 +265,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
   joinHousehold: async (code) => {
     const user = requireCurrentUser(get());
+    set({ errorMessage: null });
 
     if (useMocks) {
       set({ errorMessage: 'Mock 모드에서는 초대 코드 참여를 시뮬레이션하지 않아요.' });
@@ -262,6 +274,32 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
     try {
       await joinHouseholdByInviteCode(code, user);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  renameHousehold: async (name) => {
+    const state = get();
+    const nameError = validateHouseholdName(name);
+    if (nameError) {
+      set({ errorMessage: nameError });
+      throw new Error(nameError);
+    }
+
+    const normalizedName = normalizeHouseholdName(name);
+    set({ errorMessage: null });
+
+    if (useMocks) {
+      set((current) => ({
+        household: { ...current.household, name: normalizedName },
+      }));
+      return;
+    }
+
+    try {
+      await updateHouseholdName(requireHouseholdId(state), normalizedName);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
       throw error;
