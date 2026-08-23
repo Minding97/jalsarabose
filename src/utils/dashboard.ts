@@ -1,7 +1,7 @@
 import { isSameMonth } from 'date-fns';
 
-import { expenseStatusLabels, fridgeStatusLabels } from '@/domain/labels';
-import {
+import { expenseStatusLabels, fridgeStatusLabels } from '../domain/labels.ts';
+import type {
   EventType,
   Expense,
   FridgeItem,
@@ -9,8 +9,8 @@ import {
   HouseholdMember,
   HouseholdSnapshot,
   ISODate,
-} from '@/domain/types';
-import { daysUntil, formatKoreanDate, fromIsoDate } from '@/utils/dates';
+} from '../domain/types.ts';
+import { daysUntil, formatKoreanDate, fromIsoDate } from './dates.ts';
 
 export function getMemberName(members: HouseholdMember[], memberId?: string): string {
   const memberIndex = members.findIndex((member) => member.id === memberId);

@@ -1,7 +1,7 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns';
 import { ko } from 'date-fns/locale';
 
-import { ISODate } from '@/domain/types';
+import type { ISODate } from '../domain/types.ts';
 
 export function toIsoDate(date: Date): ISODate {
   return format(date, 'yyyy-MM-dd');

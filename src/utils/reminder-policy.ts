@@ -1,5 +1,5 @@
-import { Expense, FridgeItem, HouseholdSnapshot, ISODate } from '@/domain/types';
-import { daysUntil, fromIsoDate, todayIso } from '@/utils/dates';
+import type { Expense, FridgeItem, HouseholdSnapshot, ISODate } from '../domain/types.ts';
+import { daysUntil, fromIsoDate, todayIso } from './dates.ts';
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
