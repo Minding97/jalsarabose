@@ -38,12 +38,16 @@ import {
   HouseholdMember,
   HouseholdSnapshot,
   MonthlyBudget,
+  NotificationSettings,
   UserProfile,
 } from '@/domain/types';
+import { DEFAULT_NOTIFICATION_SETTINGS } from '@/domain/notification-settings';
 import { todayIso } from '@/utils/dates';
 import { saveMonthlyBudgetWithRevision } from '@/services/monthly-budget-write';
 
-type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
+type ProfilePatch = Partial<
+  Pick<UserProfile, 'activeHouseholdId' | 'displayName' | 'notificationSettings'>
+>;
 type CreateHouseholdInput = {
   name: string;
   owner: UserProfile;
@@ -73,7 +77,7 @@ export async function upsertUserProfile(user: User, patch: ProfilePatch = {}) {
   const today = todayIso();
   const userRef = doc(requireDb(), 'users', user.uid);
   const existing = await getDoc(userRef);
-  const data: Record<string, string | null> = {
+  const data: Record<string, unknown> = {
     uid: user.uid,
     email: user.email ?? '',
     updatedAt: today,
@@ -85,6 +89,10 @@ export async function upsertUserProfile(user: User, patch: ProfilePatch = {}) {
     data.createdAt = today;
   }
 
+  if (!existing.exists() || !('notificationSettings' in existing.data())) {
+    data.notificationSettings = patch.notificationSettings ?? DEFAULT_NOTIFICATION_SETTINGS;
+  }
+
   if (patch.displayName !== undefined) {
     data.displayName = patch.displayName;
   }
@@ -93,7 +101,19 @@ export async function upsertUserProfile(user: User, patch: ProfilePatch = {}) {
     data.activeHouseholdId = patch.activeHouseholdId ?? null;
   }
 
+  if (patch.notificationSettings !== undefined) {
+    data.notificationSettings = patch.notificationSettings;
+  }
+
   await setDoc(userRef, data, { merge: true });
+}
+
+export function saveNotificationSettings(uid: string, settings: NotificationSettings) {
+  return setDoc(
+    doc(requireDb(), 'users', uid),
+    { notificationSettings: settings, updatedAt: todayIso() },
+    { merge: true },
+  );
 }
 
 export function subscribeUserProfile(uid: string, callback: (profile: UserProfile | null) => void) {

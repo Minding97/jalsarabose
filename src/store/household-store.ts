@@ -14,8 +14,10 @@ import {
   HouseholdSnapshot,
   MonthlyBudget,
   MonthlyBudgetInput,
+  NotificationSettings,
   UserProfile,
 } from '@/domain/types';
+import { DEFAULT_NOTIFICATION_SETTINGS } from '@/domain/notification-settings';
 import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
 import {
   addExpense,
@@ -26,6 +28,7 @@ import {
   joinHouseholdByInviteCode,
   migrateLegacyHouseholdMemberIndex,
   saveMonthlyBudget,
+  saveNotificationSettings,
   signIn,
   signOutCurrentUser,
   signUp,
@@ -71,6 +74,7 @@ type HouseholdActions = {
   deleteFridgeItemEntry: (itemId: string) => Promise<void>;
   scheduleNotifications: () => Promise<void>;
   cancelNotifications: () => Promise<void>;
+  updateNotificationSettings: (patch: Partial<NotificationSettings>) => Promise<void>;
 };
 
 type StoreState = HouseholdSnapshot & HouseholdActions;
@@ -100,10 +104,11 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
   notificationMessage: null,
   currentUser: useMocks
     ? {
-        uid: 'mock-user',
+        uid: 'user-minseo',
         email: 'mock@jalsarabose.local',
         displayName: '민서',
         activeHouseholdId: seedState.household.id,
+        notificationSettings: { ...DEFAULT_NOTIFICATION_SETTINGS },
         createdAt: todayIso(),
         updatedAt: todayIso(),
       }
@@ -148,6 +153,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       cleanupNested();
 
       if (!user) {
+        queueNotificationCancellation();
         set({
           ...emptySnapshot,
           authStatus: 'unauthenticated',
@@ -177,6 +183,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
           activeHouseholdId: profile.activeHouseholdId ?? null,
           dataStatus: profile.activeHouseholdId ? 'loading' : 'empty',
         });
+        queueNotificationReconciliation(get, set);
 
         unsubscribeHousehold?.();
         unsubscribeHousehold = undefined;
@@ -192,7 +199,10 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
         unsubscribeHousehold = subscribeHouseholdSnapshot(
           profile.activeHouseholdId,
-          (snapshot) => set({ ...snapshot, dataStatus: 'ready', errorMessage: null }),
+          (snapshot) => {
+            set({ ...snapshot, dataStatus: 'ready', errorMessage: null });
+            queueNotificationReconciliation(get, set);
+          },
           (error) => set({ dataStatus: 'error', errorMessage: error.message }),
         );
       });
@@ -228,6 +238,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
     if (useMocks) {
       return;
     }
+    queueNotificationCancellation();
     await signOutCurrentUser();
   },
 
@@ -309,6 +320,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       set((current) => ({
         expenses: [...current.expenses, { ...expense, id: createLocalId('expense') }],
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -324,6 +336,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
           expense.id === expenseId ? { ...expense, ...input } : expense,
         ),
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -337,6 +350,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       set((current) => ({
         expenses: current.expenses.filter((expense) => expense.id !== expenseId),
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -356,6 +370,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
           expense.id === expenseId ? { ...expense, status } : expense,
         ),
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -370,6 +385,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       set((current) => ({
         fridgeItems: [{ ...item, id: createLocalId('fridge') }, ...current.fridgeItems],
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -385,6 +401,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
           item.id === itemId ? { ...item, ...input } : item,
         ),
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -398,6 +415,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       set((current) => ({
         fridgeItems: current.fridgeItems.filter((item) => item.id !== itemId),
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -411,6 +429,7 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       set((current) => ({
         fridgeItems: current.fridgeItems.map((item) => (item.id === itemId ? { ...item, status } : item)),
       }));
+      queueNotificationReconciliation(get, set);
       return;
     }
 
@@ -437,7 +456,8 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       }
 
       const { scheduleHouseholdLocalNotifications } = await import('@/services/notification-service');
-      const result = await scheduleHouseholdLocalNotifications(state);
+      const recipient = requireNotificationRecipient(state);
+      const result = await scheduleHouseholdLocalNotifications(state, recipient);
 
       set({
         notificationStatus: result.status,
@@ -488,6 +508,34 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
       });
       throw error;
     }
+  },
+
+  updateNotificationSettings: async (patch) => {
+    const state = get();
+    const user = requireCurrentUser(state);
+    const previousSettings = user.notificationSettings;
+    const notificationSettings = { ...previousSettings, ...patch };
+
+    set({
+      currentUser: { ...user, notificationSettings },
+      notificationMessage: null,
+    });
+
+    try {
+      if (!useMocks) {
+        await saveNotificationSettings(user.uid, notificationSettings);
+      }
+    } catch (error) {
+      set((current) => ({
+        currentUser: current.currentUser
+          ? { ...current.currentUser, notificationSettings: previousSettings }
+          : null,
+        notificationMessage: getErrorMessage(error),
+      }));
+      throw error;
+    }
+
+    await get().scheduleNotifications();
   },
 }));
 
@@ -542,6 +590,62 @@ function requireHouseholdId(state: StoreState) {
     throw new Error('가구를 먼저 선택해주세요.');
   }
   return state.activeHouseholdId;
+}
+
+function requireNotificationRecipient(state: StoreState) {
+  const user = requireCurrentUser(state);
+  const member = state.members.find(
+    (candidate) => candidate.id === user.uid || candidate.userId === user.uid,
+  );
+  if (!member) {
+    throw new Error('현재 사용자의 가구원 정보를 찾을 수 없어요.');
+  }
+  return { memberId: member.id, settings: user.notificationSettings };
+}
+
+let notificationReconciliationTimer: ReturnType<typeof setTimeout> | undefined;
+
+function queueNotificationReconciliation(
+  get: () => StoreState,
+  set: (patch: Partial<StoreState>) => void,
+) {
+  if (Platform.OS === 'web') return;
+
+  clearTimeout(notificationReconciliationTimer);
+  notificationReconciliationTimer = setTimeout(() => {
+    const state = get();
+    if (!state.currentUser || !state.activeHouseholdId || state.dataStatus !== 'ready') return;
+
+    let recipient: ReturnType<typeof requireNotificationRecipient>;
+    try {
+      recipient = requireNotificationRecipient(state);
+    } catch {
+      return;
+    }
+
+    void import('@/services/notification-service')
+      .then(({ scheduleHouseholdLocalNotifications }) =>
+        scheduleHouseholdLocalNotifications(state, recipient),
+      )
+      .then((result) => {
+        set({
+          notificationStatus: result.status,
+          scheduledNotificationCount: result.scheduledCount,
+          notificationMessage: result.status === 'scheduled' ? null : result.reason,
+        });
+      })
+      .catch((error) => {
+        set({ notificationStatus: 'error', notificationMessage: getErrorMessage(error) });
+      });
+  }, 150);
+}
+
+function queueNotificationCancellation() {
+  if (Platform.OS === 'web') return;
+  clearTimeout(notificationReconciliationTimer);
+  void import('@/services/notification-service')
+    .then(({ cancelHouseholdLocalNotifications }) => cancelHouseholdLocalNotifications())
+    .catch(() => undefined);
 }
 
 function createLocalId(prefix: string) {

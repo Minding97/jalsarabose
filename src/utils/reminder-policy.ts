@@ -1,9 +1,22 @@
-import { Expense, FridgeItem, HouseholdSnapshot, ISODate } from '@/domain/types';
-import { daysUntil, fromIsoDate, todayIso } from '@/utils/dates';
+import type {
+  Expense,
+  FridgeItem,
+  HouseholdSnapshot,
+  NotificationSettings,
+  ReminderLeadDays,
+} from '../domain/types';
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const NOTIFICATION_HOUR = 9;
+
+export const REMINDER_LEAD_DAYS: readonly ReminderLeadDays[] = [3, 1, 0];
+export const HOUSEHOLD_REMINDER_PREFIX = 'household-reminder-';
 
 export type ReminderType = 'expense' | 'fridge';
+
+export type ReminderRecipient = {
+  memberId: string;
+  settings: NotificationSettings;
+};
 
 export type ReminderCandidate = {
   id: string;
@@ -16,61 +29,94 @@ export type ReminderCandidate = {
 
 export function getReminderCandidates(
   snapshot: HouseholdSnapshot,
-  baseDate: ISODate = todayIso(),
+  recipient: ReminderRecipient,
   now = new Date(),
-) {
-  const expenses = snapshot.expenses
-    .filter((expense) => expense.notificationEnabled && expense.status !== 'paid')
-    .map((expense) => expenseReminder(expense))
-    .filter((candidate): candidate is ReminderCandidate => Boolean(candidate));
-  const fridgeItems = snapshot.fridgeItems
-    .filter((item) => {
-      if (!item.notificationEnabled || !item.expiryDate || item.status !== 'stocked') {
-        return false;
-      }
+): ReminderCandidate[] {
+  const expenses = recipient.settings.expenseEnabled
+    ? snapshot.expenses
+        .filter(
+          (expense) =>
+            expense.notificationEnabled &&
+            expense.status !== 'paid' &&
+            expense.payerId === recipient.memberId,
+        )
+        .flatMap((expense) => expenseReminders(expense, recipient.memberId))
+    : [];
+  const fridgeItems = recipient.settings.fridgeEnabled
+    ? snapshot.fridgeItems
+        .filter(
+          (item) => item.notificationEnabled && Boolean(item.expiryDate) && item.status === 'stocked',
+        )
+        .flatMap((item) => fridgeReminders(item, recipient.memberId))
+    : [];
 
-      const diff = daysUntil(item.expiryDate, baseDate);
-      return diff >= 0 && diff <= 3;
-    })
-    .map((item) => fridgeReminder(item))
-    .filter((candidate): candidate is ReminderCandidate => Boolean(candidate));
-
-  return [...expenses, ...fridgeItems]
-    .filter((candidate) => candidate.date.getTime() > now.getTime())
-    .sort((a, b) => a.date.getTime() - b.date.getTime());
-}
-
-function expenseReminder(expense: Expense): ReminderCandidate | null {
-  return {
-    id: `expense-${expense.id}`,
-    type: 'expense',
-    title: '공동 지출 납부일',
-    body: `${expense.title} ${expense.amount.toLocaleString()}원 납부일이에요.`,
-    date: notificationTimeOn(expense.dueDate, 9),
-    data: { type: 'expense', id: expense.id },
-  };
-}
-
-function fridgeReminder(item: FridgeItem): ReminderCandidate | null {
-  if (!item.expiryDate) {
-    return null;
+  const uniqueCandidates = new Map<string, ReminderCandidate>();
+  for (const candidate of [...expenses, ...fridgeItems]) {
+    if (candidate.date.getTime() > now.getTime()) {
+      uniqueCandidates.set(candidate.id, candidate);
+    }
   }
 
-  const reminderDate = new Date(fromIsoDate(item.expiryDate).getTime() - 3 * ONE_DAY_MS);
-  reminderDate.setHours(9, 0, 0, 0);
-
-  return {
-    id: `fridge-${item.id}`,
-    type: 'fridge',
-    title: '유통기한 임박',
-    body: `${item.name} 유통기한이 3일 이내로 다가왔어요.`,
-    date: reminderDate,
-    data: { type: 'fridge', id: item.id },
-  };
+  return [...uniqueCandidates.values()].sort(
+    (left, right) => left.date.getTime() - right.date.getTime() || left.id.localeCompare(right.id),
+  );
 }
 
-function notificationTimeOn(date: string, hour: number) {
-  const notificationDate = fromIsoDate(date);
-  notificationDate.setHours(hour, 0, 0, 0);
+function expenseReminders(expense: Expense, recipientId: string): ReminderCandidate[] {
+  return REMINDER_LEAD_DAYS.map((leadDays) => ({
+    id: reminderId(recipientId, 'expense', expense.id, leadDays),
+    type: 'expense',
+    title: leadDays === 0 ? '공동 지출 납부일' : '공동 지출 납부 예정',
+    body:
+      leadDays === 0
+        ? `${expense.title} ${expense.amount.toLocaleString()}원 납부일이에요.`
+        : `${expense.title} ${expense.amount.toLocaleString()}원 납부까지 ${leadDays}일 남았어요.`,
+    date: reminderTime(expense.dueDate, leadDays),
+    data: {
+      type: 'expense',
+      id: expense.id,
+      recipientId,
+      leadDays: String(leadDays),
+    },
+  }));
+}
+
+function fridgeReminders(item: FridgeItem, recipientId: string): ReminderCandidate[] {
+  if (!item.expiryDate) {
+    return [];
+  }
+  const expiryDate = item.expiryDate;
+
+  return REMINDER_LEAD_DAYS.map((leadDays) => ({
+    id: reminderId(recipientId, 'fridge', item.id, leadDays),
+    type: 'fridge',
+    title: leadDays === 0 ? '유통기한 당일' : '유통기한 임박',
+    body:
+      leadDays === 0
+        ? `${item.name} 유통기한이 오늘이에요.`
+        : `${item.name} 유통기한이 ${leadDays}일 남았어요.`,
+    date: reminderTime(expiryDate, leadDays),
+    data: {
+      type: 'fridge',
+      id: item.id,
+      recipientId,
+      leadDays: String(leadDays),
+    },
+  }));
+}
+
+function reminderId(
+  recipientId: string,
+  type: ReminderType,
+  itemId: string,
+  leadDays: ReminderLeadDays,
+) {
+  return `${HOUSEHOLD_REMINDER_PREFIX}${recipientId}-${type}-${itemId}-${leadDays}`;
+}
+
+function reminderTime(date: string, leadDays: ReminderLeadDays) {
+  const notificationDate = new Date(`${date}T00:00:00`);
+  notificationDate.setDate(notificationDate.getDate() - leadDays);
+  notificationDate.setHours(NOTIFICATION_HOUR, 0, 0, 0);
   return notificationDate;
 }

@@ -1,8 +1,11 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
-import { HouseholdSnapshot } from '@/domain/types';
-import { getReminderCandidates } from '@/utils/reminder-policy';
+import type { HouseholdSnapshot, NotificationSettings } from '@/domain/types';
+import {
+  getReminderCandidates,
+  HOUSEHOLD_REMINDER_PREFIX,
+} from '@/utils/reminder-policy';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -15,6 +18,7 @@ Notifications.setNotificationHandler({
 
 const CHANNEL_ID = 'household-reminders';
 const RETIRED_NOTIFICATION_PREFIX = 'chore-';
+const LEGACY_NOTIFICATION_PREFIXES = ['expense-', 'fridge-'];
 
 export type NotificationSetupResult =
   | {
@@ -37,6 +41,7 @@ export type NotificationSetupResult =
 
 export async function scheduleHouseholdLocalNotifications(
   snapshot: HouseholdSnapshot,
+  recipient: { memberId: string; settings: NotificationSettings },
 ): Promise<NotificationSetupResult> {
   if (Platform.OS === 'web') {
     return {
@@ -47,47 +52,56 @@ export async function scheduleHouseholdLocalNotifications(
     };
   }
 
-  if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-      name: '생활 알림',
-      importance: Notifications.AndroidImportance.DEFAULT,
-    });
-  }
+  return enqueueReconciliation(async () => {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
+        name: '생활 알림',
+        importance: Notifications.AndroidImportance.DEFAULT,
+      });
+    }
 
-  const permission = await ensureNotificationPermission();
-  if (permission !== 'granted') {
+    await cancelManagedNotifications();
+    const candidates = getReminderCandidates(snapshot, recipient);
+    if (candidates.length === 0) {
+      return {
+        status: 'scheduled',
+        scheduledCount: 0,
+        permissionStatus: 'not-requested',
+      };
+    }
+
+    const permission = await ensureNotificationPermission();
+    if (permission !== 'granted') {
+      return {
+        status: 'permission-denied',
+        scheduledCount: 0,
+        permissionStatus: permission,
+        reason: '기기 알림 권한이 꺼져 있어요.',
+      };
+    }
+
+    for (const candidate of candidates) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: candidate.title,
+          body: candidate.body,
+          data: candidate.data,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DATE,
+          date: candidate.date,
+          channelId: CHANNEL_ID,
+        },
+        identifier: candidate.id,
+      });
+    }
+
     return {
-      status: 'permission-denied',
-      scheduledCount: 0,
+      status: 'scheduled',
+      scheduledCount: candidates.length,
       permissionStatus: permission,
-      reason: '기기 알림 권한이 꺼져 있어요.',
     };
-  }
-
-  await Notifications.cancelAllScheduledNotificationsAsync();
-
-  const candidates = getReminderCandidates(snapshot);
-  for (const candidate of candidates) {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: candidate.title,
-        body: candidate.body,
-        data: candidate.data,
-      },
-      trigger: {
-        type: Notifications.SchedulableTriggerInputTypes.DATE,
-        date: candidate.date,
-        channelId: CHANNEL_ID,
-      },
-      identifier: candidate.id,
-    });
-  }
-
-  return {
-    status: 'scheduled',
-    scheduledCount: candidates.length,
-    permissionStatus: permission,
-  };
+  });
 }
 
 export async function cancelHouseholdLocalNotifications(): Promise<NotificationSetupResult> {
@@ -100,13 +114,37 @@ export async function cancelHouseholdLocalNotifications(): Promise<NotificationS
     };
   }
 
-  await Notifications.cancelAllScheduledNotificationsAsync();
+  await enqueueReconciliation(cancelManagedNotifications);
 
   return {
     status: 'scheduled',
     scheduledCount: 0,
     permissionStatus: 'not-requested',
   };
+}
+
+let reconciliationQueue: Promise<unknown> = Promise.resolve();
+
+function enqueueReconciliation<T>(operation: () => Promise<T>): Promise<T> {
+  const next = reconciliationQueue.catch(() => undefined).then(operation);
+  reconciliationQueue = next;
+  return next;
+}
+
+async function cancelManagedNotifications() {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+  await Promise.all(
+    scheduled
+      .filter(({ identifier }) => isManagedNotification(identifier))
+      .map(({ identifier }) => Notifications.cancelScheduledNotificationAsync(identifier)),
+  );
+}
+
+function isManagedNotification(identifier: string) {
+  return (
+    identifier.startsWith(HOUSEHOLD_REMINDER_PREFIX) ||
+    LEGACY_NOTIFICATION_PREFIXES.some((prefix) => identifier.startsWith(prefix))
+  );
 }
 
 export async function cancelRetiredFeatureNotifications() {
