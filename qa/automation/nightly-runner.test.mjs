@@ -120,7 +120,10 @@ test('processIssue verifies an existing merged PR and Jira Done before success',
   };
   const jira = jiraWith(issue);
   jira.getIssue = async () => ({ ...issue, fields: { ...issue.fields, status: { name: '완료' } } });
-  const github = { getPullRequest: async () => ({ number: 16, state: 'MERGED', mergedAt: '2026-08-12' }) };
+  const github = {
+    getPullRequest: async () => ({ number: 16, state: 'MERGED', mergedAt: '2026-08-12' }),
+    getCompletionGate: async () => ({ complete: true }),
+  };
   assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), true);
   assert.deepEqual(jira.transitions, [['JAL-47', '완료']]);
 });
@@ -178,7 +181,10 @@ test('dry-run does not report false failures for already merged work', async () 
   const failures = [];
   assert.equal(await processIssue({
     jira: jiraWith(issue),
-    github: { getPullRequest: async () => ({ number: 16, state: 'MERGED' }) },
+    github: {
+      getPullRequest: async () => ({ number: 16, state: 'MERGED' }),
+      getCompletionGate: async () => ({ complete: true }),
+    },
     config,
     issue,
     dryRun: true,
@@ -192,8 +198,22 @@ test('processIssue uses a completed parent merged PR for a subtask without its o
   const parent = { key: 'JAL-47', fields: { labels: ['pr-16'], status: { name: '완료' } } };
   const jira = jiraWith(issue, parent);
   jira.getIssue = async (key) => key === 'JAL-47' ? parent : { ...issue, fields: { ...issue.fields, status: { name: '완료' } } };
-  const github = { getPullRequest: async () => ({ number: 16, state: 'MERGED' }) };
+  const github = {
+    getPullRequest: async () => ({ number: 16, state: 'MERGED' }),
+    getCompletionGate: async () => ({ complete: true }),
+  };
   assert.equal(await processIssue({ jira, github, config, issue, dryRun: false }), true);
+});
+
+test('processIssue never completes a merged PR with an unknown latest-head gate', async () => {
+  const issue = { key: 'JAL-47', fields: { summary: 'merged', labels: ['pr-16'], status: { name: '검토 중' } } };
+  const failures = [];
+  const github = {
+    getPullRequest: async () => ({ number: 16, state: 'MERGED' }),
+    getCompletionGate: async () => ({ complete: false, merged: true, verifySuccess: true, claudeSuccess: false }),
+  };
+  assert.equal(await processIssue({ jira: jiraWith(issue), github, config, issue, dryRun: false, reportFailure: (reason) => failures.push(reason) }), false);
+  assert.deepEqual(failures, ['완료 gate 미통과: merged=true, verify=true, claude=false']);
 });
 
 test('processIssue contains PR lookup failures to the affected ticket', async () => {

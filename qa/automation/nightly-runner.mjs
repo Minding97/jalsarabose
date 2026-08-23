@@ -470,6 +470,24 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
     return false;
   }
 
+  if (
+    existingPullRequest &&
+    (existingPullRequest.state === 'MERGED' || existingPullRequest.mergedAt)
+  ) {
+    try {
+      const gate = await github.getCompletionGate(existingPullRequest.number);
+      if (!gate.complete) {
+        reportFailure(
+          `완료 gate 미통과: merged=${gate.merged}, verify=${gate.verifySuccess}, claude=${gate.claudeSuccess}`,
+        );
+        return false;
+      }
+    } catch (error) {
+      reportFailure(`완료 gate 조회 실패: ${error instanceof Error ? error.message : String(error)}`);
+      return false;
+    }
+  }
+
   if (issue.key !== parentKey && parentDetails.fields.status?.name === config.jiraDoneStatus) {
     if (dryRun) {
       console.log(`[dry-run] ${issue.key}: mark done because ${parentKey} is done`);
