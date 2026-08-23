@@ -98,21 +98,26 @@ export function validateMonthlyBudgetInput(
 
 export function getMonthlyBudgetSummary(
   budget: Pick<MonthlyBudget, 'month' | 'totalAmount'> | undefined,
-  expenses: Pick<Expense, 'amount' | 'dueDate'>[],
+  expenses: Pick<Expense, 'amount' | 'dueDate' | 'status'>[],
   month: YearMonth,
 ) {
   if (!isValidYearMonth(month)) {
     throw new Error('조회할 월은 YYYY-MM 형식이어야 해요.');
   }
 
-  const expenseTotal = expenses
-    .filter((expense) => expense.dueDate.slice(0, 7) === month)
+  const monthlyExpenses = expenses.filter((expense) => expense.dueDate.slice(0, 7) === month);
+  const usedAmount = monthlyExpenses
+    .filter((expense) => expense.status === 'paid')
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const scheduledAmount = monthlyExpenses
+    .filter((expense) => expense.status === 'scheduled')
     .reduce((sum, expense) => sum + expense.amount, 0);
   const monthlyBudget = budget?.month === month ? budget.totalAmount : null;
 
   return {
-    expenseTotal,
+    usedAmount,
+    scheduledAmount,
     budgetTotal: monthlyBudget,
-    remainingAmount: monthlyBudget === null ? null : monthlyBudget - expenseTotal,
+    remainingAmount: monthlyBudget === null ? null : monthlyBudget - usedAmount,
   };
 }

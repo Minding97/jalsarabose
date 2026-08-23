@@ -49,8 +49,8 @@ export default function AppTabs() {
       <Tabs.Screen
         name="expenses"
         options={{
-          title: '지출',
-          tabBarLabel: ({ color }) => <TabLabel color={color}>지출</TabLabel>,
+          title: '생활비',
+          tabBarLabel: ({ color }) => <TabLabel color={color}>생활비</TabLabel>,
           tabBarIcon: ({ color, size }) => (
             <ReceiptText color={color} size={size} strokeWidth={2.2} />
           ),

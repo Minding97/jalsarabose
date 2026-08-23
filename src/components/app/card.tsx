@@ -6,13 +6,15 @@ import { useTheme } from '@/hooks/use-theme';
 type CardProps = PropsWithChildren<{
   title?: string;
   style?: ViewStyle;
+  testID?: string;
 }>;
 
-export function Card({ title, children, style }: CardProps) {
+export function Card({ title, children, style, testID }: CardProps) {
   const theme = useTheme();
 
   return (
     <View
+      testID={testID}
       style={[
         styles.card,
         { backgroundColor: theme.backgroundElement, borderColor: theme.border },
