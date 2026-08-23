@@ -4,6 +4,7 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -305,6 +306,7 @@ async function commitAndPush(issue, worktree, branch) {
 
   await runCommand('npm', ['run', 'qa:test'], { cwd: worktree, timeoutMs: 10 * 60 * 1000 });
   await runCommand('npm', ['run', 'verify'], { cwd: worktree, timeoutMs: 30 * 60 * 1000 });
+  removeGeneratedWorktreeLinks(worktree);
   await runCommand('git', ['add', '-A'], { cwd: worktree });
   await runCommand('git', ['commit', '-m', `fix: ${issue.key} ${issue.fields.summary}`], {
     cwd: worktree,
@@ -315,6 +317,13 @@ async function commitAndPush(issue, worktree, branch) {
   });
   const sha = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: worktree });
   return sha.stdout.trim();
+}
+
+export function removeGeneratedWorktreeLinks(worktree) {
+  const worktreeNodeModules = resolve(worktree, 'node_modules');
+  if (existsSync(worktreeNodeModules) && lstatSync(worktreeNodeModules).isSymbolicLink()) {
+    unlinkSync(worktreeNodeModules);
+  }
 }
 
 function formatReviewComment(review, cycle) {
