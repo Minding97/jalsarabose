@@ -49,3 +49,27 @@ test('the authoritative member index is guarded while legacy two-member househol
   assert.match(rules, /requesterIsHouseholdAdmin\(householdId\)/);
   assert.match(rules, /request\.auth\.uid == memberIds\[1\]/);
 });
+
+test('household notes and comments have narrow schemas and household-scoped permissions', () => {
+  const noteValidator = rules.match(
+    /function validHouseholdNote\(householdId\) \{([\s\S]*?)\n    \}/,
+  )?.[1];
+  const commentValidator = rules.match(
+    /function validHouseholdNoteComment\(householdId\) \{([\s\S]*?)\n    \}/,
+  )?.[1];
+  const commentsMatch = rules.match(
+    /match \/noteComments\/\{commentId\} \{([\s\S]*?)\n      \}/,
+  )?.[1];
+
+  assert.ok(noteValidator, 'validHouseholdNote helper is missing');
+  assert.match(noteValidator, /keys\(\)\.hasOnly/);
+  assert.doesNotMatch(noteValidator, /quantity|store|price|assignee|dueDate/);
+  assert.match(noteValidator, /note\.type == 'shopping' \|\| note\.status == 'active'/);
+  assert.ok(commentValidator, 'validHouseholdNoteComment helper is missing');
+  assert.match(commentValidator, /exists\(notePath\(householdId, comment\.noteId\)\)/);
+  assert.match(commentValidator, /comment\.createdBy == request\.auth\.uid/);
+  assert.ok(commentsMatch, 'noteComments rule block is missing');
+  assert.match(commentsMatch, /allow update: if false/);
+  assert.match(commentsMatch, /resource\.data\.createdBy == request\.auth\.uid/);
+  assert.match(commentsMatch, /requesterIsHouseholdAdmin\(householdId\)/);
+});

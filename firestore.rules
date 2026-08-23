@@ -18,6 +18,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/households/$(householdId)/members/$(uid);
     }
 
+    function notePath(householdId, noteId) {
+      return /databases/$(database)/documents/households/$(householdId)/notes/$(noteId);
+    }
+
     function invitePath(code) {
       return /databases/$(database)/documents/inviteCodes/$(code);
     }
@@ -154,6 +158,47 @@ service cloud.firestore {
         );
     }
 
+    function validHouseholdNote(householdId) {
+      let note = request.resource.data;
+      return note.keys().hasAll([
+          'householdId', 'type', 'title', 'status', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt'
+        ])
+        && note.keys().hasOnly([
+          'householdId', 'type', 'title', 'memo', 'status', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt'
+        ])
+        && note.householdId == householdId
+        && note.type in ['memo', 'shopping']
+        && note.title is string
+        && note.title.size() > 0
+        && note.title.size() <= 80
+        && (!('memo' in note) || (note.memo is string && note.memo.size() <= 500))
+        && note.status in ['active', 'completed']
+        && (note.type == 'shopping' || note.status == 'active')
+        && note.createdBy is string
+        && note.createdAt is string
+        && note.updatedBy is string
+        && note.updatedAt is string;
+    }
+
+    function validHouseholdNoteComment(householdId) {
+      let comment = request.resource.data;
+      return comment.keys().hasAll([
+          'householdId', 'noteId', 'content', 'createdBy', 'createdAt'
+        ])
+        && comment.keys().hasOnly([
+          'householdId', 'noteId', 'content', 'createdBy', 'createdAt'
+        ])
+        && comment.householdId == householdId
+        && comment.noteId is string
+        && exists(notePath(householdId, comment.noteId))
+        && get(notePath(householdId, comment.noteId)).data.householdId == householdId
+        && comment.content is string
+        && comment.content.size() > 0
+        && comment.content.size() <= 500
+        && comment.createdBy == request.auth.uid
+        && comment.createdAt is string;
+    }
+
     match /users/{uid} {
       allow read, create, update: if isSelf(uid);
       allow delete: if false;
@@ -248,6 +293,36 @@ service cloud.firestore {
         allow create: if isHouseholdMember(householdId) && itemBelongsToHousehold(householdId);
         allow update: if isHouseholdMember(householdId) && itemStaysInHousehold(householdId);
         allow delete: if isHouseholdMember(householdId) && existingItemBelongsToHousehold(householdId);
+      }
+
+      match /notes/{noteId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create: if isHouseholdMember(householdId)
+          && validHouseholdNote(householdId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow update: if isHouseholdMember(householdId)
+          && validHouseholdNote(householdId)
+          && existingItemBelongsToHousehold(householdId)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow delete: if isHouseholdMember(householdId)
+          && existingItemBelongsToHousehold(householdId);
+      }
+
+      match /noteComments/{commentId} {
+        allow read: if isHouseholdMember(householdId);
+        allow create: if isHouseholdMember(householdId)
+          && validHouseholdNoteComment(householdId);
+        allow update: if false;
+        allow delete: if isHouseholdMember(householdId)
+          && existingItemBelongsToHousehold(householdId)
+          && (
+            resource.data.createdBy == request.auth.uid
+            || requesterIsHouseholdAdmin(householdId)
+            || !existsAfter(notePath(householdId, resource.data.noteId))
+          );
       }
     }
   }

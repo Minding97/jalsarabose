@@ -7,19 +7,21 @@ const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST;
 let environment;
 let assertFails;
 let assertSucceeds;
+let deleteDoc;
 let doc;
 let getDoc;
 let initializeTestEnvironment;
 let runTransaction;
 let setDoc;
 let updateDoc;
+let writeBatch;
 let saveMonthlyBudgetWithRevision;
 let MonthlyBudgetConflictError;
 
 before(async () => {
   if (!emulatorHost) return;
   ({ assertFails, assertSucceeds, initializeTestEnvironment } = await import('@firebase/rules-unit-testing'));
-  ({ doc, getDoc, runTransaction, setDoc, updateDoc } = await import(
+  ({ deleteDoc, doc, getDoc, runTransaction, setDoc, updateDoc, writeBatch } = await import(
     'firebase/firestore'
   ));
   ({ saveMonthlyBudgetWithRevision, MonthlyBudgetConflictError } = await import(
@@ -133,6 +135,31 @@ function budget(overrides = {}) {
   };
 }
 
+function householdNote(overrides = {}) {
+  return {
+    householdId: 'home',
+    type: 'memo',
+    title: '공동현관 안내',
+    status: 'active',
+    createdBy: 'alice',
+    createdAt: '2026-08-23T01:00:00.000Z',
+    updatedBy: 'alice',
+    updatedAt: '2026-08-23T01:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function noteComment(overrides = {}) {
+  return {
+    householdId: 'home',
+    noteId: 'shared-note',
+    content: '확인했어',
+    createdBy: 'alice',
+    createdAt: '2026-08-23T02:00:00.000Z',
+    ...overrides,
+  };
+}
+
 test('monthly budget rules allow members and reject outsiders', { skip: !emulatorHost }, async () => {
   await seedTwoMemberHousehold();
   const memberDb = environment.authenticatedContext('alice').firestore();
@@ -147,6 +174,73 @@ test('monthly budget rules allow members and reject outsiders', { skip: !emulato
       budget({ month: '2026-09' }),
     ),
   );
+});
+
+test('notes are shared only within a household and reject structured shopping fields', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  const outsiderDb = environment.authenticatedContext('mallory').firestore();
+  const noteRef = doc(aliceDb, 'households', 'home', 'notes', 'shared-note');
+
+  await assertSucceeds(setDoc(noteRef, householdNote()));
+  await assertSucceeds(getDoc(doc(bobDb, 'households', 'home', 'notes', 'shared-note')));
+  await assertFails(getDoc(doc(outsiderDb, 'households', 'home', 'notes', 'shared-note')));
+  await assertSucceeds(updateDoc(doc(bobDb, 'households', 'home', 'notes', 'shared-note'), {
+    title: '수정된 안내',
+    updatedBy: 'bob',
+    updatedAt: '2026-08-23T03:00:00.000Z',
+  }));
+  await assertFails(setDoc(
+    doc(bobDb, 'households', 'home', 'notes', 'structured-shopping'),
+    householdNote({
+      type: 'shopping',
+      title: '세탁세제',
+      createdBy: 'bob',
+      updatedBy: 'bob',
+      quantity: 2,
+    }),
+  ));
+  await assertFails(setDoc(
+    doc(outsiderDb, 'households', 'home', 'notes', 'outsider-note'),
+    householdNote({ createdBy: 'mallory', updatedBy: 'mallory' }),
+  ));
+});
+
+test('comment deletion is limited to its author or a household admin', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  await assertSucceeds(setDoc(
+    doc(aliceDb, 'households', 'home', 'notes', 'shared-note'),
+    householdNote(),
+  ));
+  const aliceComment = doc(aliceDb, 'households', 'home', 'noteComments', 'alice-comment');
+  const bobComment = doc(bobDb, 'households', 'home', 'noteComments', 'bob-comment');
+  await assertSucceeds(setDoc(aliceComment, noteComment()));
+  await assertSucceeds(setDoc(bobComment, noteComment({ createdBy: 'bob' })));
+
+  await assertFails(deleteDoc(doc(bobDb, 'households', 'home', 'noteComments', 'alice-comment')));
+  await assertSucceeds(deleteDoc(doc(aliceDb, 'households', 'home', 'noteComments', 'bob-comment')));
+  await assertSucceeds(deleteDoc(aliceComment));
+});
+
+test('a member can batch-delete a note and its comments through the cascade rule', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  await assertSucceeds(setDoc(doc(aliceDb, 'households', 'home', 'notes', 'cascade-note'), householdNote()));
+  await assertSucceeds(setDoc(
+    doc(aliceDb, 'households', 'home', 'noteComments', 'alice-cascade-comment'),
+    noteComment({ noteId: 'cascade-note', createdBy: 'alice' }),
+  ));
+  const batch = writeBatch(bobDb);
+  batch.delete(doc(bobDb, 'households', 'home', 'noteComments', 'alice-cascade-comment'));
+  batch.delete(doc(bobDb, 'households', 'home', 'notes', 'cascade-note'));
+  await assertSucceeds(batch.commit());
 });
 
 test('joining an existing household is idempotent and preserves member metadata', { skip: !emulatorHost }, async () => {

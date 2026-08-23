@@ -12,17 +12,28 @@ import {
   FridgeItemInput,
   FridgeStatus,
   HouseholdSnapshot,
+  HouseholdNote,
+  HouseholdNoteInput,
+  HouseholdNoteStatus,
   MonthlyBudget,
   MonthlyBudgetInput,
   UserProfile,
 } from '@/domain/types';
+import {
+  validateHouseholdNoteInput,
+  validateNoteComment,
+} from '@/domain/household-notes';
 import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
 import {
   addExpense,
   addFridgeItem,
+  addHouseholdNote,
+  addHouseholdNoteComment,
   createHousehold,
   deleteExpense,
   deleteFridgeItem,
+  deleteHouseholdNote,
+  deleteHouseholdNoteComment,
   joinHouseholdByInviteCode,
   migrateLegacyHouseholdMemberIndex,
   saveMonthlyBudget,
@@ -34,6 +45,7 @@ import {
   subscribeUserProfile,
   updateExpense,
   updateFridgeItem,
+  updateHouseholdNote,
   upsertUserProfile,
 } from '@/services/household-repository';
 import { firebaseConfigIssues, isFirebaseConfigured, useMocks } from '@/services/firebase';
@@ -69,6 +81,13 @@ type HouseholdActions = {
   addFridgeItemEntry: (input: FridgeItemInput) => Promise<void>;
   updateFridgeItemEntry: (itemId: string, input: FridgeItemInput) => Promise<void>;
   deleteFridgeItemEntry: (itemId: string) => Promise<void>;
+  addNoteItem: (input: HouseholdNoteInput) => Promise<void>;
+  updateNoteItem: (noteId: string, input: HouseholdNoteInput) => Promise<void>;
+  updateNoteStatus: (noteId: string, status: HouseholdNoteStatus) => Promise<void>;
+  deleteNoteItem: (noteId: string) => Promise<void>;
+  clearCompletedShoppingItems: () => Promise<void>;
+  addNoteComment: (noteId: string, content: string) => Promise<void>;
+  deleteNoteComment: (commentId: string) => Promise<void>;
   scheduleNotifications: () => Promise<void>;
   cancelNotifications: () => Promise<void>;
 };
@@ -89,6 +108,8 @@ const emptySnapshot: HouseholdSnapshot = {
   monthlyBudgets: [],
   expenses: [],
   fridgeItems: [],
+  notes: [],
+  noteComments: [],
 };
 
 export const useHouseholdStore = create<StoreState>((set, get) => ({
@@ -417,6 +438,161 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
     await updateFridgeItem(requireHouseholdId(state), itemId, { status });
   },
 
+  addNoteItem: async (input) => {
+    const state = get();
+    const validationMessage = validateHouseholdNoteInput(input);
+    if (validationMessage) throw new Error(validationMessage);
+    const note = createNotePayload(state, input);
+
+    if (useMocks) {
+      set((current) => ({
+        notes: [{ ...note, id: createLocalId('note') }, ...current.notes],
+      }));
+      return;
+    }
+
+    try {
+      await addHouseholdNote(requireHouseholdId(state), note);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  updateNoteItem: async (noteId, input) => {
+    const state = get();
+    const validationMessage = validateHouseholdNoteInput(input);
+    if (validationMessage) throw new Error(validationMessage);
+    const user = requireCurrentUser(state);
+    const timestamp = nowIso();
+    const patch = {
+      ...normalizeNoteInput(input),
+      ...(input.type === 'memo' ? { status: 'active' as const } : {}),
+      updatedBy: user.uid,
+      updatedAt: timestamp,
+    };
+
+    if (useMocks) {
+      set((current) => ({
+        notes: current.notes.map((note) => (note.id === noteId ? { ...note, ...patch } : note)),
+      }));
+      return;
+    }
+
+    try {
+      await updateHouseholdNote(requireHouseholdId(state), noteId, patch);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  updateNoteStatus: async (noteId, status) => {
+    const state = get();
+    const note = state.notes.find((item) => item.id === noteId);
+    if (!note || note.type !== 'shopping') {
+      throw new Error('살 것 항목만 완료할 수 있어요.');
+    }
+    const user = requireCurrentUser(state);
+    const patch = { status, updatedBy: user.uid, updatedAt: nowIso() };
+
+    if (useMocks) {
+      set((current) => ({
+        notes: current.notes.map((item) => (item.id === noteId ? { ...item, ...patch } : item)),
+      }));
+      return;
+    }
+
+    try {
+      await updateHouseholdNote(requireHouseholdId(state), noteId, patch);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  deleteNoteItem: async (noteId) => {
+    const state = get();
+    if (useMocks) {
+      set((current) => ({
+        notes: current.notes.filter((note) => note.id !== noteId),
+        noteComments: current.noteComments.filter((comment) => comment.noteId !== noteId),
+      }));
+      return;
+    }
+
+    try {
+      await deleteHouseholdNote(requireHouseholdId(state), noteId);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  clearCompletedShoppingItems: async () => {
+    const completedIds = get()
+      .notes.filter((note) => note.type === 'shopping' && note.status === 'completed')
+      .map((note) => note.id);
+    await Promise.all(completedIds.map((noteId) => get().deleteNoteItem(noteId)));
+  },
+
+  addNoteComment: async (noteId, content) => {
+    const state = get();
+    const validationMessage = validateNoteComment(content);
+    if (validationMessage) throw new Error(validationMessage);
+    if (!state.notes.some((note) => note.id === noteId)) {
+      throw new Error('메모를 찾을 수 없어요.');
+    }
+    const user = requireCurrentUser(state);
+    const timestamp = nowIso();
+    const comment = {
+      householdId: requireHouseholdId(state),
+      noteId,
+      content: content.trim(),
+      createdBy: user.uid,
+      createdAt: timestamp,
+    };
+
+    if (useMocks) {
+      set((current) => ({
+        noteComments: [...current.noteComments, { ...comment, id: createLocalId('comment') }],
+        notes: current.notes.map((note) =>
+          note.id === noteId
+            ? { ...note, updatedBy: user.uid, updatedAt: timestamp }
+            : note,
+        ),
+      }));
+      return;
+    }
+
+    try {
+      await addHouseholdNoteComment(requireHouseholdId(state), noteId, comment, {
+        updatedBy: user.uid,
+        updatedAt: timestamp,
+      });
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
+  deleteNoteComment: async (commentId) => {
+    const state = get();
+    if (useMocks) {
+      set((current) => ({
+        noteComments: current.noteComments.filter((comment) => comment.id !== commentId),
+      }));
+      return;
+    }
+
+    try {
+      await deleteHouseholdNoteComment(requireHouseholdId(state), commentId);
+    } catch (error) {
+      set({ errorMessage: getErrorMessage(error) });
+      throw error;
+    }
+  },
+
   scheduleNotifications: async () => {
     const state = get();
 
@@ -530,6 +706,31 @@ function createFridgePayload(state: StoreState, input: FridgeItemInput): Omit<Fr
   };
 }
 
+function createNotePayload(
+  state: StoreState,
+  input: HouseholdNoteInput,
+): Omit<HouseholdNote, 'id'> {
+  const user = requireCurrentUser(state);
+  const timestamp = nowIso();
+  return {
+    ...normalizeNoteInput(input),
+    householdId: requireHouseholdId(state),
+    status: 'active',
+    createdBy: user.uid,
+    createdAt: timestamp,
+    updatedBy: user.uid,
+    updatedAt: timestamp,
+  };
+}
+
+function normalizeNoteInput(input: HouseholdNoteInput): HouseholdNoteInput {
+  return {
+    type: input.type,
+    title: input.title.trim(),
+    memo: input.memo?.trim() || undefined,
+  };
+}
+
 function requireCurrentUser(state: StoreState) {
   if (!state.currentUser) {
     throw new Error('로그인이 필요해요.');
@@ -546,6 +747,10 @@ function requireHouseholdId(state: StoreState) {
 
 function createLocalId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
 }
 
 function getErrorMessage(error: unknown) {
