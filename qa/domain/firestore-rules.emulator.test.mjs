@@ -189,7 +189,7 @@ test('scheduled expense creation rejects fields forged away from its template', 
     const db = context.firestore();
     await setDoc(doc(db, 'households', 'home', 'recurringExpenseTemplates', 'rent'), {
       householdId: 'home', title: 'Rent', category: 'housing', frequency: 'monthly',
-      paymentDay: 31, expectedAmount: 500, startsOn: '2026-08', active: true,
+      paymentDay: 31, expectedAmount: 500, startsOn: '2026-01', active: true,
       paymentMethod: 'transfer', payerId: 'alice', createdBy: 'alice', createdAt: '2026-08-01',
       updatedBy: 'alice', updatedAt: '2026-08-01',
     });
@@ -203,7 +203,26 @@ test('scheduled expense creation rejects fields forged away from its template', 
   };
   await assertFails(setDoc(ref, { ...scheduled, amount: 1 }));
   await assertFails(setDoc(ref, { ...scheduled, dueDate: '2026-08-30' }));
+  await assertFails(setDoc(ref, { ...scheduled, title: 'Forged rent' }));
+  await assertFails(setDoc(ref, { ...scheduled, category: 'other' }));
+  await assertFails(setDoc(ref, { ...scheduled, paymentMethod: 'card' }));
+  await assertFails(setDoc(ref, { ...scheduled, payerId: 'bob' }));
   await assertSucceeds(setDoc(ref, scheduled));
+
+  const aprilRef = doc(db, 'households', 'home', 'scheduledExpenses', 'rent__2026-04');
+  const aprilScheduled = { ...scheduled, month: '2026-04', dueDate: '2026-04-30' };
+  await assertFails(setDoc(aprilRef, { ...aprilScheduled, dueDate: '2026-04-31' }));
+  await assertSucceeds(setDoc(aprilRef, aprilScheduled));
+
+  const februaryRef = doc(db, 'households', 'home', 'scheduledExpenses', 'rent__2026-02');
+  const februaryScheduled = { ...scheduled, month: '2026-02', dueDate: '2026-02-28' };
+  await assertFails(setDoc(februaryRef, { ...februaryScheduled, dueDate: '2026-02-29' }));
+  await assertSucceeds(setDoc(februaryRef, februaryScheduled));
+
+  const leapFebruaryRef = doc(db, 'households', 'home', 'scheduledExpenses', 'rent__2028-02');
+  const leapFebruaryScheduled = { ...scheduled, month: '2028-02', dueDate: '2028-02-29' };
+  await assertFails(setDoc(leapFebruaryRef, { ...leapFebruaryScheduled, dueDate: '2028-02-28' }));
+  await assertSucceeds(setDoc(leapFebruaryRef, leapFebruaryScheduled));
 });
 
 test('plain expenses cannot gain a forged scheduled link through update', { skip: !emulatorHost }, async () => {
