@@ -48,7 +48,7 @@ npm run qa:setup
 npm run qa:lan
 ```
 
-QA 모드는 앱 로그인과 독립된 제보 버튼, 화면 Recording, Jira 티켓 생성을 제공합니다. Jira와 야간 자동수정 설정은 [docs/qa-automation.md](docs/qa-automation.md)를 따릅니다.
+QA 모드는 앱 로그인과 독립된 제보 버튼, 화면 Recording, Jira 티켓 생성을 제공합니다. Jira와 야간 자동수정 설정은 [docs/qa-automation.md](docs/qa-automation.md)를 따릅니다. 의존성 취약점의 영향 범위와 업그레이드 원칙은 [docs/dependency-audit.md](docs/dependency-audit.md)에 정리되어 있습니다.
 
 Firebase 키 없이 샘플 데이터로 확인:
 
