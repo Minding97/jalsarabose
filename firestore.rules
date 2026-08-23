@@ -183,8 +183,6 @@ service cloud.firestore {
       let template = get(
         /databases/$(database)/documents/households/$(householdId)/recurringExpenseTemplates/$(request.resource.data.templateId)
       );
-      let due = timestamp(request.resource.data.dueDate + 'T00:00:00Z');
-      let nextDay = due + duration.value(1, 'd');
       return request.resource.data.title == template.data.title
         && template.data.active == true
         && request.resource.data.category == template.data.category
@@ -197,14 +195,45 @@ service cloud.firestore {
           || request.resource.data.payerId == template.data.payerId
         )
         && request.resource.data.amount == template.data.expectedAmount
-        && request.resource.data.dueDate.matches('^' + request.resource.data.month + '-[0-9]{2}$')
-        && (
-          due.day() == template.data.paymentDay
-          || (
-            due.day() < template.data.paymentDay
-            && nextDay.month() != due.month()
-          )
-        );
+        && scheduledDueDateMatches(request.resource.data.month, request.resource.data.dueDate, template.data.paymentDay);
+    }
+
+    function scheduledDueDateMatches(month, dueDate, paymentDay) {
+      return (paymentDay == 1 && dueDate == month + '-01')
+        || (paymentDay == 2 && dueDate == month + '-02')
+        || (paymentDay == 3 && dueDate == month + '-03')
+        || (paymentDay == 4 && dueDate == month + '-04')
+        || (paymentDay == 5 && dueDate == month + '-05')
+        || (paymentDay == 6 && dueDate == month + '-06')
+        || (paymentDay == 7 && dueDate == month + '-07')
+        || (paymentDay == 8 && dueDate == month + '-08')
+        || (paymentDay == 9 && dueDate == month + '-09')
+        || (paymentDay == 10 && dueDate == month + '-10')
+        || (paymentDay == 11 && dueDate == month + '-11')
+        || (paymentDay == 12 && dueDate == month + '-12')
+        || (paymentDay == 13 && dueDate == month + '-13')
+        || (paymentDay == 14 && dueDate == month + '-14')
+        || (paymentDay == 15 && dueDate == month + '-15')
+        || (paymentDay == 16 && dueDate == month + '-16')
+        || (paymentDay == 17 && dueDate == month + '-17')
+        || (paymentDay == 18 && dueDate == month + '-18')
+        || (paymentDay == 19 && dueDate == month + '-19')
+        || (paymentDay == 20 && dueDate == month + '-20')
+        || (paymentDay == 21 && dueDate == month + '-21')
+        || (paymentDay == 22 && dueDate == month + '-22')
+        || (paymentDay == 23 && dueDate == month + '-23')
+        || (paymentDay == 24 && dueDate == month + '-24')
+        || (paymentDay == 25 && dueDate == month + '-25')
+        || (paymentDay == 26 && dueDate == month + '-26')
+        || (paymentDay == 27 && dueDate == month + '-27')
+        || (paymentDay == 28 && dueDate == month + '-28')
+        || (paymentDay == 29 && (dueDate == month + '-29' || (month.matches('^[0-9]{4}-02$') && dueDate == month + '-28')))
+        || (paymentDay == 30 && (dueDate == month + '-30' || (month.matches('^[0-9]{4}-02$') && dueDate.matches('^' + month + '-(28|29)$'))))
+        || (paymentDay == 31 && (
+          dueDate == month + '-31'
+          || (month.matches('^[0-9]{4}-(04|06|09|11)$') && dueDate == month + '-30')
+          || (month.matches('^[0-9]{4}-02$') && dueDate.matches('^' + month + '-(28|29)$'))
+        ));
     }
 
     function confirmsScheduledExpenseAmount() {
