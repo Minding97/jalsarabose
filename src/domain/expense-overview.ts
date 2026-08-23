@@ -13,7 +13,9 @@ export function getMonthlyExpenseOverview<T extends OverviewExpense>(
   const monthlyExpenses = expenses.filter(
     (expense) => expense.dueDate.slice(0, 7) === selectedMonth,
   );
-  const usedExpenses = monthlyExpenses.filter((expense) => expense.status === 'paid');
+  const usedExpenses = monthlyExpenses.filter(
+    (expense) => expense.status === 'paid' || expense.status === 'overdue',
+  );
   const scheduledExpenses = monthlyExpenses.filter((expense) => expense.status === 'scheduled');
   const recentExpenses = [...usedExpenses].sort((left, right) =>
     right.dueDate.localeCompare(left.dueDate),

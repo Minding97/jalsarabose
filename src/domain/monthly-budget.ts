@@ -107,7 +107,7 @@ export function getMonthlyBudgetSummary(
 
   const monthlyExpenses = expenses.filter((expense) => expense.dueDate.slice(0, 7) === month);
   const usedAmount = monthlyExpenses
-    .filter((expense) => expense.status === 'paid')
+    .filter((expense) => expense.status === 'paid' || expense.status === 'overdue')
     .reduce((sum, expense) => sum + expense.amount, 0);
   const scheduledAmount = monthlyExpenses
     .filter((expense) => expense.status === 'scheduled')

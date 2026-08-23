@@ -40,19 +40,20 @@ test('subtracts completed usage from the pool and reports planned expenses separ
   const expenses = [
     { dueDate: '2026-07-31', amount: 999_999, status: 'paid' },
     { dueDate: '2026-08-01', amount: 40_000, status: 'paid' },
+    { dueDate: '2026-08-02', amount: 10_000, status: 'overdue' },
     { dueDate: '2026-08-31', amount: 60_000, status: 'scheduled' },
     { dueDate: '2026-09-01', amount: 999_999, status: 'paid' },
   ];
 
   assert.deepEqual(getMonthlyBudgetSummary(budget, expenses, '2026-08'), {
-    usedAmount: 40_000,
+    usedAmount: 50_000,
     scheduledAmount: 60_000,
     budgetTotal: 100_000,
-    remainingAmount: 60_000,
+    remainingAmount: 50_000,
   });
 
   expenses.push({ dueDate: '2026-08-15', amount: 70_000, status: 'paid' });
-  assert.equal(getMonthlyBudgetSummary(budget, expenses, '2026-08').remainingAmount, -10_000);
+  assert.equal(getMonthlyBudgetSummary(budget, expenses, '2026-08').remainingAmount, -20_000);
   assert.equal(getMonthlyBudgetSummary(undefined, expenses, '2026-09').usedAmount, 999_999);
 });
 

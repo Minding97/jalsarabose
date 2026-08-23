@@ -47,11 +47,13 @@ test('sorts recent completed usage without mixing in planned expenses', () => {
     { id: 'older', dueDate: '2026-08-01', amount: 10, category: 'other', status: 'paid' },
     { id: 'planned', dueDate: '2026-08-03', amount: 30, category: 'other', status: 'scheduled' },
     { id: 'newer', dueDate: '2026-08-02', amount: 20, category: 'other', status: 'paid' },
+    { id: 'overdue', dueDate: '2026-08-04', amount: 40, category: 'other', status: 'overdue' },
   ];
 
   const overview = getMonthlyExpenseOverview(expenses, '2026-08');
 
-  assert.deepEqual(overview.recentExpenses.map(({ id }) => id), ['newer', 'older']);
+  assert.deepEqual(overview.recentExpenses.map(({ id }) => id), ['overdue', 'newer', 'older']);
+  assert.deepEqual(overview.byCategory, [{ category: 'other', amount: 70, count: 3 }]);
 });
 
 test('keeps legacy fields read-compatible but out of the new expense input and UX', () => {
