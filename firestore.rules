@@ -190,16 +190,20 @@ service cloud.firestore {
         ]);
     }
 
-    function processesScheduledExpense(householdId) {
+    function processesScheduledExpense(householdId, scheduledExpenseId) {
+      let expense = getAfter(
+        /databases/$(database)/documents/households/$(householdId)/expenses/$(request.resource.data.expenseId)
+      );
       return resource.data.status == 'scheduled'
         && request.resource.data.status == 'processed'
         && request.resource.data.amount is int
         && request.resource.data.amount >= 0
         && request.resource.data.amountStatus in ['estimated', 'confirmed']
         && request.resource.data.expenseId is string
-        && existsAfter(
-          /databases/$(database)/documents/households/$(householdId)/expenses/$(request.resource.data.expenseId)
-        )
+        && expense.data.scheduledExpenseId == scheduledExpenseId
+        && expense.data.recurringTemplateId == request.resource.data.templateId
+        && expense.data.amount == request.resource.data.amount
+        && expense.data.dueDate == request.resource.data.dueDate
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status', 'expenseId', 'updatedAt'
         ]);
@@ -325,7 +329,7 @@ service cloud.firestore {
           && scheduledExpenseSnapshotStaysSame()
           && (
             confirmsScheduledExpenseAmount()
-            || processesScheduledExpense(householdId)
+            || processesScheduledExpense(householdId, scheduledExpenseId)
           );
         allow delete: if false;
       }

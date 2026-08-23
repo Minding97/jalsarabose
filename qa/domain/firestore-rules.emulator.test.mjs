@@ -149,6 +149,39 @@ test('monthly budget rules allow members and reject outsiders', { skip: !emulato
   );
 });
 
+test('scheduled expense processing requires a matching linked expense', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'households', 'home', 'recurringExpenseTemplates', 'rent'), {
+      householdId: 'home', title: 'Rent', category: 'housing', frequency: 'monthly',
+      paymentDay: 25, expectedAmount: 500, startsOn: '2026-08', active: true,
+      createdBy: 'alice', createdAt: '2026-08-01', updatedBy: 'alice', updatedAt: '2026-08-01',
+    });
+    await setDoc(doc(db, 'households', 'home', 'scheduledExpenses', 'rent__2026-08'), {
+      householdId: 'home', templateId: 'rent', month: '2026-08', title: 'Rent',
+      category: 'housing', dueDate: '2026-08-25', amount: 500, amountStatus: 'estimated',
+      status: 'scheduled', generatedAt: '2026-08-01', updatedAt: '2026-08-01',
+    });
+    await setDoc(doc(db, 'households', 'home', 'expenses', 'unrelated'), {
+      householdId: 'home', title: 'Other', amount: 500, dueDate: '2026-08-25', status: 'paid',
+      recurringTemplateId: 'rent', scheduledExpenseId: 'another__2026-08', createdBy: 'alice', createdAt: '2026-08-01',
+    });
+  });
+  const db = environment.authenticatedContext('alice').firestore();
+  const scheduledRef = doc(db, 'households', 'home', 'scheduledExpenses', 'rent__2026-08');
+  await assertFails(updateDoc(scheduledRef, { status: 'processed', expenseId: 'unrelated', updatedAt: '2026-08-02' }));
+  await assertSucceeds(runTransaction(db, async (transaction) => {
+    transaction.set(doc(db, 'households', 'home', 'expenses', 'linked'), {
+      householdId: 'home', title: 'Rent', category: 'housing', amount: 500, dueDate: '2026-08-25',
+      status: 'paid', recurringTemplateId: 'rent', scheduledExpenseId: 'rent__2026-08',
+      createdBy: 'alice', createdAt: '2026-08-02', notificationEnabled: false,
+    });
+    transaction.update(scheduledRef, { status: 'processed', expenseId: 'linked', updatedAt: '2026-08-02' });
+  }));
+});
+
 test('joining an existing household is idempotent and preserves member metadata', { skip: !emulatorHost }, async () => {
   await environment.clearFirestore();
   await seedJoinableHousehold();
