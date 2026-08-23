@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { closeSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, prepareNightlyPlan, processIssue, reportUnmergedReview, reportVerifiedCompletion } from './nightly-runner.mjs';
+import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, prepareNightlyPlan, processIssue, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -36,6 +36,41 @@ test('checks out an existing PR head without claiming its local branch', () => {
     buildWorktreeAddArgs('/tmp/JAL-55', 'origin/codex/JAL-47-p0'),
     ['worktree', 'add', '--force', '--detach', '/tmp/JAL-55', 'origin/codex/JAL-47-p0'],
   );
+});
+
+test('removes the generated node_modules symlink before staging a ticket', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-stage-test-'));
+  const target = resolve(root, 'shared-node-modules');
+  const worktree = resolve(root, 'worktree');
+  mkdirSync(target);
+  mkdirSync(worktree);
+  symlinkSync(target, resolve(worktree, 'node_modules'), 'dir');
+
+  removeGeneratedWorktreeLinks(worktree);
+
+  assert.equal(existsSync(resolve(worktree, 'node_modules')), false);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('preserves a real node_modules directory when preparing to stage a ticket', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-stage-directory-test-'));
+  const worktree = resolve(root, 'worktree');
+  mkdirSync(resolve(worktree, 'node_modules'), { recursive: true });
+  writeFileSync(resolve(worktree, 'node_modules', 'sentinel'), 'keep');
+
+  removeGeneratedWorktreeLinks(worktree);
+
+  assert.equal(readFileSync(resolve(worktree, 'node_modules', 'sentinel'), 'utf8'), 'keep');
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('removes generated links after verification and before git add', () => {
+  const source = readFileSync(new URL('./nightly-runner.mjs', import.meta.url), 'utf8');
+  const verify = source.indexOf("await runCommand('npm', ['run', 'verify']");
+  const remove = source.indexOf('removeGeneratedWorktreeLinks(worktree);', verify);
+  const stage = source.indexOf("await runCommand('git', ['add', '-A']", remove);
+
+  assert.ok(verify >= 0 && verify < remove && remove < stage);
 });
 
 function jiraWith(issue, parent = issue) {
