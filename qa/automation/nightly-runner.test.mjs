@@ -313,7 +313,7 @@ test('nightly lock contention leaves the existing owner lock untouched', () => {
   }
 });
 
-test('nightly finally integration downgrades status when preview refresh throws', async () => {
+test('nightly preview failure has a status distinct from ticket or PR failure', async () => {
   const summary = successfulNightlySummary();
 
   await completeNightlyRun({
@@ -324,7 +324,12 @@ test('nightly finally integration downgrades status when preview refresh throws'
     },
   });
 
-  assert.equal(summary.status, '일부 실패');
+  assert.equal(summary.status, 'Preview 반영 실패');
+  assert.notEqual(
+    summary.status,
+    classifyNightlyStatus([{ key: 'JAL-47', result: '실패/미병합' }]),
+  );
+  assert.ok(summary.ticketResults.every((item) => item.result === '성공'));
   assert.deepEqual(summary.preview, { status: '미반영', reason: 'preview restart failed' });
   assert.match(summary.completedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
@@ -343,8 +348,9 @@ test('nightly lock stays live until an eligible preview refresh completes', asyn
   });
 
   try {
+    const summary = successfulNightlySummary();
     const finishing = completeNightlyRun({
-      summary: successfulNightlySummary(),
+      summary,
       lockFile: descriptor,
       activeLockPath: path,
       refresh: async () => {
@@ -360,13 +366,40 @@ test('nightly lock stays live until an eligible preview refresh completes', asyn
       (error) => error.code === 'QA_NIGHTLY_LOCKED',
     );
     assert.equal(existsSync(path), true);
+    assert.equal(summary.completedAt, undefined);
 
     finishRefresh();
     await finishing;
     assert.equal(existsSync(path), false);
+    assert.match(summary.completedAt, /^\d{4}-\d{2}-\d{2}T/);
 
     const nextDescriptor = acquireNightlyLock(path);
     closeSync(nextDescriptor);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('failed nightly run skips preview refresh and releases its lock immediately', { timeout: 1_000 }, async () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-failed-lock-test-'));
+  const path = resolve(root, 'nightly.lock');
+  const descriptor = acquireNightlyLock(path);
+  let refreshCalled = false;
+
+  try {
+    await completeNightlyRun({
+      summary: successfulNightlySummary(),
+      runFailed: true,
+      lockFile: descriptor,
+      activeLockPath: path,
+      refresh: () => {
+        refreshCalled = true;
+        return new Promise(() => {});
+      },
+    });
+
+    assert.equal(refreshCalled, false);
+    assert.equal(existsSync(path), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

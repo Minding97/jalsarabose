@@ -162,7 +162,7 @@ export async function runNightlyPreviewFollowUp({
       status: '미반영',
       reason: error instanceof Error ? error.message : String(error),
     };
-    summary.status = '일부 실패';
+    summary.status = 'Preview 반영 실패';
   }
   return summary.preview;
 }
@@ -175,10 +175,10 @@ export async function completeNightlyRun({
   activeLockPath = lockPath,
   refresh = refreshLanPreview,
 } = {}) {
-  summary.completedAt = new Date().toISOString();
   try {
     await runNightlyPreviewFollowUp({ summary, dryRun, runFailed, refresh });
   } finally {
+    summary.completedAt = new Date().toISOString();
     if (lockFile !== undefined) {
       closeSync(lockFile);
       rmSync(activeLockPath, { force: true });
