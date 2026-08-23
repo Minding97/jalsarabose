@@ -8,6 +8,12 @@ export type EventType = 'expense' | 'fridge';
 export type ExpenseCategory = 'rent' | 'utilities' | 'living' | 'subscription' | 'other';
 export type ExpenseStatus = 'scheduled' | 'paid' | 'overdue';
 export type ContributionMode = 'equal' | 'custom';
+export type ReminderLeadDays = 3 | 1 | 0;
+
+export type NotificationSettings = {
+  expenseEnabled: boolean;
+  fridgeEnabled: boolean;
+};
 
 export type FridgeCategory = 'vegetable' | 'fruit' | 'meat' | 'dairy' | 'side' | 'sauce' | 'other';
 export type StorageType = 'fridge' | 'freezer' | 'room';
@@ -101,6 +107,7 @@ export type UserProfile = {
   email: string;
   displayName: string;
   activeHouseholdId?: ID | null;
+  notificationSettings: NotificationSettings;
   createdAt: ISODate;
   updatedAt: ISODate;
 };

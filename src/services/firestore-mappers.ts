@@ -9,6 +9,7 @@ import {
   MonthlyBudget,
   UserProfile,
 } from '@/domain/types';
+import { normalizeNotificationSettings } from '@/domain/notification-settings';
 import { toIsoDate } from '@/utils/dates';
 
 type DatedRecord = Record<string, unknown>;
@@ -44,6 +45,7 @@ export function userProfileFromDoc(doc: QueryDocumentSnapshot<DocumentData>): Us
     email: data.email ?? '',
     displayName: data.displayName ?? '',
     activeHouseholdId: data.activeHouseholdId,
+    notificationSettings: normalizeNotificationSettings(data.notificationSettings),
     createdAt: asIsoDate(data.createdAt),
     updatedAt: asIsoDate(data.updatedAt),
   };

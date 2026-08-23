@@ -20,24 +20,17 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
   const household = useHouseholdStore((state) => state.household);
   const joinHousehold = useHouseholdStore((state) => state.joinHousehold);
   const signOut = useHouseholdStore((state) => state.signOut);
-  const scheduleNotifications = useHouseholdStore((state) => state.scheduleNotifications);
-  const cancelNotifications = useHouseholdStore((state) => state.cancelNotifications);
+  const notificationSettings = useHouseholdStore(
+    (state) => state.currentUser?.notificationSettings,
+  );
+  const updateNotificationSettings = useHouseholdStore(
+    (state) => state.updateNotificationSettings,
+  );
   const notificationMessage = useHouseholdStore((state) => state.notificationMessage);
-  const [expiryEnabled, setExpiryEnabled] = useState(true);
   const [switchingHousehold, setSwitchingHousehold] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [submittingSwitch, setSubmittingSwitch] = useState(false);
-
-  const updateExpiryReminder = (enabled: boolean) => {
-    setExpiryEnabled(enabled);
-
-    if (enabled) {
-      void scheduleNotifications();
-    } else {
-      void cancelNotifications();
-    }
-  };
 
   const switchHousehold = async () => {
     const normalizedCode = inviteCode.trim().toUpperCase();
@@ -118,16 +111,34 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
                 styles.panel,
                 { backgroundColor: theme.backgroundElement, borderColor: theme.border },
               ]}>
+              <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
+                <Text style={[styles.settingText, { color: theme.text }]}>내 지출 납부 알림</Text>
+                <Switch
+                  testID="profile-expense-notification-switch"
+                  value={notificationSettings?.expenseEnabled ?? true}
+                  onValueChange={(expenseEnabled) =>
+                    void updateNotificationSettings({ expenseEnabled }).catch(() => undefined)
+                  }
+                  trackColor={{ false: theme.border, true: theme.primary }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
               <View style={[styles.settingRow, styles.settingRowLast]}>
                 <Text style={[styles.settingText, { color: theme.text }]}>유통기한 알림</Text>
                 <Switch
-                  value={expiryEnabled}
-                  onValueChange={updateExpiryReminder}
+                  testID="profile-fridge-notification-switch"
+                  value={notificationSettings?.fridgeEnabled ?? true}
+                  onValueChange={(fridgeEnabled) =>
+                    void updateNotificationSettings({ fridgeEnabled }).catch(() => undefined)
+                  }
                   trackColor={{ false: theme.border, true: theme.primary }}
                   thumbColor="#FFFFFF"
                 />
               </View>
             </View>
+            <Text style={[styles.helperText, { color: theme.textSecondary }]}>
+              {'지출 알림은 납부자로 지정된 가구원에게만 전송돼요.'}
+            </Text>
             {notificationMessage ? (
               <Text style={[styles.helperText, { color: theme.textSecondary }]}>
                 {notificationMessage}
