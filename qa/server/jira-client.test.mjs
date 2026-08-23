@@ -175,3 +175,22 @@ test('keeps a subtask open when its hashed review finding is still blocking', ()
   assert.equal(issueMatchesReviewFindings(issue, [{ fingerprint }]), true);
   assert.equal(issueMatchesReviewFindings(issue, [{ fingerprint: 'p1-resolved' }]), false);
 });
+
+test('scopes review-child searches to the parent and pull request labels', async (context) => {
+  const originalFetch = globalThis.fetch;
+  context.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  let requestBody;
+  globalThis.fetch = async (_url, init) => {
+    requestBody = JSON.parse(init.body);
+    return Response.json({ issues: [] });
+  };
+
+  const client = new JiraClient(config);
+  await client.searchReviewChildren('JAL-47', 17);
+
+  assert.match(requestBody.jql, /parent = "JAL-47"/);
+  assert.match(requestBody.jql, /labels = "qa-review-followup"/);
+  assert.match(requestBody.jql, /labels = "pr-17"/);
+});

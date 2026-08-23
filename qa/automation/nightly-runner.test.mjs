@@ -26,18 +26,24 @@ test('reconcile fails closed unless merged, verify, and latest-head Claude gates
   assert.deepEqual(transitions, [['JAL-47', '완료']]);
 });
 
-test('completion closes only review children of the exact parent and records idempotent evidence', async () => {
+test('completion closes only review children for the exact parent and pull request', async () => {
   const transitions = [];
   const comments = [];
+  const searches = [];
   const jira = {
-    searchReviewChildren: async () => [
-      { key: 'JAL-56', fields: { parent: { key: 'JAL-47' }, status: { name: '검토 중' }, comment: { comments: [] } } },
-      { key: 'JAL-X', fields: { parent: { key: 'JAL-99' }, status: { name: '검토 중' }, comment: { comments: [] } } },
-    ],
+    searchReviewChildren: async (...args) => {
+      searches.push(args);
+      return [
+        { key: 'JAL-56', fields: { labels: ['qa-review-followup', 'pr-17'], parent: { key: 'JAL-47' }, status: { name: '검토 중' }, comment: { comments: [] } } },
+        { key: 'JAL-57', fields: { labels: ['qa-review-followup', 'pr-16'], parent: { key: 'JAL-47' }, status: { name: '검토 중' }, comment: { comments: [] } } },
+        { key: 'JAL-X', fields: { labels: ['qa-review-followup', 'pr-17'], parent: { key: 'JAL-99' }, status: { name: '검토 중' }, comment: { comments: [] } } },
+      ];
+    },
     transitionIssue: async (...args) => transitions.push(args),
     addComment: async (...args) => comments.push(args),
   };
   await completeReviewFamily(jira, config, { key: 'JAL-47' }, 17);
+  assert.deepEqual(searches, [['JAL-47', 17]]);
   assert.deepEqual(transitions, [['JAL-56', '완료']]);
   assert.equal(comments.length, 1);
   assert.match(comments[0][1], /qa-review-family:JAL-47:pr-17/);

@@ -671,9 +671,11 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
 
 export async function completeReviewFamily(jira, config, parent, pullRequestNumber) {
   const marker = `<!-- qa-review-family:${parent.key}:pr-${pullRequestNumber} -->`;
-  const children = await jira.searchReviewChildren(parent.key);
+  const pullRequestLabel = `pr-${pullRequestNumber}`;
+  const children = await jira.searchReviewChildren(parent.key, pullRequestNumber);
   for (const child of children) {
     if (child.fields?.parent?.key !== parent.key) continue;
+    if (!child.fields?.labels?.includes(pullRequestLabel)) continue;
     if (child.fields?.status?.name !== config.jiraDoneStatus) {
       await jira.transitionIssue(child.key, config.jiraDoneStatus);
     }

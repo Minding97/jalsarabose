@@ -1,16 +1,17 @@
 import { runCommand } from './command.mjs';
 
 export class GitHubClient {
-  constructor(repository) {
+  constructor(repository, commandRunner = runCommand) {
     this.repository = repository;
+    this.runCommand = commandRunner;
   }
 
   async ensureAuthenticated() {
-    await runCommand('gh', ['auth', 'status']);
+    await this.runCommand('gh', ['auth', 'status']);
   }
 
   async createPullRequest({ branch, title, body }) {
-    await runCommand('gh', [
+    await this.runCommand('gh', [
       'pr',
       'create',
       '--repo',
@@ -28,7 +29,7 @@ export class GitHubClient {
   }
 
   async getPullRequest(reference) {
-    const response = await runCommand('gh', [
+    const response = await this.runCommand('gh', [
       'pr',
       'view',
       String(reference),
@@ -41,7 +42,7 @@ export class GitHubClient {
   }
 
   async getCompletionGate(reference) {
-    const response = await runCommand('gh', [
+    const response = await this.runCommand('gh', [
       'pr', 'view', String(reference), '--repo', this.repository, '--json',
       'number,state,mergedAt,headRefOid,statusCheckRollup',
     ]);
@@ -78,11 +79,11 @@ export class GitHubClient {
     if (targetUrl) {
       args.push('-f', `target_url=${targetUrl}`);
     }
-    await runCommand('gh', args);
+    await this.runCommand('gh', args);
   }
 
   async comment(pullRequestNumber, body) {
-    await runCommand('gh', [
+    await this.runCommand('gh', [
       'pr',
       'comment',
       String(pullRequestNumber),
@@ -94,7 +95,7 @@ export class GitHubClient {
   }
 
   async enableAutoMerge(pullRequestNumber) {
-    await runCommand('gh', [
+    await this.runCommand('gh', [
       'pr',
       'merge',
       String(pullRequestNumber),
@@ -107,7 +108,7 @@ export class GitHubClient {
   }
 
   async getReviewCycle(pullRequestNumber) {
-    const response = await runCommand('gh', [
+    const response = await this.runCommand('gh', [
       'api',
       `repos/${this.repository}/issues/${pullRequestNumber}/comments`,
       '--paginate',
