@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 
 import { AppShell } from '@/components/app-shell';
+import { NetworkStatusBanner } from '@/components/network-status-banner';
 import { QaOverlay } from '@/components/qa-overlay';
 
 export default function TabLayout() {
@@ -19,6 +20,7 @@ export default function TabLayout() {
     <ThemeProvider value={DefaultTheme}>
       <StatusBar style="dark" />
       <View style={styles.root}>
+        <NetworkStatusBanner />
         <AppShell />
         <QaOverlay />
       </View>

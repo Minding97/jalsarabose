@@ -276,7 +276,11 @@ async function runRegressionSuites(config) {
       {
         worktree,
         port: config.replayPort,
-        env: testEnvironment,
+        env: {
+          ...testEnvironment,
+          EXPO_PUBLIC_USE_MOCKS: 'true',
+          EXPO_PUBLIC_QA_E2E: 'true',
+        },
         inheritEnv: false,
       },
       async (appUrl) => {

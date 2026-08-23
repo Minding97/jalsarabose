@@ -17,6 +17,7 @@ import {
   UserProfile,
 } from '@/domain/types';
 import { validateMonthlyBudgetInput } from '@/domain/monthly-budget';
+import { e2eMockBackend } from '@/qa/e2e-mock-backend';
 import {
   addExpense,
   addFridgeItem,
@@ -36,7 +37,7 @@ import {
   updateFridgeItem,
   upsertUserProfile,
 } from '@/services/household-repository';
-import { firebaseConfigIssues, isFirebaseConfigured, useMocks } from '@/services/firebase';
+import { firebaseConfigIssues, isFirebaseConfigured, useE2eMocks, useMocks } from '@/services/firebase';
 import { todayIso } from '@/utils/dates';
 
 type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated' | 'mock' | 'missing-config';
@@ -92,13 +93,13 @@ const emptySnapshot: HouseholdSnapshot = {
 };
 
 export const useHouseholdStore = create<StoreState>((set, get) => ({
-  ...(useMocks ? seedState : emptySnapshot),
-  authStatus: useMocks ? 'mock' : 'checking',
-  dataStatus: useMocks ? 'ready' : 'idle',
+  ...(useMocks && !useE2eMocks ? seedState : emptySnapshot),
+  authStatus: useMocks ? (useE2eMocks ? 'unauthenticated' : 'mock') : 'checking',
+  dataStatus: useMocks && !useE2eMocks ? 'ready' : 'idle',
   notificationStatus: 'idle',
   scheduledNotificationCount: 0,
   notificationMessage: null,
-  currentUser: useMocks
+  currentUser: useMocks && !useE2eMocks
     ? {
         uid: 'mock-user',
         email: 'mock@jalsarabose.local',
@@ -108,11 +109,23 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
         updatedAt: todayIso(),
       }
     : null,
-  activeHouseholdId: useMocks ? seedState.household.id : null,
+  activeHouseholdId: useMocks && !useE2eMocks ? seedState.household.id : null,
   errorMessage: null,
   configIssues: firebaseConfigIssues,
 
   initializeSession: () => {
+    if (useE2eMocks) {
+      set({
+        ...emptySnapshot,
+        authStatus: 'unauthenticated',
+        dataStatus: 'idle',
+        currentUser: null,
+        activeHouseholdId: null,
+        errorMessage: null,
+      });
+      return () => undefined;
+    }
+
     if (useMocks) {
       set({
         ...createSeedState(),
@@ -207,6 +220,17 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
   signInWithEmail: async (email, password) => {
     set({ errorMessage: null });
     try {
+      if (useE2eMocks) {
+        const session = e2eMockBackend.signIn(email, password);
+        set({
+          ...(session.snapshot ?? emptySnapshot),
+          authStatus: 'authenticated',
+          dataStatus: session.snapshot ? 'ready' : 'empty',
+          currentUser: session.profile,
+          activeHouseholdId: session.profile.activeHouseholdId ?? null,
+        });
+        return;
+      }
       await signIn(email, password);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
@@ -217,6 +241,17 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
   signUpWithEmail: async (email, password, displayName) => {
     set({ errorMessage: null });
     try {
+      if (useE2eMocks) {
+        const session = e2eMockBackend.signUp(email, password, displayName);
+        set({
+          ...emptySnapshot,
+          authStatus: 'authenticated',
+          dataStatus: 'empty',
+          currentUser: session.profile,
+          activeHouseholdId: null,
+        });
+        return;
+      }
       await signUp(email, password, displayName);
     } catch (error) {
       set({ errorMessage: getErrorMessage(error) });
@@ -225,6 +260,17 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
   },
 
   signOut: async () => {
+    if (useE2eMocks) {
+      set({
+        ...emptySnapshot,
+        authStatus: 'unauthenticated',
+        dataStatus: 'idle',
+        currentUser: null,
+        activeHouseholdId: null,
+        errorMessage: null,
+      });
+      return;
+    }
     if (useMocks) {
       return;
     }
@@ -233,6 +279,18 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
   createNewHousehold: async (name) => {
     const user = requireCurrentUser(get());
+
+    if (useE2eMocks) {
+      const session = e2eMockBackend.createHousehold(user, name);
+      set({
+        ...session.snapshot!,
+        currentUser: session.profile,
+        activeHouseholdId: session.profile.activeHouseholdId ?? null,
+        dataStatus: 'ready',
+        errorMessage: null,
+      });
+      return;
+    }
 
     if (useMocks) {
       set((state) => ({
@@ -254,6 +312,23 @@ export const useHouseholdStore = create<StoreState>((set, get) => ({
 
   joinHousehold: async (code) => {
     const user = requireCurrentUser(get());
+
+    if (useE2eMocks) {
+      try {
+        const session = e2eMockBackend.joinHousehold(user, code);
+        set({
+          ...session.snapshot!,
+          currentUser: session.profile,
+          activeHouseholdId: session.profile.activeHouseholdId ?? null,
+          dataStatus: 'ready',
+          errorMessage: null,
+        });
+      } catch (error) {
+        set({ errorMessage: getErrorMessage(error) });
+        throw error;
+      }
+      return;
+    }
 
     if (useMocks) {
       set({ errorMessage: 'Mock 모드에서는 초대 코드 참여를 시뮬레이션하지 않아요.' });

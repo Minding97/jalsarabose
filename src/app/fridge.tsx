@@ -190,6 +190,7 @@ export default function FridgeScreen() {
         <View style={styles.formActions}>
           {editingId ? (
             <ActionButton
+              testID="fridge-delete-button"
               variant="secondary"
               onPress={remove}
               disabled={submitting}
