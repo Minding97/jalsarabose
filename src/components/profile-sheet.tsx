@@ -142,7 +142,9 @@ export function ProfileSheet({ visible, onClose }: ProfileSheetProps) {
               ]}>
               <Text style={[styles.inviteText, { color: theme.textSecondary }]}>
                 초대 코드{' '}
-                <Text style={[styles.inviteCode, { color: theme.primary }]}>
+                <Text
+                  testID="profile-invite-code"
+                  style={[styles.inviteCode, { color: theme.primary }]}>
                   {household.inviteCode || '없음'}
                 </Text>
                 을 공유해서 가구원을 추가해요

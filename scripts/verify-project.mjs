@@ -7,6 +7,7 @@ const checks = [
   ['qa:test', ['npm', ['run', 'qa:test']]],
   ['typecheck', ['npm', ['run', 'typecheck']]],
   ['lint', ['npm', ['run', 'lint']]],
+  ['export:native', ['npm', ['run', 'export:native']]],
   ['export:web', ['npm', ['run', 'export:web']]],
 ];
 

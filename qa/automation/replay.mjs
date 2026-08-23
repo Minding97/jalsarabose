@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 
 import { loadQaConfig } from '../server/config.mjs';
+import { resolveChromeExecutablePath } from './browser.mjs';
 
 function parseArguments(argv) {
   const result = {};
@@ -37,7 +38,7 @@ export async function replayRecording({
   const recording = JSON.parse(readFileSync(recordingPath, 'utf8'));
   const browser = await chromium.launch({
     headless: true,
-    executablePath: config.chromeExecutablePath,
+    executablePath: resolveChromeExecutablePath(config.chromeExecutablePath),
   });
   const page = await browser.newPage({
     viewport: { width: 402, height: 874 },

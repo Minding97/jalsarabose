@@ -12,6 +12,7 @@ const firebaseConfig: FirebaseOptions = {
 };
 
 export const useMocks = process.env.EXPO_PUBLIC_USE_MOCKS === 'true';
+export const useE2eMocks = useMocks && process.env.EXPO_PUBLIC_QA_E2E === 'true';
 
 export const firebaseConfigIssues = Object.entries(firebaseConfig)
   .filter(([, value]) => !value)
