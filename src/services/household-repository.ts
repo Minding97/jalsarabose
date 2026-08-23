@@ -48,6 +48,8 @@ import {
 } from '@/domain/types';
 import { todayIso } from '@/utils/dates';
 import { saveMonthlyBudgetWithRevision } from '@/services/monthly-budget-write';
+import { createHouseholdSnapshotGate } from '@/services/household-snapshot-gate';
+import type { HouseholdSnapshotSource } from '@/services/household-snapshot-gate';
 
 type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
 type CreateHouseholdInput = {
@@ -230,11 +232,9 @@ export function subscribeHouseholdSnapshot(
   let fridgeItems: FridgeItem[] = [];
   let notes: HouseholdNote[] = [];
   let noteComments: HouseholdNoteComment[] = [];
-  const initializedSources = new Set<string>();
-  const coreSources = ['household', 'members', 'monthlyBudgets', 'expenses', 'fridgeItems'];
 
   const emit = () => {
-    if (!household || !coreSources.every((source) => initializedSources.has(source))) {
+    if (!household) {
       return;
     }
 
@@ -264,11 +264,9 @@ export function subscribeHouseholdSnapshot(
     });
   };
 
-  const markInitialized = (source: string) => initializedSources.add(source);
-  const handleOptionalSourceError = (source: string) => (_error: Error) => {
-    markInitialized(source);
-    emit();
-  };
+  const snapshotGate = createHouseholdSnapshotGate(emit, onError);
+  const handleSourceError = (source: HouseholdSnapshotSource) => (error: Error) =>
+    snapshotGate.sourceFailed(source, error);
 
   const unsubs = [
     onSnapshot(
@@ -279,64 +277,57 @@ export function subscribeHouseholdSnapshot(
           return;
         }
         household = householdFromDoc(snapshot);
-        markInitialized('household');
-        emit();
+        snapshotGate.sourceLoaded('household');
       },
-      onError,
+      handleSourceError('household'),
     ),
     onSnapshot(
       collection(db, 'households', householdId, 'members'),
       (snapshot) => {
         members = snapshot.docs.map(memberFromDoc);
-        markInitialized('members');
-        emit();
+        snapshotGate.sourceLoaded('members');
       },
-      onError,
+      handleSourceError('members'),
     ),
     onSnapshot(
       query(collection(db, 'households', householdId, 'monthlyBudgets'), orderBy('month', 'desc')),
       (snapshot) => {
         monthlyBudgets = snapshot.docs.map(monthlyBudgetFromDoc);
-        markInitialized('monthlyBudgets');
-        emit();
+        snapshotGate.sourceLoaded('monthlyBudgets');
       },
-      onError,
+      handleSourceError('monthlyBudgets'),
     ),
     onSnapshot(
       query(collection(db, 'households', householdId, 'expenses'), orderBy('dueDate', 'asc')),
       (snapshot) => {
         expenses = snapshot.docs.map(expenseFromDoc);
-        markInitialized('expenses');
-        emit();
+        snapshotGate.sourceLoaded('expenses');
       },
-      onError,
+      handleSourceError('expenses'),
     ),
     onSnapshot(
       query(collection(db, 'households', householdId, 'fridgeItems'), orderBy('createdAt', 'desc')),
       (snapshot) => {
         fridgeItems = snapshot.docs.map(fridgeItemFromDoc);
-        markInitialized('fridgeItems');
-        emit();
+        snapshotGate.sourceLoaded('fridgeItems');
       },
-      onError,
+      handleSourceError('fridgeItems'),
     ),
     onSnapshot(
       query(collection(db, 'households', householdId, 'notes'), orderBy('updatedAt', 'desc')),
       (snapshot) => {
         notes = snapshot.docs.map(householdNoteFromDoc);
-        markInitialized('notes');
-        emit();
+        snapshotGate.sourceLoaded('notes');
       },
-      handleOptionalSourceError('notes'),
+      handleSourceError('notes'),
     ),
     onSnapshot(
       query(collection(db, 'households', householdId, 'noteComments'), orderBy('createdAt', 'asc')),
       (snapshot) => {
         noteComments = snapshot.docs.map(householdNoteCommentFromDoc);
-        markInitialized('noteComments');
-        emit();
+        snapshotGate.sourceLoaded('noteComments');
       },
-      handleOptionalSourceError('noteComments'),
+      handleSourceError('noteComments'),
     ),
   ];
 
