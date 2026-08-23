@@ -182,6 +182,30 @@ test('scheduled expense processing requires a matching linked expense', { skip: 
   }));
 });
 
+test('scheduled expense creation rejects fields forged away from its template', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'households', 'home', 'recurringExpenseTemplates', 'rent'), {
+      householdId: 'home', title: 'Rent', category: 'housing', frequency: 'monthly',
+      paymentDay: 31, expectedAmount: 500, startsOn: '2026-08', active: true,
+      paymentMethod: 'transfer', payerId: 'alice', createdBy: 'alice', createdAt: '2026-08-01',
+      updatedBy: 'alice', updatedAt: '2026-08-01',
+    });
+  });
+  const db = environment.authenticatedContext('alice').firestore();
+  const ref = doc(db, 'households', 'home', 'scheduledExpenses', 'rent__2026-08');
+  const scheduled = {
+    householdId: 'home', templateId: 'rent', month: '2026-08', title: 'Rent', category: 'housing',
+    dueDate: '2026-08-31', amount: 500, amountStatus: 'estimated', paymentMethod: 'transfer',
+    payerId: 'alice', status: 'scheduled', generatedAt: '2026-08-01', updatedAt: '2026-08-01',
+  };
+  await assertFails(setDoc(ref, { ...scheduled, amount: 1 }));
+  await assertFails(setDoc(ref, { ...scheduled, dueDate: '2026-08-30' }));
+  await assertSucceeds(setDoc(ref, scheduled));
+});
+
 test('joining an existing household is idempotent and preserves member metadata', { skip: !emulatorHost }, async () => {
   await environment.clearFirestore();
   await seedJoinableHousehold();
