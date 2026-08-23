@@ -14,13 +14,14 @@ let initializeTestEnvironment;
 let runTransaction;
 let setDoc;
 let updateDoc;
+let writeBatch;
 let saveMonthlyBudgetWithRevision;
 let MonthlyBudgetConflictError;
 
 before(async () => {
   if (!emulatorHost) return;
   ({ assertFails, assertSucceeds, initializeTestEnvironment } = await import('@firebase/rules-unit-testing'));
-  ({ deleteDoc, doc, getDoc, runTransaction, setDoc, updateDoc } = await import(
+  ({ deleteDoc, doc, getDoc, runTransaction, setDoc, updateDoc, writeBatch } = await import(
     'firebase/firestore'
   ));
   ({ saveMonthlyBudgetWithRevision, MonthlyBudgetConflictError } = await import(
@@ -224,6 +225,22 @@ test('comment deletion is limited to its author or a household admin', { skip: !
   await assertFails(deleteDoc(doc(bobDb, 'households', 'home', 'noteComments', 'alice-comment')));
   await assertSucceeds(deleteDoc(doc(aliceDb, 'households', 'home', 'noteComments', 'bob-comment')));
   await assertSucceeds(deleteDoc(aliceComment));
+});
+
+test('a member can batch-delete a note and its comments through the cascade rule', { skip: !emulatorHost }, async () => {
+  await environment.clearFirestore();
+  await seedTwoMemberHousehold();
+  const aliceDb = environment.authenticatedContext('alice').firestore();
+  const bobDb = environment.authenticatedContext('bob').firestore();
+  await assertSucceeds(setDoc(doc(aliceDb, 'households', 'home', 'notes', 'cascade-note'), householdNote()));
+  await assertSucceeds(setDoc(
+    doc(aliceDb, 'households', 'home', 'noteComments', 'alice-cascade-comment'),
+    noteComment({ noteId: 'cascade-note', createdBy: 'alice' }),
+  ));
+  const batch = writeBatch(bobDb);
+  batch.delete(doc(bobDb, 'households', 'home', 'noteComments', 'alice-cascade-comment'));
+  batch.delete(doc(bobDb, 'households', 'home', 'notes', 'cascade-note'));
+  await assertSucceeds(batch.commit());
 });
 
 test('joining an existing household is idempotent and preserves member metadata', { skip: !emulatorHost }, async () => {

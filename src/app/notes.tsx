@@ -553,7 +553,9 @@ function getMessage(error: unknown, fallback: string) {
 
 function confirmDestructive(title: string, message: string, action: () => void) {
   if (Platform.OS === 'web') {
-    action();
+    if (typeof window !== 'undefined' && window.confirm(`${title}\n\n${message}`)) {
+      action();
+    }
     return;
   }
   Alert.alert(title, message, [

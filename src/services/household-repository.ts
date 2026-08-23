@@ -231,9 +231,10 @@ export function subscribeHouseholdSnapshot(
   let notes: HouseholdNote[] = [];
   let noteComments: HouseholdNoteComment[] = [];
   const initializedSources = new Set<string>();
+  const coreSources = ['household', 'members', 'monthlyBudgets', 'expenses', 'fridgeItems'];
 
   const emit = () => {
-    if (!household || initializedSources.size < 7) {
+    if (!household || !coreSources.every((source) => initializedSources.has(source))) {
       return;
     }
 
@@ -264,6 +265,10 @@ export function subscribeHouseholdSnapshot(
   };
 
   const markInitialized = (source: string) => initializedSources.add(source);
+  const handleOptionalSourceError = (source: string) => (_error: Error) => {
+    markInitialized(source);
+    emit();
+  };
 
   const unsubs = [
     onSnapshot(
@@ -322,7 +327,7 @@ export function subscribeHouseholdSnapshot(
         markInitialized('notes');
         emit();
       },
-      onError,
+      handleOptionalSourceError('notes'),
     ),
     onSnapshot(
       query(collection(db, 'households', householdId, 'noteComments'), orderBy('createdAt', 'asc')),
@@ -331,7 +336,7 @@ export function subscribeHouseholdSnapshot(
         markInitialized('noteComments');
         emit();
       },
-      onError,
+      handleOptionalSourceError('noteComments'),
     ),
   ];
 
