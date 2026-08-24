@@ -701,7 +701,10 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error?.code === 'QA_NIGHTLY_DEADLINE') {
-      await jira.transitionIssue(issue.key, config.jiraReadyStatus);
+      await jira.transitionIssue(parentKey, config.jiraReadyStatus);
+      if (issue.key !== parentKey) {
+        await jira.transitionIssue(issue.key, config.jiraReadyStatus);
+      }
       console.log(`${issue.key}: ${message}`);
       return { succeeded: false, deferred: true };
     }

@@ -47,6 +47,39 @@ test('processIssue requeues a ticket when its overall deadline is reached', asyn
   assert.deepEqual(transitions, [['JAL-70', '진행'], ['JAL-70', '대기']]);
 });
 
+test('processIssue requeues both parent and sub-task when deadline interrupts review repair', async () => {
+  const parent = { key: 'JAL-70', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
+  const issue = { key: 'JAL-71', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-deadline-parent-'));
+  const transitions = [];
+  const deadline = new Date(Date.now() + 60_000);
+  const jira = {
+    getIssue: async (key) => key === parent.key ? parent : issue,
+    transitionIssue: async (...args) => transitions.push(args),
+    addLabel: async () => {},
+  };
+  const outcome = await processIssue({
+    jira,
+    github: { createPullRequest: async () => ({ number: 57 }) },
+    config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기', jiraReviewStatus: '리뷰', jiraBaseUrl: 'https://jira.invalid' },
+    issue,
+    dryRun: false,
+    deadline,
+    operations: {
+      createWorktree: async () => worktree,
+      runReplaySuite: async () => null,
+      runCodex: async () => ({ summary: 'ok', tests: ['ok'], reproduction: 'ok' }),
+      commitAndPush: async () => 'sha',
+      reviewAndGate: async ({ repairReviewFindings }) => {
+        deadline.setTime(Date.now() - 1);
+        await repairReviewFindings([], 1);
+      },
+    },
+  });
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+  assert.deepEqual(transitions.slice(-2), [['JAL-70', '대기'], ['JAL-71', '대기']]);
+});
+
 test('processIssue drives the real repair closure through Codex, verification, and merge', async () => {
   const issue = { key: 'JAL-71', fields: { summary: 'repair', labels: [], status: { name: '대기' }, attachment: [] } };
   const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-repair-integration-'));
