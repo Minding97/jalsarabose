@@ -4,13 +4,21 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acceptsVerifiedNoop, assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate } from './nightly-runner.mjs';
+import { acceptsVerifiedNoop, assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, validateNightlyStatusConfig } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('fails fast when review and needs-human statuses are identical', () => {
+  assert.throws(
+    () => validateNightlyStatusConfig({ jiraReviewStatus: '검토 중', jiraNeedsHumanStatus: '검토 중' }),
+    /must be different/,
+  );
+  assert.doesNotThrow(() => validateNightlyStatusConfig(config));
+});
 
 test('accepts a verified no-op only after the PR branch already exists remotely', () => {
   assert.equal(acceptsVerifiedNoop(false, true, true), true);

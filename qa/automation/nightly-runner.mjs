@@ -49,6 +49,16 @@ function parseFlags(argv) {
   return new Set(argv.filter((value) => value.startsWith('--')));
 }
 
+export function validateNightlyStatusConfig(config) {
+  const reviewStatus = config.jiraReviewStatus?.trim();
+  const needsHumanStatus = config.jiraNeedsHumanStatus?.trim();
+  if (reviewStatus && needsHumanStatus && reviewStatus === needsHumanStatus) {
+    throw new Error(
+      'JIRA_REVIEW_STATUS and JIRA_NEEDS_HUMAN_STATUS must be different so review tickets are not silently skipped.',
+    );
+  }
+}
+
 function slugify(value) {
   const slug = value
     .toLowerCase()
@@ -780,6 +790,7 @@ async function main() {
   const once = flags.has('--once');
   const force = flags.has('--force');
   const config = loadQaConfig();
+  validateNightlyStatusConfig(config);
   const startedAt = new Date().toISOString();
   const summary = {
     kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
