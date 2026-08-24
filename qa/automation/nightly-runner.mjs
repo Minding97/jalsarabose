@@ -713,7 +713,11 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
     const message = error instanceof Error ? error.message : String(error);
     if (error?.code === 'QA_NIGHTLY_DEADLINE') {
       for (const key of statusKeysOwnedByRun) {
-        await jira.transitionIssue(key, config.jiraReadyStatus);
+        try {
+          await jira.transitionIssue(key, config.jiraReadyStatus);
+        } catch (jiraError) {
+          console.error(`${key} deadline requeue failed:`, jiraError);
+        }
       }
       console.log(`${issue.key}: ${message}`);
       return { succeeded: false, deferred: true };

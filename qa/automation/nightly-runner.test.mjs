@@ -110,6 +110,24 @@ test('processIssue requeues a ticket when its overall deadline is reached', asyn
   assert.deepEqual(transitions, [['JAL-70', '진행'], ['JAL-70', '대기']]);
 });
 
+test('a Jira requeue failure does not replace the deferred deadline outcome', async () => {
+  const issue = { key: 'JAL-75', fields: { summary: 'deadline requeue failure', labels: [], status: { name: '대기' }, attachment: [] } };
+  let transitionCalls = 0;
+  const outcome = await processIssue({
+    jira: {
+      getIssue: async () => issue,
+      transitionIssue: async () => {
+        transitionCalls += 1;
+        if (transitionCalls === 2) throw new Error('Jira unavailable');
+      },
+    },
+    github: {}, config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기' }, issue, dryRun: false,
+    deadline: new Date(Date.now() - 1),
+  });
+  assert.equal(transitionCalls, 2);
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+});
+
 test('an early deadline leaves an untouched review parent in its existing status', async () => {
   const parent = { key: 'JAL-70', fields: { summary: 'parent', labels: [], status: { name: '리뷰' }, attachment: [] } };
   const issue = { key: 'JAL-71', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
