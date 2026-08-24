@@ -80,6 +80,40 @@ test('processIssue requeues both parent and sub-task when deadline interrupts re
   assert.deepEqual(transitions.slice(-2), [['JAL-70', '대기'], ['JAL-71', '대기']]);
 });
 
+test('processIssue sends both parent and sub-task to needs-human when review repair fails', async () => {
+  const parent = { key: 'JAL-72', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
+  const issue = { key: 'JAL-73', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-repair-failure-parent-'));
+  const transitions = [];
+  let codexCalls = 0;
+  const jira = {
+    getIssue: async (key) => key === parent.key ? parent : issue,
+    transitionIssue: async (...args) => transitions.push(args),
+    addLabel: async () => {},
+    addComment: async () => {},
+  };
+  const outcome = await processIssue({
+    jira,
+    github: { createPullRequest: async () => ({ number: 57 }) },
+    config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기', jiraReviewStatus: '리뷰', jiraBaseUrl: 'https://jira.invalid' },
+    issue,
+    dryRun: false,
+    operations: {
+      createWorktree: async () => worktree,
+      runReplaySuite: async () => null,
+      runCodex: async () => {
+        codexCalls += 1;
+        if (codexCalls > 1) throw new Error('repair failed');
+        return { summary: 'ok', tests: ['ok'], reproduction: 'ok' };
+      },
+      commitAndPush: async () => 'sha',
+      reviewAndGate: async ({ repairReviewFindings }) => repairReviewFindings([], 1),
+    },
+  });
+  assert.equal(outcome, false);
+  assert.deepEqual(transitions.slice(-2), [['JAL-72', '사람 확인 필요'], ['JAL-73', '사람 확인 필요']]);
+});
+
 test('processIssue drives the real repair closure through Codex, verification, and merge', async () => {
   const issue = { key: 'JAL-71', fields: { summary: 'repair', labels: [], status: { name: '대기' }, attachment: [] } };
   const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-repair-integration-'));

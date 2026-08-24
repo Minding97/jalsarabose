@@ -715,7 +715,10 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       console.error(`${issue.key} failure comment failed:`, jiraError);
     }
     try {
-      await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
+      await jira.transitionIssue(parentKey, config.jiraNeedsHumanStatus);
+      if (issue.key !== parentKey) {
+        await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
+      }
     } catch (jiraError) {
       console.error(`${issue.key} failure transition failed:`, jiraError);
     }
