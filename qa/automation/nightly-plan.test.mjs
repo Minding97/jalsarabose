@@ -36,6 +36,15 @@ test('excludes dependency cycles while retaining unrelated work', () => {
   assert.deepEqual(plan.cyclicKeys, ['JAL-1', 'JAL-2']);
 });
 
+test('caps the fixed nightly plan and reports overflow for the next run', () => {
+  const plan = buildNightlyPlan([
+    issue('JAL-1', 'Task', 'High', '2026-01-01'), issue('JAL-2', 'Task', 'High', '2026-01-02'),
+    issue('JAL-3', 'Task', 'High', '2026-01-03'),
+  ], { ...config, nightlyMaxTickets: 2 });
+  assert.deepEqual(plan.issues.map(({ key }) => key), ['JAL-1', 'JAL-2']);
+  assert.deepEqual(plan.cappedKeys, ['JAL-3']);
+});
+
 test('reports to Jira without invoking fallback', async () => {
   const comments = [];
   const plan = buildNightlyPlan([issue('JAL-1', 'Task', 'High', '2026-01-01')], config);

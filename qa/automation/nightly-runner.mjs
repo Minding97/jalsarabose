@@ -101,7 +101,7 @@ export function classifyNightlyStatus(ticketResults, plannedCount = ticketResult
 
 export function captureNightlyPlanSummary(summary, plan) {
   summary.plannedTickets = plan.issues.map((issue) => issue.key);
-  const blocked = [...plan.externallyBlockedKeys, ...plan.cyclicKeys];
+  const blocked = [...plan.externallyBlockedKeys, ...plan.cyclicKeys, ...(plan.cappedKeys ?? [])];
   summary.remainingQueue = [...summary.plannedTickets, ...blocked];
   if (plan.issues.length === 0) {
     summary.status = blocked.length ? '보류/지연' : '성공';
@@ -299,14 +299,31 @@ async function runCodex(
   return JSON.parse(readFileSync(resultPath, 'utf8'));
 }
 
-async function commitAndPush(issue, worktree, branch) {
-  const status = await runCommand('git', ['status', '--porcelain'], { cwd: worktree });
-  if (!status.stdout.trim()) {
-    throw new Error('Codex completed without changing tracked files.');
-  }
+export function acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, allowVerifiedNoop = false) {
+  return !hasChanges && branchAlreadyPushed && allowVerifiedNoop;
+}
 
+export function assertWithinNightlyDeadline(deadline, now = Date.now()) {
+  if (deadline && now >= deadline.getTime()) {
+    const error = new Error(`전체 야간 마감 ${deadline.toISOString()} 도달; 다음 실행에서 재개`);
+    error.code = 'QA_NIGHTLY_DEADLINE';
+    throw error;
+  }
+}
+
+async function commitAndPush(issue, worktree, branch, { branchAlreadyPushed = false, allowVerifiedNoop = false, onVerifiedNoop } = {}) {
+  const status = await runCommand('git', ['status', '--porcelain'], { cwd: worktree });
+  const hasChanges = Boolean(status.stdout.trim());
+  if (!hasChanges && !acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, allowVerifiedNoop)) {
+    throw new Error('Codex completed without changing tracked files; review repairs require a concrete diff.');
+  }
   await runCommand('npm', ['run', 'qa:test'], { cwd: worktree, timeoutMs: 10 * 60 * 1000 });
   await runCommand('npm', ['run', 'verify'], { cwd: worktree, timeoutMs: 30 * 60 * 1000 });
+  if (acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, allowVerifiedNoop)) {
+    await onVerifiedNoop?.();
+    const head = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: worktree });
+    return head.stdout.trim();
+  }
   removeGeneratedWorktreeLinks(worktree);
   await runCommand('git', ['add', '-A'], { cwd: worktree });
   await runCommand('git', ['commit', '-m', `fix: ${issue.key} ${issue.fields.summary}`], {
@@ -356,7 +373,7 @@ async function waitForMerge(github, pullRequestNumber) {
   return false;
 }
 
-async function reviewAndGate({
+export async function reviewAndGate({
   jira,
   github,
   config,
@@ -366,6 +383,8 @@ async function reviewAndGate({
   issueArtifacts,
   pullRequest,
   sha,
+  repairReviewFindings,
+  reviewOperation = reviewWithClaude,
 }) {
   const previousCycle = await github.getReviewCycle(pullRequest.number);
   const cycle = previousCycle + 1;
@@ -375,7 +394,7 @@ async function reviewAndGate({
     `Claude review ${cycle}/${maxReviewCycles} running`,
     `${config.jiraBaseUrl}/browse/${parentKey}`,
   );
-  const review = await reviewWithClaude({
+  const review = await reviewOperation({
     worktree,
     issueKey: parentKey,
     pullRequestNumber: pullRequest.number,
@@ -430,6 +449,12 @@ async function reviewAndGate({
       !issueMatchesReviewFindings(issue, blockers)
     ) {
       await jira.transitionIssue(issue.key, config.jiraDoneStatus);
+      return { needsHuman: false, merged: false };
+    }
+    if (repairReviewFindings) {
+      const repairedSha = await repairReviewFindings(blockers, cycle);
+      return reviewAndGate({ jira, github, config, issue, parentKey, worktree, issueArtifacts,
+        pullRequest: { ...pullRequest, headRefOid: repairedSha }, sha: repairedSha, repairReviewFindings, reviewOperation });
     }
     return { needsHuman: false, merged: false };
   }
@@ -451,7 +476,12 @@ async function reviewAndGate({
   return { needsHuman: false, merged };
 }
 
-export async function processIssue({ jira, github, config, issue, dryRun, reportFailure = () => {} }) {
+export async function processIssue({ jira, github, config, issue, dryRun, reportFailure = () => {}, deadline, operations = {} }) {
+  const createIssueWorktree = operations.createWorktree ?? createWorktree;
+  const executeReplaySuite = operations.runReplaySuite ?? runReplaySuite;
+  const executeCodex = operations.runCodex ?? runCodex;
+  const executeCommitAndPush = operations.commitAndPush ?? commitAndPush;
+  const executeReviewAndGate = operations.reviewAndGate ?? reviewAndGate;
   const issueDetails = await jira.getIssue(issue.key);
   const parentKey = issueDetails.fields.parent?.key ?? issue.key;
   const parentDetails =
@@ -548,7 +578,8 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
   mkdirSync(issueArtifacts, { recursive: true, mode: 0o700 });
   let worktree;
   try {
-    worktree = await createWorktree(issueDetails, existingPullRequest, branch);
+    assertWithinNightlyDeadline(deadline);
+    worktree = await createIssueWorktree(issueDetails, existingPullRequest, branch);
     const qaInputDirectory = resolve(worktree, '.qa');
     mkdirSync(qaInputDirectory, { recursive: true, mode: 0o700 });
     const issueContextPath = resolve(qaInputDirectory, 'jira-issue.json');
@@ -570,7 +601,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       qaInputDirectory,
       config,
     );
-    const baselineReplayPath = await runReplaySuite({
+    const baselineReplayPath = await executeReplaySuite({
       worktree,
       recordingPaths,
       issueArtifacts,
@@ -578,7 +609,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       phase: 'before',
       requireSuccess: false,
     });
-    const codexResult = await runCodex(
+    const codexResult = await executeCodex(
       issueDetails,
       worktree,
       issueArtifacts,
@@ -586,7 +617,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       recordingPaths,
       baselineReplayPath,
     );
-    await runReplaySuite({
+    await executeReplaySuite({
       worktree,
       recordingPaths,
       issueArtifacts,
@@ -594,7 +625,14 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       phase: 'after',
       requireSuccess: true,
     });
-    const sha = await commitAndPush(issueDetails, worktree, branch);
+    const sha = await executeCommitAndPush(issueDetails, worktree, branch, {
+      branchAlreadyPushed: Boolean(existingPullRequest),
+      allowVerifiedNoop: Boolean(existingPullRequest),
+      onVerifiedNoop: existingPullRequest
+        ? () => github.comment(existingPullRequest.number,
+          '이번 구현 시도에서 추적 파일 변경이 없었습니다. 기존 SHA의 테스트·검증 결과를 바탕으로 Claude 재리뷰를 진행합니다.')
+        : undefined,
+    });
     const pullRequest =
       existingPullRequest ??
       (await github.createPullRequest({
@@ -619,7 +657,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       await jira.addLabel(issue.key, `pr-${pullRequest.number}`);
     }
     await jira.transitionIssue(parentKey, config.jiraReviewStatus);
-    const reviewResult = await reviewAndGate({
+    const reviewResult = await executeReviewAndGate({
       jira,
       github,
       config,
@@ -629,6 +667,17 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       issueArtifacts,
       pullRequest,
       sha,
+      repairReviewFindings: async (findings, cycle) => {
+        assertWithinNightlyDeadline(deadline);
+        writeFileSync(issueContextPath, `${JSON.stringify({ issue: issueDetails, parent: parentKey === issue.key ? null : parentDetails,
+          reviewRepairCycle: cycle, actionableReviewFindings: findings,
+          instruction: 'Fix every actionable P0-P2 finding and bounded relevant bugs; add regression tests and verify.' }, null, 2)}\n`, { mode: 0o600 });
+        await executeCodex(issueDetails, worktree, issueArtifacts, issueContextPath, recordingPaths, baselineReplayPath);
+        await executeReplaySuite({ worktree, recordingPaths, issueArtifacts, config, phase: `review-${cycle}`, requireSuccess: true });
+        return executeCommitAndPush(issueDetails, worktree, branch, {
+          branchAlreadyPushed: true,
+        });
+      },
     });
     if (!reviewResult.merged) {
       reportUnmergedReview(pullRequest.number, reportFailure);
@@ -641,6 +690,11 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
     return reportVerifiedCompletion({ issue: completedIssue, pullRequest: mergedPullRequest, doneStatus: config.jiraDoneStatus, reportFailure });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error?.code === 'QA_NIGHTLY_DEADLINE') {
+      await jira.transitionIssue(issue.key, config.jiraReadyStatus);
+      console.log(`${issue.key}: ${message}`);
+      return { succeeded: false, deferred: true };
+    }
     reportFailure(message);
     try {
       await jira.addComment(issue.key, `야간 자동수정 실패: ${message.slice(0, 3000)}`);
@@ -784,6 +838,7 @@ async function main() {
         successfulKeys,
         processIssue: (plannedIssue) => processIssue({
           jira, github, config, issue: plannedIssue, dryRun,
+          deadline: force || once ? undefined : deadline,
           reportFailure: (reason) => summary.failures.push(`${plannedIssue.key}: ${reason}`),
         }),
         holdIssue: async (heldIssue, blockers) => {
@@ -803,7 +858,7 @@ async function main() {
         continue;
       }
       processedCount += 1;
-      summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : '실패/미병합' });
+      summary.ticketResults.push({ key: issue.key, result: result.succeeded ? '성공' : result.deferred ? '보류' : '실패/미병합' });
       let prNumber = null;
       try {
         const refreshedIssue = dryRun ? issue : await jira.getIssue(issue.key);
@@ -821,9 +876,9 @@ async function main() {
         break;
       }
     }
-    summary.remainingQueue = plan.issues
+    summary.remainingQueue = [...plan.issues
       .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
-      .map((issue) => issue.key);
+      .map((issue) => issue.key), ...(plan.cappedKeys ?? [])];
     summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
     summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
     summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
