@@ -147,7 +147,10 @@ export function buildNightlyPlan(issues, config, externalDependencies = {}) {
       remaining.delete(issue.key);
     }
   }
-  const maxTickets = Math.max(1, Math.floor(config.nightlyMaxTickets ?? 20));
+  const configuredMaxTickets = Number(config.nightlyMaxTickets ?? 20);
+  const maxTickets = Number.isFinite(configuredMaxTickets)
+    ? Math.max(1, Math.floor(configuredMaxTickets))
+    : 20;
   const cappedKeys = ordered.slice(maxTickets).map(({ key }) => key);
   ordered.splice(maxTickets);
 

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acceptsVerifiedNoop, assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, validateNightlyStatusConfig } from './nightly-runner.mjs';
+import { assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, commitAndPush, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, validateNightlyStatusConfig } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
@@ -20,16 +21,19 @@ test('fails fast when review and needs-human statuses are identical', () => {
   assert.doesNotThrow(() => validateNightlyStatusConfig(config));
 });
 
-test('accepts a verified no-op only with evidence that the requested resolution is already present', () => {
-  const evidence = { headSha: 'abc', reviewedHeadSha: 'abc', resolvedFindingFingerprints: ['finding-1'] };
-  assert.equal(acceptsVerifiedNoop(false, true, evidence), true);
-  assert.equal(acceptsVerifiedNoop(false, false), false);
-  assert.equal(acceptsVerifiedNoop(true, true, evidence), false);
-  assert.equal(acceptsVerifiedNoop(false, true, true), false, 'an existing PR alone must not hide a failed fix');
-  assert.equal(acceptsVerifiedNoop(false, true, { ...evidence, reviewedHeadSha: 'stale' }), false,
-    'evidence from a different head must not hide a failed fix');
-  assert.equal(acceptsVerifiedNoop(false, true, { ...evidence, resolvedFindingFingerprints: [] }), false,
-    'a no-op needs at least one specifically verified review finding');
+test('an existing PR cannot turn a concrete-fix no-op into success', async () => {
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-existing-pr-noop-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: worktree });
+  execFileSync('git', ['config', 'user.name', 'QA Test'], { cwd: worktree });
+  execFileSync('git', ['config', 'user.email', 'qa@example.invalid'], { cwd: worktree });
+  writeFileSync(resolve(worktree, 'tracked.txt'), 'unchanged\n');
+  execFileSync('git', ['add', 'tracked.txt'], { cwd: worktree });
+  execFileSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: worktree });
+  await assert.rejects(
+    commitAndPush({ key: 'JAL-105', fields: { summary: 'repair' } }, worktree, 'existing-pr'),
+    /without changing tracked files/,
+  );
+  rmSync(worktree, { recursive: true, force: true });
 });
 
 test('enforces the nightly deadline only at or after the cutoff', () => {

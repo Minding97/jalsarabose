@@ -309,15 +309,6 @@ async function runCodex(
   return JSON.parse(readFileSync(resultPath, 'utf8'));
 }
 
-export function acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, verifiedResolution) {
-  return !hasChanges
-    && branchAlreadyPushed
-    && Boolean(verifiedResolution?.headSha)
-    && verifiedResolution.headSha === verifiedResolution.reviewedHeadSha
-    && Array.isArray(verifiedResolution.resolvedFindingFingerprints)
-    && verifiedResolution.resolvedFindingFingerprints.length > 0;
-}
-
 export function assertWithinNightlyDeadline(deadline, now = Date.now()) {
   if (deadline && now >= deadline.getTime()) {
     const error = new Error(`전체 야간 마감 ${deadline.toISOString()} 도달; 다음 실행에서 재개`);
@@ -326,23 +317,14 @@ export function assertWithinNightlyDeadline(deadline, now = Date.now()) {
   }
 }
 
-async function commitAndPush(issue, worktree, branch, { branchAlreadyPushed = false, verifiedResolution = false, onVerifiedNoop } = {}) {
+export async function commitAndPush(issue, worktree, branch) {
   const status = await runCommand('git', ['status', '--porcelain'], { cwd: worktree });
   const hasChanges = Boolean(status.stdout.trim());
-  const head = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: worktree });
-  const currentHead = head.stdout.trim();
-  const resolutionEvidence = verifiedResolution
-    ? { ...verifiedResolution, headSha: currentHead }
-    : undefined;
-  if (!hasChanges && !acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, resolutionEvidence)) {
+  if (!hasChanges) {
     throw new Error('Codex completed without changing tracked files; review repairs require a concrete diff.');
   }
   await runCommand('npm', ['run', 'qa:test'], { cwd: worktree, timeoutMs: 10 * 60 * 1000 });
   await runCommand('npm', ['run', 'verify'], { cwd: worktree, timeoutMs: 30 * 60 * 1000 });
-  if (acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, resolutionEvidence)) {
-    await onVerifiedNoop?.();
-    return currentHead;
-  }
   removeGeneratedWorktreeLinks(worktree);
   await runCommand('git', ['add', '-A'], { cwd: worktree });
   await runCommand('git', ['commit', '-m', `fix: ${issue.key} ${issue.fields.summary}`], {
@@ -644,9 +626,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       phase: 'after',
       requireSuccess: true,
     });
-    const sha = await executeCommitAndPush(issueDetails, worktree, branch, {
-      branchAlreadyPushed: Boolean(existingPullRequest),
-    });
+    const sha = await executeCommitAndPush(issueDetails, worktree, branch);
     const pullRequest =
       existingPullRequest ??
       (await github.createPullRequest({
@@ -688,9 +668,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
           instruction: 'Fix every actionable P0-P2 finding and bounded relevant bugs; add regression tests and verify.' }, null, 2)}\n`, { mode: 0o600 });
         await executeCodex(issueDetails, worktree, issueArtifacts, issueContextPath, recordingPaths, baselineReplayPath);
         await executeReplaySuite({ worktree, recordingPaths, issueArtifacts, config, phase: `review-${cycle}`, requireSuccess: true });
-        return executeCommitAndPush(issueDetails, worktree, branch, {
-          branchAlreadyPushed: true,
-        });
+        return executeCommitAndPush(issueDetails, worktree, branch);
       },
     });
     if (!reviewResult.merged) {
