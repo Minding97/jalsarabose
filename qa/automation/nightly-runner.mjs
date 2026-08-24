@@ -125,6 +125,21 @@ export function captureNightlyPlanSummary(summary, plan) {
   return summary;
 }
 
+export function finalizeNightlyPlanSummary(summary, plan) {
+  summary.remainingQueue = [...plan.issues
+    .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
+    .map((issue) => issue.key), ...(plan.cappedKeys ?? [])];
+  summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
+  summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
+  summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+  return summary;
+}
+
+export async function notifyNightlyCompletion({ summary, config, dryRun, notifier = notifyAutomationSummary }) {
+  summary.completedAt = new Date().toISOString();
+  return notifier({ summary, config, dryRun });
+}
+
 export async function prepareNightlyPlan({ queueSnapshot, jira, github, config }) {
   const externalDependencies = await resolveExternalDependencies({
     issues: queueSnapshot, jira, github, doneStatus: config.jiraDoneStatus,
@@ -881,12 +896,7 @@ async function main() {
         break;
       }
     }
-    summary.remainingQueue = [...plan.issues
-      .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
-      .map((issue) => issue.key), ...(plan.cappedKeys ?? [])];
-    summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
-    summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
-    summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
+    finalizeNightlyPlanSummary(summary, plan);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const lockContention = error?.code === 'QA_NIGHTLY_LOCKED';
@@ -899,9 +909,8 @@ async function main() {
       closeSync(lockFile);
     }
     if (lockFile !== undefined) rmSync(lockPath, { force: true });
-    summary.completedAt = new Date().toISOString();
     try {
-      await notifyAutomationSummary({ summary, config, dryRun });
+      await notifyNightlyCompletion({ summary, config, dryRun });
     } catch (error) {
       console.error(`Nightly Telegram notification failed: ${error instanceof Error ? error.message : String(error)}`);
       process.exitCode = 1;

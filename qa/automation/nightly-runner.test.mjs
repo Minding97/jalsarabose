@@ -5,13 +5,42 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, commitAndPush, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, validateNightlyStatusConfig } from './nightly-runner.mjs';
+import { assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, commitAndPush, completeReviewFamily, finalizeNightlyPlanSummary, notifyNightlyCompletion, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, validateNightlyStatusConfig } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('capped tickets remain visible when the nightly plan summary is captured', () => {
+  const summary = { plannedTickets: [], remainingQueue: [], verification: '처리 티켓 없음' };
+  captureNightlyPlanSummary(summary, {
+    issues: [], externallyBlockedKeys: [], cyclicKeys: [], cappedKeys: ['JAL-116'], counts: { total: 1 },
+  });
+  assert.deepEqual(summary.remainingQueue, ['JAL-116']);
+  assert.match(summary.nextAction, /JAL-116/);
+});
+
+test('capped tickets survive finalization into the summary passed to the notifier', async () => {
+  const summary = {
+    plannedTickets: ['JAL-115'], ticketResults: [{ key: 'JAL-115', result: '성공' }],
+    remainingQueue: ['JAL-115', 'JAL-116'], failures: [],
+  };
+  const plan = { issues: [{ key: 'JAL-115' }], cappedKeys: ['JAL-116'] };
+  finalizeNightlyPlanSummary(summary, plan);
+
+  let notification;
+  await notifyNightlyCompletion({
+    summary, config, dryRun: true,
+    notifier: async (payload) => { notification = payload; },
+  });
+
+  assert.equal(notification.summary, summary);
+  assert.deepEqual(notification.summary.remainingQueue, ['JAL-116']);
+  assert.equal(notification.summary.nextAction, '남은 큐의 선행 PR/리뷰 상태 확인');
+  assert.match(notification.summary.completedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
 
 test('fails fast when review and needs-human statuses are identical', () => {
   assert.throws(
