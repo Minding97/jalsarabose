@@ -399,6 +399,7 @@ export async function reviewAndGate({
   issueArtifacts,
   pullRequest,
   sha,
+  deadline,
   repairReviewFindings,
   reviewOperation = reviewWithClaude,
 }) {
@@ -416,6 +417,7 @@ export async function reviewAndGate({
     pullRequestNumber: pullRequest.number,
     outputPath: resolve(issueArtifacts, `claude-review-${cycle}.json`),
   });
+  assertWithinNightlyDeadline(deadline);
   await github.comment(pullRequest.number, formatReviewComment(review, cycle));
 
   const blockers = review.findings.filter((finding) =>
@@ -469,7 +471,7 @@ export async function reviewAndGate({
     }
     if (repairReviewFindings) {
       const repairedSha = await repairReviewFindings(blockers, cycle);
-      return reviewAndGate({ jira, github, config, issue, parentKey, worktree, issueArtifacts,
+      return reviewAndGate({ jira, github, config, issue, parentKey, worktree, issueArtifacts, deadline,
         pullRequest: { ...pullRequest, headRefOid: repairedSha }, sha: repairedSha, repairReviewFindings, reviewOperation });
     }
     return { needsHuman: false, merged: false };
@@ -599,6 +601,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
   try {
     assertWithinNightlyDeadline(deadline);
     worktree = await createIssueWorktree(issueDetails, existingPullRequest, branch);
+    assertWithinNightlyDeadline(deadline);
     const qaInputDirectory = resolve(worktree, '.qa');
     mkdirSync(qaInputDirectory, { recursive: true, mode: 0o700 });
     const issueContextPath = resolve(qaInputDirectory, 'jira-issue.json');
@@ -628,6 +631,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       phase: 'before',
       requireSuccess: false,
     });
+    assertWithinNightlyDeadline(deadline);
     const codexResult = await executeCodex(
       issueDetails,
       worktree,
@@ -636,6 +640,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       recordingPaths,
       baselineReplayPath,
     );
+    assertWithinNightlyDeadline(deadline);
     await executeReplaySuite({
       worktree,
       recordingPaths,
@@ -644,7 +649,9 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       phase: 'after',
       requireSuccess: true,
     });
+    assertWithinNightlyDeadline(deadline);
     const sha = await executeCommitAndPush(issueDetails, worktree, branch);
+    assertWithinNightlyDeadline(deadline);
     const pullRequest =
       existingPullRequest ??
       (await github.createPullRequest({
@@ -681,6 +688,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       issueArtifacts,
       pullRequest,
       sha,
+      deadline,
       repairReviewFindings: async (findings, cycle) => {
         assertWithinNightlyDeadline(deadline);
         writeFileSync(issueContextPath, `${JSON.stringify({ issue: issueDetails, parent: parentKey === issue.key ? null : parentDetails,
@@ -691,6 +699,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
         return executeCommitAndPush(issueDetails, worktree, branch);
       },
     });
+    assertWithinNightlyDeadline(deadline);
     if (!reviewResult.merged) {
       reportUnmergedReview(pullRequest.number, reportFailure);
       return false;

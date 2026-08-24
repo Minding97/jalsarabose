@@ -159,6 +159,35 @@ test('processIssue requeues both parent and sub-task when deadline interrupts re
   assert.deepEqual(transitions.slice(-2), [['JAL-71', '대기'], ['JAL-70', '대기']]);
 });
 
+test('processIssue defers when the deadline expires during a first-pass review', async () => {
+  const issue = { key: 'JAL-74', fields: { summary: 'first review', labels: [], status: { name: '대기' }, attachment: [] } };
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-deadline-first-review-'));
+  const transitions = [];
+  const deadline = new Date(Date.now() + 60_000);
+  const outcome = await processIssue({
+    jira: {
+      getIssue: async () => issue,
+      transitionIssue: async (...args) => transitions.push(args),
+      addLabel: async () => {},
+    },
+    github: { createPullRequest: async () => ({ number: 58 }) },
+    config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기', jiraReviewStatus: '리뷰', jiraBaseUrl: 'https://jira.invalid' },
+    issue, dryRun: false, deadline,
+    operations: {
+      createWorktree: async () => worktree,
+      runReplaySuite: async () => null,
+      runCodex: async () => ({ summary: 'ok', tests: ['ok'], reproduction: 'ok' }),
+      commitAndPush: async () => 'sha',
+      reviewAndGate: async () => {
+        deadline.setTime(Date.now() - 1);
+        return { merged: true };
+      },
+    },
+  });
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+  assert.deepEqual(transitions.slice(-2), [['JAL-74', '리뷰'], ['JAL-74', '대기']]);
+});
+
 test('processIssue sends both parent and sub-task to needs-human when review repair fails', async () => {
   const parent = { key: 'JAL-72', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
   const issue = { key: 'JAL-73', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
