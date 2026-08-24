@@ -20,11 +20,16 @@ test('fails fast when review and needs-human statuses are identical', () => {
   assert.doesNotThrow(() => validateNightlyStatusConfig(config));
 });
 
-test('accepts a verified no-op only after the PR branch already exists remotely', () => {
-  assert.equal(acceptsVerifiedNoop(false, true, true), true);
+test('accepts a verified no-op only with evidence that the requested resolution is already present', () => {
+  const evidence = { headSha: 'abc', reviewedHeadSha: 'abc', resolvedFindingFingerprints: ['finding-1'] };
+  assert.equal(acceptsVerifiedNoop(false, true, evidence), true);
   assert.equal(acceptsVerifiedNoop(false, false), false);
-  assert.equal(acceptsVerifiedNoop(true, true), false);
-  assert.equal(acceptsVerifiedNoop(false, true, false), false, 'review repair no-op must be rejected');
+  assert.equal(acceptsVerifiedNoop(true, true, evidence), false);
+  assert.equal(acceptsVerifiedNoop(false, true, true), false, 'an existing PR alone must not hide a failed fix');
+  assert.equal(acceptsVerifiedNoop(false, true, { ...evidence, reviewedHeadSha: 'stale' }), false,
+    'evidence from a different head must not hide a failed fix');
+  assert.equal(acceptsVerifiedNoop(false, true, { ...evidence, resolvedFindingFingerprints: [] }), false,
+    'a no-op needs at least one specifically verified review finding');
 });
 
 test('enforces the nightly deadline only at or after the cutoff', () => {

@@ -309,8 +309,13 @@ async function runCodex(
   return JSON.parse(readFileSync(resultPath, 'utf8'));
 }
 
-export function acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, allowVerifiedNoop = false) {
-  return !hasChanges && branchAlreadyPushed && allowVerifiedNoop;
+export function acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, verifiedResolution) {
+  return !hasChanges
+    && branchAlreadyPushed
+    && Boolean(verifiedResolution?.headSha)
+    && verifiedResolution.headSha === verifiedResolution.reviewedHeadSha
+    && Array.isArray(verifiedResolution.resolvedFindingFingerprints)
+    && verifiedResolution.resolvedFindingFingerprints.length > 0;
 }
 
 export function assertWithinNightlyDeadline(deadline, now = Date.now()) {
@@ -321,18 +326,22 @@ export function assertWithinNightlyDeadline(deadline, now = Date.now()) {
   }
 }
 
-async function commitAndPush(issue, worktree, branch, { branchAlreadyPushed = false, allowVerifiedNoop = false, onVerifiedNoop } = {}) {
+async function commitAndPush(issue, worktree, branch, { branchAlreadyPushed = false, verifiedResolution = false, onVerifiedNoop } = {}) {
   const status = await runCommand('git', ['status', '--porcelain'], { cwd: worktree });
   const hasChanges = Boolean(status.stdout.trim());
-  if (!hasChanges && !acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, allowVerifiedNoop)) {
+  const head = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: worktree });
+  const currentHead = head.stdout.trim();
+  const resolutionEvidence = verifiedResolution
+    ? { ...verifiedResolution, headSha: currentHead }
+    : undefined;
+  if (!hasChanges && !acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, resolutionEvidence)) {
     throw new Error('Codex completed without changing tracked files; review repairs require a concrete diff.');
   }
   await runCommand('npm', ['run', 'qa:test'], { cwd: worktree, timeoutMs: 10 * 60 * 1000 });
   await runCommand('npm', ['run', 'verify'], { cwd: worktree, timeoutMs: 30 * 60 * 1000 });
-  if (acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, allowVerifiedNoop)) {
+  if (acceptsVerifiedNoop(hasChanges, branchAlreadyPushed, resolutionEvidence)) {
     await onVerifiedNoop?.();
-    const head = await runCommand('git', ['rev-parse', 'HEAD'], { cwd: worktree });
-    return head.stdout.trim();
+    return currentHead;
   }
   removeGeneratedWorktreeLinks(worktree);
   await runCommand('git', ['add', '-A'], { cwd: worktree });
@@ -637,11 +646,6 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
     });
     const sha = await executeCommitAndPush(issueDetails, worktree, branch, {
       branchAlreadyPushed: Boolean(existingPullRequest),
-      allowVerifiedNoop: Boolean(existingPullRequest),
-      onVerifiedNoop: existingPullRequest
-        ? () => github.comment(existingPullRequest.number,
-          '이번 구현 시도에서 추적 파일 변경이 없었습니다. 기존 SHA의 테스트·검증 결과를 바탕으로 Claude 재리뷰를 진행합니다.')
-        : undefined,
     });
     const pullRequest =
       existingPullRequest ??
