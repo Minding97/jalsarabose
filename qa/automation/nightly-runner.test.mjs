@@ -56,6 +56,22 @@ test('processIssue requeues a ticket when its overall deadline is reached', asyn
   assert.deepEqual(transitions, [['JAL-70', '진행'], ['JAL-70', '대기']]);
 });
 
+test('an early deadline leaves an untouched review parent in its existing status', async () => {
+  const parent = { key: 'JAL-70', fields: { summary: 'parent', labels: [], status: { name: '리뷰' }, attachment: [] } };
+  const issue = { key: 'JAL-71', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const transitions = [];
+  const outcome = await processIssue({
+    jira: {
+      getIssue: async (key) => key === parent.key ? parent : issue,
+      transitionIssue: async (...args) => transitions.push(args),
+    },
+    github: {}, config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기' }, issue, dryRun: false,
+    deadline: new Date(Date.now() - 1),
+  });
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+  assert.deepEqual(transitions, [['JAL-71', '진행'], ['JAL-71', '대기']]);
+});
+
 test('processIssue requeues both parent and sub-task when deadline interrupts review repair', async () => {
   const parent = { key: 'JAL-70', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
   const issue = { key: 'JAL-71', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
@@ -86,7 +102,7 @@ test('processIssue requeues both parent and sub-task when deadline interrupts re
     },
   });
   assert.deepEqual(outcome, { succeeded: false, deferred: true });
-  assert.deepEqual(transitions.slice(-2), [['JAL-70', '대기'], ['JAL-71', '대기']]);
+  assert.deepEqual(transitions.slice(-2), [['JAL-71', '대기'], ['JAL-70', '대기']]);
 });
 
 test('processIssue sends both parent and sub-task to needs-human when review repair fails', async () => {

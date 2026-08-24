@@ -570,7 +570,9 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
     return false;
   }
 
+  const statusKeysOwnedByRun = new Set();
   await jira.transitionIssue(issue.key, config.jiraInProgressStatus);
+  statusKeysOwnedByRun.add(issue.key);
   const issueArtifacts = resolve(
     artifactsRoot,
     new Date().toISOString().slice(0, 10),
@@ -651,6 +653,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       await jira.addLabel(issue.key, `pr-${pullRequest.number}`);
     }
     await jira.transitionIssue(parentKey, config.jiraReviewStatus);
+    statusKeysOwnedByRun.add(parentKey);
     const reviewResult = await executeReviewAndGate({
       jira,
       github,
@@ -683,9 +686,8 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (error?.code === 'QA_NIGHTLY_DEADLINE') {
-      await jira.transitionIssue(parentKey, config.jiraReadyStatus);
-      if (issue.key !== parentKey) {
-        await jira.transitionIssue(issue.key, config.jiraReadyStatus);
+      for (const key of statusKeysOwnedByRun) {
+        await jira.transitionIssue(key, config.jiraReadyStatus);
       }
       console.log(`${issue.key}: ${message}`);
       return { succeeded: false, deferred: true };
