@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -19,6 +19,31 @@ test('fails fast when review and needs-human statuses are identical', () => {
     /must be different/,
   );
   assert.doesNotThrow(() => validateNightlyStatusConfig(config));
+});
+
+test('status configuration failures still pass through completion notification scaffolding', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-config-notification-'));
+  const argvPath = resolve(root, 'notification-argv.json');
+  const cliPath = resolve(root, 'fake-openclaw');
+  writeFileSync(cliPath, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvPath}"\n`);
+  execFileSync('chmod', ['+x', cliPath]);
+  const result = spawnSync(process.execPath, ['qa/automation/nightly-runner.mjs', '--dry-run', '--once', '--force'], {
+    cwd: resolve(import.meta.dirname, '../..'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      JIRA_REVIEW_STATUS: 'same-status',
+      JIRA_NEEDS_HUMAN_STATUS: 'same-status',
+      QA_TELEGRAM_TARGET: 'test-target',
+      OPENCLAW_CLI_PATH: cliPath,
+      QA_CONFIG_PATH: resolve(root, 'missing.env'),
+    },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /JIRA_REVIEW_STATUS and JIRA_NEEDS_HUMAN_STATUS must be different/);
+  assert.equal(existsSync(argvPath), true);
+  assert.match(readFileSync(argvPath, 'utf8'), /message\nsend[\s\S]*--dry-run/);
+  rmSync(root, { recursive: true, force: true });
 });
 
 test('an existing PR cannot turn a concrete-fix no-op into success', async () => {
@@ -137,6 +162,25 @@ test('processIssue sends both parent and sub-task to needs-human when review rep
   });
   assert.equal(outcome, false);
   assert.deepEqual(transitions.slice(-2), [['JAL-72', '사람 확인 필요'], ['JAL-73', '사람 확인 필요']]);
+});
+
+test('pre-review infrastructure failure does not escalate an untouched parent', async () => {
+  const parent = { key: 'JAL-72', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
+  const issue = { key: 'JAL-73', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const transitions = [];
+  const jira = {
+    getIssue: async (key) => key === parent.key ? parent : issue,
+    transitionIssue: async (...args) => transitions.push(args),
+    addComment: async () => {},
+  };
+  const outcome = await processIssue({
+    jira, github: {},
+    config: { ...config, jiraInProgressStatus: '진행', jiraReviewStatus: '리뷰' },
+    issue, dryRun: false,
+    operations: { createWorktree: async () => { throw new Error('worktree unavailable'); } },
+  });
+  assert.equal(outcome, false);
+  assert.deepEqual(transitions, [['JAL-73', '진행'], ['JAL-73', '사람 확인 필요']]);
 });
 
 test('processIssue drives the real repair closure through Codex, verification, and merge', async () => {

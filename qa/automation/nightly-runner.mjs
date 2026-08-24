@@ -571,6 +571,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
   }
 
   const statusKeysOwnedByRun = new Set();
+  let parentReviewStatusOwnedByRun = false;
   await jira.transitionIssue(issue.key, config.jiraInProgressStatus);
   statusKeysOwnedByRun.add(issue.key);
   const issueArtifacts = resolve(
@@ -654,6 +655,7 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
     }
     await jira.transitionIssue(parentKey, config.jiraReviewStatus);
     statusKeysOwnedByRun.add(parentKey);
+    parentReviewStatusOwnedByRun = true;
     const reviewResult = await executeReviewAndGate({
       jira,
       github,
@@ -699,8 +701,10 @@ export async function processIssue({ jira, github, config, issue, dryRun, report
       console.error(`${issue.key} failure comment failed:`, jiraError);
     }
     try {
-      await jira.transitionIssue(parentKey, config.jiraNeedsHumanStatus);
-      if (issue.key !== parentKey) {
+      if (parentReviewStatusOwnedByRun) {
+        await jira.transitionIssue(parentKey, config.jiraNeedsHumanStatus);
+      }
+      if (issue.key !== parentKey || !parentReviewStatusOwnedByRun) {
         await jira.transitionIssue(issue.key, config.jiraNeedsHumanStatus);
       }
     } catch (jiraError) {
@@ -780,7 +784,6 @@ async function main() {
   const once = flags.has('--once');
   const force = flags.has('--force');
   const config = loadQaConfig();
-  validateNightlyStatusConfig(config);
   const startedAt = new Date().toISOString();
   const summary = {
     kind: 'nightly', runId: `nightly-${startedAt}-${process.pid}`, startedAt,
@@ -805,6 +808,7 @@ async function main() {
   const github = new GitHubClient(config.githubRepository);
 
   try {
+    validateNightlyStatusConfig(config);
     lockFile = acquireNightlyLock(lockPath);
     if (!config.jiraConfigured || !config.recordingEncryptionConfigured) {
       throw new Error('Run npm run qa:setup and complete the Jira/recording settings first.');
