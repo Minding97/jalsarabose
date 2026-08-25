@@ -1,16 +1,382 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, completeReviewFamily, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion } from './nightly-runner.mjs';
+import { assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, commitAndPush, completeReviewFamily, finalizeNightlyPlanSummary, isClaudeInfrastructureFailure, notifyNightlyCompletion, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, reviewWithInfrastructureFallback, validateNightlyStatusConfig } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('falls back to Codex only when Claude produces no review because of infrastructure', async () => {
+  assert.equal(isClaudeInfrastructureFailure(new Error('claude failed (1). Output omitted.')), true);
+  assert.equal(isClaudeInfrastructureFailure(new Error('authentication required: not logged in')), true);
+  assert.equal(isClaudeInfrastructureFailure(new Error('review returned P1 authorization bypass')), false);
+  const result = await reviewWithInfrastructureFallback({
+    claudeReview: async () => { throw new Error('claude failed (1). Output omitted.'); },
+    codexReview: async (args) => ({ summary: args.outputPath, findings: [] }),
+    reviewArgs: { outputPath: '/tmp/claude-review-2.json' },
+  });
+  assert.equal(result.provider, 'Codex');
+  assert.match(result.review.summary, /codex-review-2\.json$/);
+  assert.match(result.fallbackReason, /failed \(1\)/);
+});
+
+test('never replaces a real Claude review containing blocking findings', async () => {
+  let codexCalls = 0;
+  const review = { summary: 'blocked', findings: [{ severity: 'P1' }] };
+  const result = await reviewWithInfrastructureFallback({
+    claudeReview: async () => review,
+    codexReview: async () => { codexCalls += 1; return { findings: [] }; },
+    reviewArgs: { outputPath: '/tmp/claude-review-1.json' },
+  });
+  assert.equal(result.review, review);
+  assert.equal(result.provider, 'Claude');
+  assert.equal(codexCalls, 0);
+});
+
+test('capped tickets remain visible when the nightly plan summary is captured', () => {
+  const summary = { plannedTickets: [], remainingQueue: [], verification: '처리 티켓 없음' };
+  captureNightlyPlanSummary(summary, {
+    issues: [], externallyBlockedKeys: [], cyclicKeys: [], cappedKeys: ['JAL-116'], counts: { total: 1 },
+  });
+  assert.deepEqual(summary.remainingQueue, ['JAL-116']);
+  assert.match(summary.nextAction, /JAL-116/);
+});
+
+test('capped tickets survive finalization into the summary passed to the notifier', async () => {
+  const summary = {
+    plannedTickets: ['JAL-115'], ticketResults: [{ key: 'JAL-115', result: '성공' }],
+    remainingQueue: ['JAL-115', 'JAL-116'], failures: [],
+  };
+  const plan = { issues: [{ key: 'JAL-115' }], cappedKeys: ['JAL-116'] };
+  finalizeNightlyPlanSummary(summary, plan);
+
+  let notification;
+  await notifyNightlyCompletion({
+    summary, config, dryRun: true,
+    notifier: async (payload) => { notification = payload; },
+  });
+
+  assert.equal(notification.summary, summary);
+  assert.deepEqual(notification.summary.remainingQueue, ['JAL-116']);
+  assert.equal(notification.summary.nextAction, '남은 큐의 선행 PR/리뷰 상태 확인');
+  assert.match(notification.summary.completedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('blocked and cyclic tickets survive final summary construction', () => {
+  const summary = { ticketResults: [{ key: 'JAL-1', result: '성공' }] };
+  finalizeNightlyPlanSummary(summary, {
+    issues: [{ key: 'JAL-1' }], externallyBlockedKeys: ['JAL-2'], cyclicKeys: ['JAL-3'], cappedKeys: [],
+  });
+  assert.deepEqual(summary.remainingQueue, ['JAL-2', 'JAL-3']);
+});
+
+test('fails fast when review and needs-human statuses are identical', () => {
+  assert.throws(
+    () => validateNightlyStatusConfig({ jiraReviewStatus: '검토 중', jiraNeedsHumanStatus: '검토 중' }),
+    /must be different/,
+  );
+  assert.doesNotThrow(() => validateNightlyStatusConfig(config));
+});
+
+test('status configuration failures still pass through completion notification scaffolding', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'nightly-config-notification-'));
+  const argvPath = resolve(root, 'notification-argv.json');
+  const cliPath = resolve(root, 'fake-openclaw');
+  writeFileSync(cliPath, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvPath}"\n`);
+  execFileSync('chmod', ['+x', cliPath]);
+  const result = spawnSync(process.execPath, ['qa/automation/nightly-runner.mjs', '--dry-run', '--once', '--force'], {
+    cwd: resolve(import.meta.dirname, '../..'),
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      JIRA_REVIEW_STATUS: 'same-status',
+      JIRA_NEEDS_HUMAN_STATUS: 'same-status',
+      QA_TELEGRAM_TARGET: 'test-target',
+      OPENCLAW_CLI_PATH: cliPath,
+      QA_CONFIG_PATH: resolve(root, 'missing.env'),
+    },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /JIRA_REVIEW_STATUS and JIRA_NEEDS_HUMAN_STATUS must be different/);
+  assert.equal(existsSync(argvPath), true);
+  assert.match(readFileSync(argvPath, 'utf8'), /message\nsend[\s\S]*--dry-run/);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('an existing PR cannot turn a concrete-fix no-op into success', async () => {
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-existing-pr-noop-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: worktree });
+  execFileSync('git', ['config', 'user.name', 'QA Test'], { cwd: worktree });
+  execFileSync('git', ['config', 'user.email', 'qa@example.invalid'], { cwd: worktree });
+  writeFileSync(resolve(worktree, 'tracked.txt'), 'unchanged\n');
+  execFileSync('git', ['add', 'tracked.txt'], { cwd: worktree });
+  execFileSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: worktree });
+  await assert.rejects(
+    commitAndPush({ key: 'JAL-105', fields: { summary: 'repair' } }, worktree, 'existing-pr'),
+    /without changing tracked files/,
+  );
+  rmSync(worktree, { recursive: true, force: true });
+});
+
+test('enforces the nightly deadline only at or after the cutoff', () => {
+  const deadline = new Date('2026-08-25T07:00:00+09:00');
+  assert.doesNotThrow(() => assertWithinNightlyDeadline(undefined, deadline.getTime() + 1));
+  assert.doesNotThrow(() => assertWithinNightlyDeadline(deadline, deadline.getTime() - 1));
+  assert.throws(() => assertWithinNightlyDeadline(deadline, deadline.getTime()),
+    (error) => error.code === 'QA_NIGHTLY_DEADLINE' && /다음 실행에서 재개/.test(error.message));
+});
+
+test('processIssue requeues a ticket when its overall deadline is reached', async () => {
+  const issue = { key: 'JAL-70', fields: { summary: 'deadline', labels: [], status: { name: '대기' }, attachment: [] } };
+  const transitions = [];
+  const outcome = await processIssue({
+    jira: { getIssue: async () => issue, transitionIssue: async (...args) => transitions.push(args) },
+    github: {}, config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기' }, issue, dryRun: false,
+    deadline: new Date(Date.now() - 1),
+  });
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+  assert.deepEqual(transitions, [['JAL-70', '진행'], ['JAL-70', '대기']]);
+});
+
+test('a Jira requeue failure does not replace the deferred deadline outcome', async () => {
+  const issue = { key: 'JAL-75', fields: { summary: 'deadline requeue failure', labels: [], status: { name: '대기' }, attachment: [] } };
+  let transitionCalls = 0;
+  const outcome = await processIssue({
+    jira: {
+      getIssue: async () => issue,
+      transitionIssue: async () => {
+        transitionCalls += 1;
+        if (transitionCalls === 2) throw new Error('Jira unavailable');
+      },
+    },
+    github: {}, config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기' }, issue, dryRun: false,
+    deadline: new Date(Date.now() - 1),
+  });
+  assert.equal(transitionCalls, 2);
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+});
+
+test('an early deadline leaves an untouched review parent in its existing status', async () => {
+  const parent = { key: 'JAL-70', fields: { summary: 'parent', labels: [], status: { name: '리뷰' }, attachment: [] } };
+  const issue = { key: 'JAL-71', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const transitions = [];
+  const outcome = await processIssue({
+    jira: {
+      getIssue: async (key) => key === parent.key ? parent : issue,
+      transitionIssue: async (...args) => transitions.push(args),
+    },
+    github: {}, config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기' }, issue, dryRun: false,
+    deadline: new Date(Date.now() - 1),
+  });
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+  assert.deepEqual(transitions, [['JAL-71', '진행'], ['JAL-71', '대기']]);
+});
+
+test('processIssue requeues both parent and sub-task when deadline interrupts review repair', async () => {
+  const parent = { key: 'JAL-70', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
+  const issue = { key: 'JAL-71', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-deadline-parent-'));
+  const transitions = [];
+  const deadline = new Date(Date.now() + 60_000);
+  const jira = {
+    getIssue: async (key) => key === parent.key ? parent : issue,
+    transitionIssue: async (...args) => transitions.push(args),
+    addLabel: async () => {},
+  };
+  const outcome = await processIssue({
+    jira,
+    github: { createPullRequest: async () => ({ number: 57 }) },
+    config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기', jiraReviewStatus: '리뷰', jiraBaseUrl: 'https://jira.invalid' },
+    issue,
+    dryRun: false,
+    deadline,
+    operations: {
+      createWorktree: async () => worktree,
+      runReplaySuite: async () => null,
+      runCodex: async () => ({ summary: 'ok', tests: ['ok'], reproduction: 'ok' }),
+      commitAndPush: async () => 'sha',
+      reviewAndGate: async ({ repairReviewFindings }) => {
+        deadline.setTime(Date.now() - 1);
+        await repairReviewFindings([], 1);
+      },
+    },
+  });
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+  assert.deepEqual(transitions.slice(-2), [['JAL-71', '대기'], ['JAL-70', '대기']]);
+});
+
+test('processIssue defers when the deadline expires during a first-pass review', async () => {
+  const issue = { key: 'JAL-74', fields: { summary: 'first review', labels: [], status: { name: '대기' }, attachment: [] } };
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-deadline-first-review-'));
+  const transitions = [];
+  const deadline = new Date(Date.now() + 60_000);
+  const outcome = await processIssue({
+    jira: {
+      getIssue: async () => issue,
+      transitionIssue: async (...args) => transitions.push(args),
+      addLabel: async () => {},
+    },
+    github: { createPullRequest: async () => ({ number: 58 }) },
+    config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기', jiraReviewStatus: '리뷰', jiraBaseUrl: 'https://jira.invalid' },
+    issue, dryRun: false, deadline,
+    operations: {
+      createWorktree: async () => worktree,
+      runReplaySuite: async () => null,
+      runCodex: async () => ({ summary: 'ok', tests: ['ok'], reproduction: 'ok' }),
+      commitAndPush: async () => 'sha',
+      reviewAndGate: async () => {
+        deadline.setTime(Date.now() - 1);
+        return { merged: true };
+      },
+    },
+  });
+  assert.deepEqual(outcome, { succeeded: false, deferred: true });
+  assert.deepEqual(transitions.slice(-2), [['JAL-74', '리뷰'], ['JAL-74', '대기']]);
+});
+
+test('processIssue sends both parent and sub-task to needs-human when review repair fails', async () => {
+  const parent = { key: 'JAL-72', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
+  const issue = { key: 'JAL-73', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-repair-failure-parent-'));
+  const transitions = [];
+  let codexCalls = 0;
+  const jira = {
+    getIssue: async (key) => key === parent.key ? parent : issue,
+    transitionIssue: async (...args) => transitions.push(args),
+    addLabel: async () => {},
+    addComment: async () => {},
+  };
+  const outcome = await processIssue({
+    jira,
+    github: { createPullRequest: async () => ({ number: 57 }) },
+    config: { ...config, jiraInProgressStatus: '진행', jiraReadyStatus: '대기', jiraReviewStatus: '리뷰', jiraBaseUrl: 'https://jira.invalid' },
+    issue,
+    dryRun: false,
+    operations: {
+      createWorktree: async () => worktree,
+      runReplaySuite: async () => null,
+      runCodex: async () => {
+        codexCalls += 1;
+        if (codexCalls > 1) throw new Error('repair failed');
+        return { summary: 'ok', tests: ['ok'], reproduction: 'ok' };
+      },
+      commitAndPush: async () => 'sha',
+      reviewAndGate: async ({ repairReviewFindings }) => repairReviewFindings([], 1),
+    },
+  });
+  assert.equal(outcome, false);
+  assert.deepEqual(transitions.slice(-2), [['JAL-72', '사람 확인 필요'], ['JAL-73', '사람 확인 필요']]);
+});
+
+test('pre-review infrastructure failure does not escalate an untouched parent', async () => {
+  const parent = { key: 'JAL-72', fields: { summary: 'parent', labels: [], status: { name: '대기' }, attachment: [] } };
+  const issue = { key: 'JAL-73', fields: { summary: 'child', labels: [], status: { name: '대기' }, attachment: [], parent: { key: parent.key } } };
+  const transitions = [];
+  const jira = {
+    getIssue: async (key) => key === parent.key ? parent : issue,
+    transitionIssue: async (...args) => transitions.push(args),
+    addComment: async () => {},
+  };
+  const outcome = await processIssue({
+    jira, github: {},
+    config: { ...config, jiraInProgressStatus: '진행', jiraReviewStatus: '리뷰' },
+    issue, dryRun: false,
+    operations: { createWorktree: async () => { throw new Error('worktree unavailable'); } },
+  });
+  assert.equal(outcome, false);
+  assert.deepEqual(transitions, [['JAL-73', '진행'], ['JAL-73', '사람 확인 필요']]);
+});
+
+test('processIssue drives the real repair closure through Codex, verification, and merge', async () => {
+  const issue = { key: 'JAL-71', fields: { summary: 'repair', labels: [], status: { name: '대기' }, attachment: [] } };
+  const worktree = mkdtempSync(resolve(tmpdir(), 'nightly-repair-integration-'));
+  const transitions = [];
+  let codexCalls = 0;
+  let commitCalls = 0;
+  const jira = {
+    getIssue: async () => ({ ...issue, fields: { ...issue.fields, status: { name: commitCalls > 1 ? '완료' : '대기' } } }),
+    transitionIssue: async (...args) => transitions.push(args), addLabel: async () => {},
+  };
+  const github = {
+    createPullRequest: async () => ({ number: 57 }),
+    getPullRequest: async () => ({ number: 57, state: 'MERGED', mergedAt: 'now' }),
+  };
+  const outcome = await processIssue({ jira, github,
+    config: { ...config, jiraInProgressStatus: '진행', jiraReviewStatus: '리뷰', jiraBaseUrl: 'https://jira.invalid' },
+    issue, dryRun: false, operations: {
+      createWorktree: async () => worktree,
+      runReplaySuite: async () => null,
+      runCodex: async () => { codexCalls += 1; return { summary: 'ok', tests: ['ok'], reproduction: 'ok' }; },
+      commitAndPush: async () => { commitCalls += 1; return `sha-${commitCalls}`; },
+      reviewAndGate: async ({ repairReviewFindings }) => { await repairReviewFindings([{ severity: 'P2', title: 'x' }], 1); return { merged: true }; },
+    },
+  });
+  assert.equal(outcome, true);
+  assert.equal(codexCalls, 2);
+  assert.equal(commitCalls, 2);
+  assert.ok(transitions.some(([key, status]) => key === 'JAL-71' && status === '리뷰'));
+});
+
+test('repairs one blocking Claude cycle and re-reviews before merge', async () => {
+  const reviews = [
+    { summary: 'blocked', findings: [{ severity: 'P2', title: 'missing test', evidence: 'e', file: 'a.js', line: 1, acceptanceCriteria: 'test', fingerprint: 'fp' }] },
+    { summary: 'clean', findings: [] },
+  ];
+  const comments = [];
+  const repairs = [];
+  let cycle = 0;
+  const github = {
+    getReviewCycle: async () => cycle,
+    setCommitStatus: async () => {},
+    comment: async (_number, body) => { comments.push(body); cycle += 1; },
+    enableAutoMerge: async () => {},
+    getPullRequest: async () => ({ state: 'MERGED', mergedAt: 'now' }),
+  };
+  const jira = {
+    findReviewSubtask: async () => null,
+    createReviewSubtask: async () => {},
+    transitionIssue: async () => {},
+    addComment: async () => {},
+  };
+  const outcome = await reviewAndGate({
+    jira, github, config: { ...config, jiraBaseUrl: 'https://jira.invalid' },
+    issue: { key: 'JAL-1' }, parentKey: 'JAL-1', worktree: '.', issueArtifacts: '.',
+    pullRequest: { number: 57 }, sha: 'old',
+    reviewOperation: async () => reviews.shift(),
+    repairReviewFindings: async (findings, reviewCycle) => { repairs.push([findings, reviewCycle]); return 'new'; },
+  });
+  assert.equal(outcome.merged, true);
+  assert.equal(repairs.length, 1);
+  assert.equal(repairs[0][1], 1);
+  assert.equal(comments.length, 2);
+});
+
+test('does not spend a repair cycle on an unrelated review-family sibling', async () => {
+  let repairs = 0;
+  const transitions = [];
+  const finding = { severity: 'P2', title: 'parent bug', evidence: 'unrelated', file: 'a.js', line: 1, acceptanceCriteria: 'fix', fingerprint: 'fp' };
+  const github = { getReviewCycle: async () => 0, setCommitStatus: async () => {}, comment: async () => {} };
+  const jira = {
+    findReviewSubtask: async () => null, createReviewSubtask: async () => {}, addComment: async () => {},
+    transitionIssue: async (...args) => transitions.push(args),
+  };
+  const outcome = await reviewAndGate({ jira, github, config: { ...config, jiraBaseUrl: 'https://jira.invalid' },
+    issue: { key: 'JAL-2', fields: { summary: 'different scope', description: '' } }, parentKey: 'JAL-1',
+    worktree: '.', issueArtifacts: '.', pullRequest: { number: 57 }, sha: 'old',
+    reviewOperation: async () => ({ summary: 'blocked', findings: [finding] }),
+    repairReviewFindings: async () => { repairs += 1; return 'new'; },
+  });
+  assert.equal(repairs, 0);
+  assert.deepEqual(outcome, { needsHuman: false, merged: false });
+  assert.deepEqual(transitions.at(-1), ['JAL-2', '완료']);
+});
 
 test('reconcile fails closed unless merged, verify, and latest-head Claude gates all pass', async () => {
   const transitions = [];

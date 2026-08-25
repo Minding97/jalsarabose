@@ -29,9 +29,10 @@ export async function executePlannedIssue({
     await holdIssue(issue, blockers);
     return { held: true, succeeded: false, blockers };
   }
-  const succeeded = await processIssue(issue);
+  const outcome = await processIssue(issue);
+  const succeeded = typeof outcome === 'object' ? outcome.succeeded : outcome;
   if (succeeded) successfulKeys.add(issue.key);
-  return { held: false, succeeded };
+  return { held: false, succeeded, ...(typeof outcome === 'object' && outcome.deferred ? { deferred: true } : {}) };
 }
 
 function stableRank(issue) {
@@ -146,6 +147,12 @@ export function buildNightlyPlan(issues, config, externalDependencies = {}) {
       remaining.delete(issue.key);
     }
   }
+  const configuredMaxTickets = Number(config.nightlyMaxTickets ?? 20);
+  const maxTickets = Number.isFinite(configuredMaxTickets)
+    ? Math.max(1, Math.floor(configuredMaxTickets))
+    : 20;
+  const cappedKeys = ordered.slice(maxTickets).map(({ key }) => key);
+  ordered.splice(maxTickets);
 
   const bugType = config.jiraBugType.toLowerCase();
   const taskType = config.jiraTaskType.toLowerCase();
@@ -177,6 +184,7 @@ export function buildNightlyPlan(issues, config, externalDependencies = {}) {
     ]),
     '',
     `제외/보류: ${[
+      cappedKeys.length ? `계획 상한 ${maxTickets}건 초과 ${cappedKeys.join(', ')}` : '',
       externallyBlockedKeys.length ? `큐 밖 선행조건 미충족 ${externallyBlockedKeys.map((key) => `${key}(${externalBlockedReasons.get(key)})`).join(', ')}` : '',
       cyclicKeys.length ? `의존 순환 ${cyclicKeys.join(', ')}` : '',
     ].filter(Boolean).join('; ') || (issues.length ? '현재 없음.' : '큐가 비어 있어 처리 항목 없음.')} 비순환·선행완료 항목만 실행합니다.`,
@@ -189,13 +197,15 @@ export function buildNightlyPlan(issues, config, externalDependencies = {}) {
     [
       ordered.some(({ key }) => key === issue.key)
         ? `야간 자동수정 고정 계획에서 ${ordered.findIndex(({ key }) => key === issue.key) + 1}/${ordered.length} 순서로 배정되었습니다.`
+        : cappedKeys.includes(issue.key)
+          ? `야간 자동수정 계획 상한 ${maxTickets}건을 초과해 다음 실행으로 이월되었습니다.`
         : `야간 자동수정 계획에서 보류되었습니다${cyclicKeys.includes(issue.key) ? ' (의존 순환)' : ` (${externalBlockedReasons.get(issue.key)})`}.`,
       `${issue.key} ${issue.fields?.summary ?? ''}`,
       `우선순위 ${issue.fields?.priority?.name ?? '미지정'}${allDependencies.get(issue.key).length ? `; 선행 ${allDependencies.get(issue.key).join(', ')}` : ''}`,
       '실행 중 새 티켓은 오늘 계획에 추가하지 않으며, 모든 선행 티켓의 Jira 완료 및 PR merge가 확인된 경우에만 실행합니다. 선행 실패·사람 확인 필요·merge 미완료 시 보류됩니다.',
     ].join('\n'),
   ]));
-  return { issues: ordered, reportIssues: issues, text, ticketTexts, dependencies: allDependencies, externallySatisfiedKeys, cyclicKeys, externallyBlockedKeys, externalBlockedReasons, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
+  return { issues: ordered, reportIssues: issues, text, ticketTexts, dependencies: allDependencies, externallySatisfiedKeys, cyclicKeys, externallyBlockedKeys, externalBlockedReasons, cappedKeys, counts: { total: issues.length, task: taskCount, bug: bugCount, other: otherCount } };
 }
 
 function runReportCommand(command, text) {

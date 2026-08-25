@@ -39,6 +39,7 @@ export function loadQaConfig() {
       process.env.QA_CHROME_EXECUTABLE_PATH ??
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     nightlyEndHour: numberValue(process.env.QA_NIGHTLY_END_HOUR, 7),
+    nightlyMaxTickets: numberValue(process.env.QA_NIGHTLY_MAX_TICKETS, 20),
     dailyQaHour: numberValue(process.env.QA_DAILY_HOUR, 7),
     dailyQaMinute: numberValue(process.env.QA_DAILY_MINUTE, 10),
     nightlyPlanWebhookUrl: process.env.QA_NIGHTLY_PLAN_WEBHOOK_URL ?? '',

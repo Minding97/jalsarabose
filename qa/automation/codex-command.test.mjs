@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { buildCodexEnvironment, runCodexCommand } from './codex-command.mjs';
+import { buildCodexEnvironment, buildCodexExecArgs, runCodexCommand } from './codex-command.mjs';
+
+test('supports an explicit sandbox override', () => {
+  const args = buildCodexExecArgs({ worktree: '/tmp/w', schemaPath: '/tmp/s', resultPath: '/tmp/r', prompt: 'review', sandbox: 'read-only' });
+  assert.deepEqual(args.slice(3, 5), ['-s', 'read-only']);
+});
 
 test('drops an inherited agent-specific CODEX_HOME', () => {
   assert.deepEqual(
