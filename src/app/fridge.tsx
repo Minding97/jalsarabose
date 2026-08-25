@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
+import { DatePickerField } from '@/components/app/date-picker-field';
 import { EmptyState } from '@/components/app/empty-state';
 import { FormField } from '@/components/app/form-field';
 import { Screen } from '@/components/app/screen';
@@ -148,26 +149,20 @@ export default function FridgeScreen() {
           placeholder="예: 우유"
           testID="fridge-name-input"
         />
-        <View style={styles.fieldRow}>
-          <View style={styles.fieldHalf}>
-            <FormField
-              label="수량"
-              value={quantity}
-              onChangeText={setQuantity}
-              placeholder="예: 1개"
-              testID="fridge-quantity-input"
-            />
-          </View>
-          <View style={styles.fieldHalf}>
-            <FormField
-              label="유통기한"
-              value={expiryDate}
-              onChangeText={setExpiryDate}
-              placeholder="YYYY-MM-DD"
-              testID="fridge-expiry-date-input"
-            />
-          </View>
-        </View>
+        <FormField
+          label="수량"
+          value={quantity}
+          onChangeText={setQuantity}
+          placeholder="예: 1개"
+          testID="fridge-quantity-input"
+        />
+        <DatePickerField
+          label="유통기한"
+          value={expiryDate}
+          onChange={setExpiryDate}
+          allowClear
+          testID="fridge-expiry-date-input"
+        />
         <ChipGroup
           label="분류"
           value={category}
@@ -549,14 +544,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     lineHeight: 28,
     fontWeight: '800',
-  },
-  fieldRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  fieldHalf: {
-    flex: 1,
-    minWidth: 0,
   },
   chipSection: {
     gap: 8,
