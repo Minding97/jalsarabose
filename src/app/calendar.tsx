@@ -6,6 +6,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
+import { FormResetButton } from '@/components/app/form-reset-button';
 import { Screen } from '@/components/app/screen';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
@@ -39,6 +40,11 @@ export default function CalendarScreen() {
   const selectedGeneratedEvents = generatedEvents.filter((event) => event.date === selectedDate);
   const selectedLocalEvents = localEvents.filter((event) => event.date === selectedDate);
 
+  const clearEventForm = () => {
+    setNewTitle('');
+    setNewTime('');
+  };
+
   const saveLocalEvent = () => {
     if (!newTitle.trim()) {
       return;
@@ -53,8 +59,7 @@ export default function CalendarScreen() {
         date: selectedDate,
       },
     ]);
-    setNewTitle('');
-    setNewTime('');
+    clearEventForm();
     setAdding(false);
   };
 
@@ -178,6 +183,11 @@ export default function CalendarScreen() {
             <ActionButton variant="secondary" onPress={() => setAdding(false)} style={styles.formButton}>
               취소
             </ActionButton>
+            <FormResetButton
+              testID="calendar-event-reset-button"
+              onReset={clearEventForm}
+              style={styles.formButton}
+            />
             <ActionButton
               testID="calendar-event-save-button"
               onPress={saveLocalEvent}
