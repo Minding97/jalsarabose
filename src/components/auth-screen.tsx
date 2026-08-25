@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { FormField } from '@/components/app/form-field';
 import { Screen } from '@/components/app/screen';
 import { Spacing } from '@/constants/theme';
+import {
+  MAX_SIGN_IN_ATTEMPTS,
+  getSignInErrorKind,
+  getSignInErrorMessage,
+} from '@/domain/auth-errors';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 
@@ -20,6 +25,12 @@ export function AuthScreen() {
   const [displayName, setDisplayName] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [failedPasswordAttempts, setFailedPasswordAttempts] = useState<Record<string, number>>({});
+
+  const emailKey = email.trim().toLowerCase();
+  const currentFailedPasswordAttempts = failedPasswordAttempts[emailKey] ?? 0;
+  const signInAttemptLimitReached =
+    mode === 'signIn' && currentFailedPasswordAttempts >= MAX_SIGN_IN_ATTEMPTS;
 
   const submit = async () => {
     const trimmedEmail = email.trim();
@@ -39,6 +50,11 @@ export function AuthScreen() {
       return;
     }
 
+    if (mode === 'signIn' && currentFailedPasswordAttempts >= MAX_SIGN_IN_ATTEMPTS) {
+      Alert.alert('로그인 실패', '로그인 시도 횟수를 초과했습니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+
     setFormError(null);
     setSubmitting(true);
     try {
@@ -47,8 +63,30 @@ export function AuthScreen() {
       } else {
         await signUpWithEmail(trimmedEmail, password, displayName);
       }
-    } catch {
-      // Store actions expose the message through errorMessage.
+    } catch (error) {
+      if (mode === 'signIn') {
+        const message = getSignInErrorMessage(error);
+
+        if (getSignInErrorKind(error) === 'wrong-password') {
+          const nextFailedAttempts = Math.min(
+            currentFailedPasswordAttempts + 1,
+            MAX_SIGN_IN_ATTEMPTS,
+          );
+          setFailedPasswordAttempts((current) => ({
+            ...current,
+            [trimmedEmail.toLowerCase()]: nextFailedAttempts,
+          }));
+
+          Alert.alert(
+            '로그인 실패',
+            nextFailedAttempts >= MAX_SIGN_IN_ATTEMPTS
+              ? `${message}\n로그인 시도 횟수를 초과했습니다. 잠시 후 다시 시도해주세요.`
+              : `${message}\n남은 시도 횟수: ${MAX_SIGN_IN_ATTEMPTS - nextFailedAttempts}회`,
+          );
+        } else {
+          Alert.alert('로그인 실패', message);
+        }
+      }
     } finally {
       setSubmitting(false);
     }
@@ -93,11 +131,13 @@ export function AuthScreen() {
             testID="auth-password-input"
           />
           {formError ? <Text style={[styles.error, { color: theme.danger }]}>{formError}</Text> : null}
-          {errorMessage ? <Text style={[styles.error, { color: theme.danger }]}>{errorMessage}</Text> : null}
+          {mode === 'signUp' && errorMessage ? (
+            <Text style={[styles.error, { color: theme.danger }]}>{errorMessage}</Text>
+          ) : null}
           <ActionButton
             testID="auth-submit-button"
             onPress={submit}
-            disabled={submitting || !email || !password}>
+            disabled={submitting || !email || !password || signInAttemptLimitReached}>
             {submitting ? '처리 중' : mode === 'signIn' ? '로그인' : '회원가입'}
           </ActionButton>
           <ActionButton
