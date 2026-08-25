@@ -17,7 +17,7 @@ const findingSchema = z.object({
   fingerprint: z.string().min(1).max(200),
 });
 
-const reviewSchema = z.object({
+export const reviewSchema = z.object({
   summary: z.string().min(1).max(4000),
   findings: z.array(findingSchema).max(20),
 });

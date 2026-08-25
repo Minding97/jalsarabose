@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { buildCodexEnvironment, buildCodexExecArgs, runCodexCommand } from './codex-command.mjs';
 
-test('supports a read-only sandbox for independent review', () => {
+test('supports an explicit sandbox override', () => {
   const args = buildCodexExecArgs({ worktree: '/tmp/w', schemaPath: '/tmp/s', resultPath: '/tmp/r', prompt: 'review', sandbox: 'read-only' });
   assert.deepEqual(args.slice(3, 5), ['-s', 'read-only']);
 });
