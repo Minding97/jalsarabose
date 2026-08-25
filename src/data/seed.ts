@@ -59,6 +59,8 @@ export function createSeedState(baseDate = new Date()): HouseholdSnapshot {
         updatedAt: today,
       },
     ],
+    recurringExpenseTemplates: [],
+    scheduledExpenses: [],
     expenses: [
       {
         id: 'expense-maintenance',

@@ -8,6 +8,9 @@ export type EventType = 'expense' | 'fridge';
 export type ExpenseCategory = 'rent' | 'utilities' | 'living' | 'subscription' | 'other';
 export type ExpenseStatus = 'scheduled' | 'paid' | 'overdue';
 export type ContributionMode = 'equal' | 'custom';
+export type RecurringExpenseFrequency = 'monthly';
+export type ScheduledExpenseAmountStatus = 'estimated' | 'needs-confirmation' | 'confirmed';
+export type ScheduledExpenseStatus = 'scheduled' | 'processed';
 
 export type FridgeCategory = 'vegetable' | 'fruit' | 'meat' | 'dairy' | 'side' | 'sauce' | 'other';
 export type StorageType = 'fridge' | 'freezer' | 'room';
@@ -47,6 +50,44 @@ export type Expense = {
   createdBy: ID;
   createdAt: ISODate;
   notificationEnabled: boolean;
+  recurringTemplateId?: ID;
+  scheduledExpenseId?: ID;
+};
+
+export type RecurringExpenseTemplate = {
+  id: ID;
+  householdId: ID;
+  title: string;
+  category: ExpenseCategory;
+  frequency: RecurringExpenseFrequency;
+  paymentDay: number;
+  expectedAmount: number | null;
+  paymentMethod?: string;
+  payerId?: ID;
+  startsOn: YearMonth;
+  active: boolean;
+  createdBy: ID;
+  createdAt: ISODate;
+  updatedBy: ID;
+  updatedAt: ISODate;
+};
+
+export type ScheduledExpense = {
+  id: ID;
+  householdId: ID;
+  templateId: ID;
+  month: YearMonth;
+  title: string;
+  category: ExpenseCategory;
+  dueDate: ISODate;
+  amount: number | null;
+  amountStatus: ScheduledExpenseAmountStatus;
+  paymentMethod?: string;
+  payerId?: ID;
+  status: ScheduledExpenseStatus;
+  expenseId?: ID;
+  generatedAt: ISODate;
+  updatedAt: ISODate;
 };
 
 export type MonthlyBudget = {
@@ -81,6 +122,8 @@ export type HouseholdSnapshot = {
   household: Household;
   members: HouseholdMember[];
   monthlyBudgets: MonthlyBudget[];
+  recurringExpenseTemplates: RecurringExpenseTemplate[];
+  scheduledExpenses: ScheduledExpense[];
   expenses: Expense[];
   fridgeItems: FridgeItem[];
 };
@@ -123,6 +166,18 @@ export type ExpenseInput = Pick<
 export type MonthlyBudgetInput = Pick<
   MonthlyBudget,
   'month' | 'totalAmount' | 'contributionMode' | 'memberContributions'
+>;
+export type RecurringExpenseTemplateInput = Pick<
+  RecurringExpenseTemplate,
+  | 'title'
+  | 'category'
+  | 'frequency'
+  | 'paymentDay'
+  | 'expectedAmount'
+  | 'paymentMethod'
+  | 'payerId'
+  | 'startsOn'
+  | 'active'
 >;
 export type FridgeItemInput = Pick<
   FridgeItem,

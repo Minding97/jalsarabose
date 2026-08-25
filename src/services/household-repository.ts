@@ -28,6 +28,8 @@ import {
   householdFromDoc,
   memberFromDoc,
   monthlyBudgetFromDoc,
+  recurringExpenseTemplateFromDoc,
+  scheduledExpenseFromDoc,
   userProfileFromDoc,
 } from '@/services/firestore-mappers';
 import { requireAuth, requireDb } from '@/services/firebase';
@@ -38,8 +40,15 @@ import {
   HouseholdMember,
   HouseholdSnapshot,
   MonthlyBudget,
+  RecurringExpenseTemplate,
+  ScheduledExpense,
   UserProfile,
+  YearMonth,
 } from '@/domain/types';
+import {
+  expenseFromScheduledExpense,
+  getMissingScheduledExpenses,
+} from '@/domain/recurring-expenses';
 import { todayIso } from '@/utils/dates';
 import { saveMonthlyBudgetWithRevision } from '@/services/monthly-budget-write';
 
@@ -220,6 +229,8 @@ export function subscribeHouseholdSnapshot(
   let household: Household | null = null;
   let members: HouseholdMember[] = [];
   let monthlyBudgets: MonthlyBudget[] = [];
+  let recurringExpenseTemplates: RecurringExpenseTemplate[] = [];
+  let scheduledExpenses: ScheduledExpense[] = [];
   let expenses: Expense[] = [];
   let fridgeItems: FridgeItem[] = [];
 
@@ -243,7 +254,15 @@ export function subscribeHouseholdSnapshot(
       return leftIndex - rightIndex || left.id.localeCompare(right.id);
     });
 
-    callback({ household, members: orderedMembers, monthlyBudgets, expenses, fridgeItems });
+    callback({
+      household,
+      members: orderedMembers,
+      monthlyBudgets,
+      recurringExpenseTemplates,
+      scheduledExpenses,
+      expenses,
+      fridgeItems,
+    });
   };
 
   const unsubs = [
@@ -279,6 +298,25 @@ export function subscribeHouseholdSnapshot(
       query(collection(db, 'households', householdId, 'expenses'), orderBy('dueDate', 'asc')),
       (snapshot) => {
         expenses = snapshot.docs.map(expenseFromDoc);
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
+      query(
+        collection(db, 'households', householdId, 'recurringExpenseTemplates'),
+        orderBy('createdAt', 'asc'),
+      ),
+      (snapshot) => {
+        recurringExpenseTemplates = snapshot.docs.map(recurringExpenseTemplateFromDoc);
+        emit();
+      },
+      onError,
+    ),
+    onSnapshot(
+      query(collection(db, 'households', householdId, 'scheduledExpenses'), orderBy('dueDate', 'asc')),
+      (snapshot) => {
+        scheduledExpenses = snapshot.docs.map(scheduledExpenseFromDoc);
         emit();
       },
       onError,
@@ -320,6 +358,97 @@ export function updateExpense(householdId: string, expenseId: string, patch: Par
 
 export function deleteExpense(householdId: string, expenseId: string) {
   return deleteDoc(doc(requireDb(), 'households', householdId, 'expenses', expenseId));
+}
+
+export function addRecurringExpenseTemplate(
+  householdId: string,
+  template: Omit<RecurringExpenseTemplate, 'id'>,
+) {
+  return addDoc(
+    collection(requireDb(), 'households', householdId, 'recurringExpenseTemplates'),
+    omitUndefined(template),
+  );
+}
+
+export function updateRecurringExpenseTemplate(
+  householdId: string,
+  templateId: string,
+  patch: Partial<RecurringExpenseTemplate>,
+) {
+  return updateDoc(
+    doc(requireDb(), 'households', householdId, 'recurringExpenseTemplates', templateId),
+    replaceUndefinedWithDelete(patch),
+  );
+}
+
+export function deleteRecurringExpenseTemplate(householdId: string, templateId: string) {
+  return deleteDoc(
+    doc(requireDb(), 'households', householdId, 'recurringExpenseTemplates', templateId),
+  );
+}
+
+export async function generateScheduledExpenses(
+  householdId: string,
+  templates: RecurringExpenseTemplate[],
+  month: YearMonth,
+  generatedAt: string,
+) {
+  const db = requireDb();
+  const candidates = getMissingScheduledExpenses(templates, [], month, generatedAt);
+  if (candidates.length === 0) return 0;
+
+  return runTransaction(db, async (transaction) => {
+    const refs = candidates.map((candidate) =>
+      doc(db, 'households', householdId, 'scheduledExpenses', candidate.id),
+    );
+    const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
+    let createdCount = 0;
+    candidates.forEach((candidate, index) => {
+      if (snapshots[index].exists()) return;
+      const { id: _id, ...data } = candidate;
+      transaction.set(refs[index], omitUndefined(data));
+      createdCount += 1;
+    });
+    return createdCount;
+  });
+}
+
+export function confirmScheduledExpense(
+  householdId: string,
+  scheduledExpenseId: string,
+  amount: number,
+  updatedAt: string,
+) {
+  return updateDoc(doc(requireDb(), 'households', householdId, 'scheduledExpenses', scheduledExpenseId), {
+    amount,
+    amountStatus: 'confirmed',
+    updatedAt,
+  });
+}
+
+export async function processScheduledExpense(
+  householdId: string,
+  scheduledExpenseId: string,
+  createdBy: string,
+  createdAt: string,
+) {
+  const db = requireDb();
+  const scheduledRef = doc(db, 'households', householdId, 'scheduledExpenses', scheduledExpenseId);
+  const expenseId = `recurring__${scheduledExpenseId}`;
+  const expenseRef = doc(db, 'households', householdId, 'expenses', expenseId);
+
+  return runTransaction(db, async (transaction) => {
+    const scheduledSnapshot = await transaction.get(scheduledRef);
+    if (!scheduledSnapshot.exists()) throw new Error('예정 지출을 찾을 수 없어요.');
+    const scheduled = scheduledExpenseFromDoc(scheduledSnapshot);
+    if (scheduled.status === 'processed') return scheduled.expenseId ?? expenseId;
+
+    const expense = expenseFromScheduledExpense(scheduled, expenseId, createdBy, createdAt);
+    const { id: _id, ...expenseData } = expense;
+    transaction.set(expenseRef, omitUndefined(expenseData));
+    transaction.update(scheduledRef, { status: 'processed', expenseId, updatedAt: createdAt });
+    return expenseId;
+  });
 }
 
 export function addFridgeItem(householdId: string, item: Omit<FridgeItem, 'id'>) {
