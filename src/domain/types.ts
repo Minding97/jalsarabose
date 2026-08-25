@@ -39,7 +39,9 @@ export type Expense = {
   amount: number;
   dueDate: ISODate;
   paymentMethod?: string;
+  /** Legacy read-only field. New expenses use the household living-expense pool. */
   payerId?: ID;
+  /** Legacy read-only field. New expenses use monthly member contributions. */
   splitRatio?: Record<ID, number>;
   isRecurring: boolean;
   status: ExpenseStatus;
@@ -112,8 +114,6 @@ export type ExpenseInput = Pick<
   | 'amount'
   | 'dueDate'
   | 'paymentMethod'
-  | 'payerId'
-  | 'splitRatio'
   | 'isRecurring'
   | 'status'
   | 'memo'

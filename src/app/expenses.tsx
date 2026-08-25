@@ -10,6 +10,7 @@ import { Screen } from '@/components/app/screen';
 import { SegmentedControl } from '@/components/app/segmented-control';
 import { useTheme } from '@/hooks/use-theme';
 import { expenseCategoryLabels, expenseStatusLabels } from '@/domain/labels';
+import { getMonthlyExpenseOverview } from '@/domain/expense-overview';
 import {
   createEqualContributions,
   formatYearMonth,
@@ -25,14 +26,14 @@ import {
   ExpenseStatus,
   YearMonth,
 } from '@/domain/types';
-import { getExpenseOverview } from '@/domain/settlement';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, todayIso } from '@/utils/dates';
-import { getExpenseSummary, getMemberName } from '@/utils/dashboard';
+import { getMemberName } from '@/utils/dashboard';
 import { validateExpenseInput } from '@/utils/validation';
 
 type ExpenseView = 'list' | 'dashboard';
-type SplitMode = 'equal' | 'custom';
+
+const DEFAULT_PAYMENT_METHOD = '생활비 계좌';
 
 export default function ExpensesScreen() {
   const theme = useTheme();
@@ -43,8 +44,7 @@ export default function ExpensesScreen() {
   const saveMonthlyBudgetItem = useHouseholdStore((state) => state.saveMonthlyBudgetItem);
   const currentMonth = getYearMonth(todayIso());
   const [selectedMonth, setSelectedMonth] = useState<YearMonth>(currentMonth);
-  const summary = getExpenseSummary(snapshot, `${selectedMonth}-01`);
-  const [view, setView] = useState<ExpenseView>('list');
+  const [view, setView] = useState<ExpenseView>('dashboard');
   const [formOpen, setFormOpen] = useState(false);
   const [budgetFormOpen, setBudgetFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -52,10 +52,9 @@ export default function ExpensesScreen() {
   const [amount, setAmount] = useState('');
   const [dueDate, setDueDate] = useState(todayIso());
   const [category, setCategory] = useState<ExpenseCategory>('living');
-  const [status, setStatus] = useState<ExpenseStatus>('scheduled');
-  const [payerId, setPayerId] = useState(snapshot.members[0]?.id ?? '');
-  const [splitMode, setSplitMode] = useState<SplitMode>('equal');
-  const [shares, setShares] = useState<Record<string, string>>({});
+  const [paymentMethod, setPaymentMethod] = useState(DEFAULT_PAYMENT_METHOD);
+  const [memo, setMemo] = useState('');
+  const [status, setStatus] = useState<ExpenseStatus>('paid');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [budgetTotal, setBudgetTotal] = useState('');
@@ -65,15 +64,11 @@ export default function ExpensesScreen() {
   const [budgetSubmitting, setBudgetSubmitting] = useState(false);
 
   const selectedBudget = snapshot.monthlyBudgets.find((budget) => budget.month === selectedMonth);
-  const { monthlyExpenses: selectedExpenses, settlement } = useMemo(
-    () =>
-      getExpenseOverview(
-        snapshot.expenses,
-        selectedMonth,
-        snapshot.members.map((member) => member.id),
-      ),
-    [selectedMonth, snapshot.expenses, snapshot.members],
+  const expenseOverview = useMemo(
+    () => getMonthlyExpenseOverview(snapshot.expenses, selectedMonth),
+    [selectedMonth, snapshot.expenses],
   );
+  const selectedExpenses = expenseOverview.monthlyExpenses;
   const budgetSummary = getMonthlyBudgetSummary(selectedBudget, snapshot.expenses, selectedMonth);
 
   const groups = useMemo(() => {
@@ -86,7 +81,7 @@ export default function ExpensesScreen() {
     return Object.entries(grouped).sort(([dateA], [dateB]) => dateB.localeCompare(dateA));
   }, [selectedExpenses]);
 
-  const maxCategoryAmount = Math.max(...summary.byCategory.map((item) => item.amount), 1);
+  const maxCategoryAmount = Math.max(...expenseOverview.byCategory.map((item) => item.amount), 1);
 
   const resetForm = () => {
     setFormOpen(false);
@@ -95,10 +90,9 @@ export default function ExpensesScreen() {
     setAmount('');
     setDueDate(getDefaultDueDate(selectedMonth, currentMonth));
     setCategory('living');
-    setStatus('scheduled');
-    setPayerId(snapshot.members[0]?.id ?? '');
-    setSplitMode('equal');
-    setShares({});
+    setPaymentMethod(getDefaultPaymentMethod(snapshot.expenses));
+    setMemo('');
+    setStatus('paid');
     setFormError(null);
   };
 
@@ -174,39 +168,23 @@ export default function ExpensesScreen() {
     setAmount(String(expense.amount));
     setDueDate(expense.dueDate);
     setCategory(expense.category);
+    setPaymentMethod(expense.paymentMethod ?? DEFAULT_PAYMENT_METHOD);
+    setMemo(expense.memo ?? '');
     setStatus(expense.status);
-    setPayerId(expense.payerId ?? snapshot.members[0]?.id ?? '');
-    setSplitMode(expense.splitRatio ? 'custom' : 'equal');
-    setShares(
-      Object.fromEntries(
-        Object.entries(expense.splitRatio ?? {}).map(([memberId, value]) => [
-          memberId,
-          String(value),
-        ]),
-      ),
-    );
     setFormError(null);
     setFormOpen(true);
   };
 
   const submit = async () => {
-    const splitRatio =
-      splitMode === 'custom'
-        ? Object.fromEntries(
-            snapshot.members.map((member) => [member.id, Number(shares[member.id] ?? 0)]),
-          )
-        : undefined;
     const payload = {
       title: title.trim(),
       amount: Number(amount.replace(/,/g, '')),
       dueDate,
       category,
       status,
-      paymentMethod: undefined,
-      payerId,
-      splitRatio,
+      paymentMethod: paymentMethod.trim() || DEFAULT_PAYMENT_METHOD,
       isRecurring: false,
-      memo: undefined,
+      memo: memo.trim() || undefined,
       notificationEnabled: true,
     };
     const validationMessage = validateExpenseInput(payload);
@@ -366,42 +344,22 @@ export default function ExpensesScreen() {
           options={expenseCategoryOptions}
           onChange={setCategory}
         />
-        <ChipGroup
-          label="결제자"
-          value={payerId}
-          options={snapshot.members.map((member) => ({
-            value: member.id,
-            label: getMemberName(snapshot.members, member.id),
-          }))}
-          onChange={setPayerId}
+        <FormField
+          label="결제수단"
+          value={paymentMethod}
+          onChangeText={setPaymentMethod}
+          placeholder={DEFAULT_PAYMENT_METHOD}
+          testID="expense-payment-method-input"
+        />
+        <FormField
+          label="메모 (선택)"
+          value={memo}
+          onChangeText={setMemo}
+          placeholder="함께 기억할 내용을 남겨보세요"
+          testID="expense-memo-input"
         />
         <ChipGroup
-          label="분배 방식"
-          value={splitMode}
-          options={[
-            { value: 'equal', label: '균등' },
-            { value: 'custom', label: '직접 입력' },
-          ]}
-          onChange={setSplitMode}
-        />
-        {splitMode === 'custom' ? (
-          <View style={styles.shareFields}>
-            {snapshot.members.map((member) => (
-              <FormField
-                key={member.id}
-                label={`${getMemberName(snapshot.members, member.id)} 부담액`}
-                value={shares[member.id] ?? ''}
-                onChangeText={(value) =>
-                  setShares((current) => ({ ...current, [member.id]: value }))
-                }
-                placeholder="0"
-                keyboardType="numeric"
-              />
-            ))}
-          </View>
-        ) : null}
-        <ChipGroup
-          label="납부 상태"
+          label="사용 상태"
           value={status}
           options={expenseStatusOptions}
           onChange={setStatus}
@@ -432,14 +390,14 @@ export default function ExpensesScreen() {
 
   return (
     <Screen
-      title="지출"
+      title="공동생활비"
       testID="expenses-screen"
       floatingAction={<FloatingButton onPress={openNewForm} label="지출 등록" />}>
       <SegmentedControl
         value={view}
         options={[
-          { value: 'list', label: '목록' },
-          { value: 'dashboard', label: '대시보드' },
+          { value: 'dashboard', label: '생활비' },
+          { value: 'list', label: '전체 내역' },
         ]}
         onChange={setView}
         accessibilityLabel="지출 보기"
@@ -475,8 +433,7 @@ export default function ExpensesScreen() {
                           </Text>
                         </View>
                         <Text style={[styles.rowMeta, { color: theme.textSecondary }]}>
-                          {getMemberName(snapshot.members, expense.payerId)} 결제 ·{' '}
-                          {expense.splitRatio ? '직접 분배' : '균등 분배'} ·{' '}
+                          {expense.paymentMethod ?? '결제수단 미입력'} ·{' '}
                           {expenseStatusLabels[expense.status]}
                         </Text>
                       </View>
@@ -513,7 +470,7 @@ export default function ExpensesScreen() {
               </Pressable>
             </View>
             <View style={styles.budgetMetrics}>
-              <BudgetMetric label="실제 지출 합계" amount={budgetSummary.expenseTotal} />
+              <BudgetMetric label="이번 달 사용액" amount={budgetSummary.usedAmount} />
               <BudgetMetric
                 label={
                   budgetSummary.remainingAmount !== null && budgetSummary.remainingAmount < 0
@@ -550,29 +507,39 @@ export default function ExpensesScreen() {
             )}
           </Card>
 
-          <SectionTitle>카테고리별 지출</SectionTitle>
-          <View style={styles.bars}>
-            {summary.byCategory.map((item) => (
-              <ProgressRow
-                key={item.category}
-                label={expenseCategoryLabels[item.category]}
-                value={`${item.amount.toLocaleString()}원`}
-                percent={(item.amount / maxCategoryAmount) * 100}
-              />
-            ))}
-          </View>
+          <SectionTitle>예정 지출</SectionTitle>
+          <ExpenseSummaryCard
+            expenses={expenseOverview.scheduledExpenses}
+            total={budgetSummary.scheduledAmount}
+            emptyMessage="예정된 지출이 없어요."
+            testID="scheduled-expenses-card"
+            onPress={editExpense}
+          />
 
-          <SectionTitle>정산</SectionTitle>
-          <Card style={styles.settlementCard}>
-            <Text style={[styles.settlementText, { color: theme.text }]}>
-              {settlement
-                ? `${getMemberName(snapshot.members, settlement.from)}님이 ${getMemberName(
-                    snapshot.members,
-                    settlement.to,
-                  )}님에게 ${settlement.amount.toLocaleString()}원 보내면 정산 완료`
-                : '정산할 금액이 없어요'}
-            </Text>
-          </Card>
+          <SectionTitle>최근 사용</SectionTitle>
+          <ExpenseSummaryCard
+            expenses={expenseOverview.recentExpenses}
+            total={budgetSummary.usedAmount}
+            emptyMessage="이번 달 사용 내역이 없어요."
+            testID="recent-expenses-card"
+            onPress={editExpense}
+          />
+
+          {expenseOverview.byCategory.length > 0 ? (
+            <>
+              <SectionTitle>카테고리별 사용</SectionTitle>
+              <View style={styles.bars}>
+                {expenseOverview.byCategory.map((item) => (
+                  <ProgressRow
+                    key={item.category}
+                    label={expenseCategoryLabels[item.category]}
+                    value={`${item.amount.toLocaleString()}원`}
+                    percent={(item.amount / maxCategoryAmount) * 100}
+                  />
+                ))}
+              </View>
+            </>
+          ) : null}
         </>
       )}
     </Screen>
@@ -708,6 +675,66 @@ function SectionTitle({ children }: { children: string }) {
   return <Text style={[styles.sectionTitle, { color: theme.text }]}>{children}</Text>;
 }
 
+function ExpenseSummaryCard({
+  expenses,
+  total,
+  emptyMessage,
+  testID,
+  onPress,
+}: {
+  expenses: Expense[];
+  total: number;
+  emptyMessage: string;
+  testID: string;
+  onPress: (expense: Expense) => void;
+}) {
+  const theme = useTheme();
+  const visibleExpenses = expenses.slice(0, 3);
+
+  return (
+    <Card style={styles.expenseSummaryCard} testID={testID}>
+      <View style={styles.expenseSummaryHeading}>
+        <Text style={[styles.expenseSummaryCount, { color: theme.textSecondary }]}>
+          {expenses.length}건
+        </Text>
+        <Text style={[styles.expenseSummaryTotal, { color: theme.text }]}>
+          {total.toLocaleString()}원
+        </Text>
+      </View>
+      {visibleExpenses.length === 0 ? (
+        <Text style={[styles.expenseSummaryEmpty, { color: theme.textSecondary }]}>
+          {emptyMessage}
+        </Text>
+      ) : (
+        visibleExpenses.map((expense) => (
+          <Pressable
+            key={expense.id}
+            accessibilityRole="button"
+            onPress={() => onPress(expense)}
+            style={[styles.expenseSummaryRow, { borderTopColor: theme.border }]}>
+            <View style={styles.expenseSummaryText}>
+              <Text style={[styles.expenseSummaryTitle, { color: theme.text }]}>
+                {expense.title}
+              </Text>
+              <Text style={[styles.expenseSummaryMeta, { color: theme.textSecondary }]}>
+                {formatKoreanDate(expense.dueDate)} · {expense.paymentMethod ?? '결제수단 미입력'}
+              </Text>
+            </View>
+            <Text style={[styles.expenseSummaryAmount, { color: theme.text }]}>
+              {expense.amount.toLocaleString()}원
+            </Text>
+          </Pressable>
+        ))
+      )}
+      {expenses.length > visibleExpenses.length ? (
+        <Text style={[styles.expenseSummaryMore, { color: theme.textSecondary }]}>
+          그 외 {expenses.length - visibleExpenses.length}건
+        </Text>
+      ) : null}
+    </Card>
+  );
+}
+
 function ProgressRow({
   label,
   value,
@@ -742,6 +769,12 @@ function parseWon(value: string) {
 
 function getDefaultDueDate(selectedMonth: YearMonth, currentMonth: YearMonth) {
   return selectedMonth === currentMonth ? todayIso() : `${selectedMonth}-01`;
+}
+
+function getDefaultPaymentMethod(expenses: Expense[]) {
+  return [...expenses]
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .find((expense) => expense.paymentMethod?.trim())?.paymentMethod ?? DEFAULT_PAYMENT_METHOD;
 }
 
 const expenseCategoryOptions = Object.entries(expenseCategoryLabels).map(([value, label]) => ({
@@ -918,6 +951,63 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
   },
+  expenseSummaryCard: {
+    borderRadius: 16,
+    padding: 14,
+  },
+  expenseSummaryHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  expenseSummaryCount: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  expenseSummaryTotal: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  expenseSummaryEmpty: {
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  expenseSummaryRow: {
+    minHeight: 52,
+    borderTopWidth: 1,
+    paddingTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  expenseSummaryText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  expenseSummaryTitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  expenseSummaryMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  expenseSummaryAmount: {
+    flexShrink: 0,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  expenseSummaryMore: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
   sectionTitle: {
     fontSize: 14,
     lineHeight: 20,
@@ -951,15 +1041,6 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 4,
-  },
-  settlementCard: {
-    borderRadius: 16,
-    padding: 14,
-  },
-  settlementText: {
-    fontSize: 14,
-    lineHeight: 22,
-    fontWeight: '500',
   },
   fab: {
     width: 52,
@@ -1003,9 +1084,6 @@ const styles = StyleSheet.create({
   chipText: {
     fontSize: 13,
     fontWeight: '600',
-  },
-  shareFields: {
-    gap: 10,
   },
   formActions: {
     flexDirection: 'row',

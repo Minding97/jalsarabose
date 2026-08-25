@@ -35,24 +35,26 @@ test('rejects custom contributions whose sum differs from the monthly budget', (
   assert.match(message, /합계 900,000원.*1,000,000원.*일치/);
 });
 
-test('calculates zero and negative remaining amounts from legacy expenses in the selected month', () => {
+test('subtracts completed usage from the pool and reports planned expenses separately', () => {
   const budget = { month: '2026-08', totalAmount: 100_000 };
   const expenses = [
-    { dueDate: '2026-07-31', amount: 999_999 },
-    { dueDate: '2026-08-01', amount: 40_000 },
-    { dueDate: '2026-08-31', amount: 60_000 },
-    { dueDate: '2026-09-01', amount: 999_999 },
+    { dueDate: '2026-07-31', amount: 999_999, status: 'paid' },
+    { dueDate: '2026-08-01', amount: 40_000, status: 'paid' },
+    { dueDate: '2026-08-02', amount: 10_000, status: 'overdue' },
+    { dueDate: '2026-08-31', amount: 60_000, status: 'scheduled' },
+    { dueDate: '2026-09-01', amount: 999_999, status: 'paid' },
   ];
 
   assert.deepEqual(getMonthlyBudgetSummary(budget, expenses, '2026-08'), {
-    expenseTotal: 100_000,
+    usedAmount: 50_000,
+    scheduledAmount: 60_000,
     budgetTotal: 100_000,
-    remainingAmount: 0,
+    remainingAmount: 50_000,
   });
 
-  expenses.push({ dueDate: '2026-08-15', amount: 10_000 });
-  assert.equal(getMonthlyBudgetSummary(budget, expenses, '2026-08').remainingAmount, -10_000);
-  assert.equal(getMonthlyBudgetSummary(undefined, expenses, '2026-09').expenseTotal, 999_999);
+  expenses.push({ dueDate: '2026-08-15', amount: 70_000, status: 'paid' });
+  assert.equal(getMonthlyBudgetSummary(budget, expenses, '2026-08').remainingAmount, -20_000);
+  assert.equal(getMonthlyBudgetSummary(undefined, expenses, '2026-09').usedAmount, 999_999);
 });
 
 test('moves across year boundaries without leaking expenses between months', () => {
