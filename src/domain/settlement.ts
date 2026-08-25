@@ -1,6 +1,6 @@
 import type { Expense, YearMonth } from './types';
 
-type SettlementExpense = Pick<Expense, 'amount' | 'payerId'>;
+type SettlementExpense = Pick<Expense, 'amount' | 'payerId' | 'splitRatio'>;
 type DatedSettlementExpense = SettlementExpense & Pick<Expense, 'dueDate'>;
 
 export function getExpenseOverview<T extends DatedSettlementExpense>(
@@ -21,20 +21,28 @@ export function getSettlement(expenses: SettlementExpense[], memberIds: string[]
     return null;
   }
 
-  const paid = Object.fromEntries(memberIds.map((id) => [id, 0])) as Record<string, number>;
+  const balances = Object.fromEntries(memberIds.map((id) => [id, 0])) as Record<string, number>;
   expenses.forEach((expense) => {
-    if (expense.payerId && paid[expense.payerId] !== undefined) {
-      paid[expense.payerId] += expense.amount;
+    if (!expense.payerId || balances[expense.payerId] === undefined) {
+      return;
     }
+
+    balances[expense.payerId] += expense.amount;
+    const customShares = memberIds.map((id) => Math.max(expense.splitRatio?.[id] ?? 0, 0));
+    const customTotal = customShares.reduce((sum, share) => sum + share, 0);
+    const shares = customTotal > 0 ? customShares : memberIds.map(() => 1);
+    const shareTotal = shares.reduce((sum, share) => sum + share, 0);
+
+    memberIds.forEach((id, index) => {
+      balances[id] -= (expense.amount * shares[index]) / shareTotal;
+    });
   });
 
-  const total = Object.values(paid).reduce((sum, value) => sum + value, 0);
-  const target = total / 2;
-  const from = memberIds.find((id) => paid[id] < target);
-  const to = memberIds.find((id) => paid[id] > target);
+  const from = memberIds.find((id) => balances[id] < 0);
+  const to = memberIds.find((id) => balances[id] > 0);
   if (!from || !to) {
     return null;
   }
 
-  return { from, to, amount: Math.round(target - paid[from]) };
+  return { from, to, amount: Math.round(Math.min(-balances[from], balances[to])) };
 }

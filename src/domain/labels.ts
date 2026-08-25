@@ -1,10 +1,10 @@
-import {
+import type {
   ExpenseCategory,
   ExpenseStatus,
   FridgeCategory,
   FridgeStatus,
   StorageType,
-} from '@/domain/types';
+} from './types.ts';
 
 export const expenseCategoryLabels: Record<ExpenseCategory, string> = {
   rent: '월세',

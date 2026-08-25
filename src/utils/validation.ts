@@ -1,7 +1,7 @@
 import { isValid } from 'date-fns';
 
-import { ExpenseInput, FridgeItemInput } from '@/domain/types';
-import { fromIsoDate } from '@/utils/dates';
+import type { ExpenseInput, FridgeItemInput } from '../domain/types.ts';
+import { fromIsoDate } from './dates.ts';
 
 export function isValidIsoDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -28,6 +28,16 @@ export function validateExpenseInput(input: ExpenseInput) {
   }
   if (!isValidIsoDate(input.dueDate)) {
     return '납부 날짜는 YYYY-MM-DD 형식으로 입력해주세요.';
+  }
+  if (input.splitRatio) {
+    const ratios = Object.values(input.splitRatio);
+    if (ratios.some((ratio) => !Number.isFinite(ratio) || ratio < 0)) {
+      return '분담 비율은 0 이상의 숫자로 입력해주세요.';
+    }
+    const total = ratios.reduce((sum, ratio) => sum + ratio, 0);
+    if (Math.abs(total - 100) > 0.01 + 1e-9) {
+      return '분담 비율 합계는 100%여야 해요.';
+    }
   }
   return null;
 }

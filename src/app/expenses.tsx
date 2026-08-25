@@ -389,7 +389,7 @@ export default function ExpensesScreen() {
             {snapshot.members.map((member) => (
               <FormField
                 key={member.id}
-                label={`${getMemberName(snapshot.members, member.id)} 부담액`}
+                label={`${getMemberName(snapshot.members, member.id)} 분담 비율 (%)`}
                 value={shares[member.id] ?? ''}
                 onChangeText={(value) =>
                   setShares((current) => ({ ...current, [member.id]: value }))
