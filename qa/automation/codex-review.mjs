@@ -10,7 +10,8 @@ export async function reviewWithCodex({ worktree, baseBranch = 'origin/main', is
   const temporaryResult = resolve(reviewWorkspace.path, '.codex-review.json');
   const prompt = [
     'Act as an independent, read-only final code reviewer.',
-    `Review the complete tracked diff from ${baseBranch} to HEAD for Jira ${issueKey}, PR #${pullRequestNumber}.`,
+    `Review the complete tracked diff for Jira ${issueKey}, PR #${pullRequestNumber}, stored in .claude-review.diff.`,
+    `That file was generated from the exact resolved ${baseBranch} merge base before this isolated clone; do not substitute the clone's origin/main ref.`,
     'Inspect relevant surrounding code and tests. Do not edit files, commit, push, or change repository state.',
     'Report only actionable behavioral, security, privacy, reliability, or test-coverage defects.',
     'P0-P2 findings block merge; P3 is advisory. Include exact file, line, reproduction evidence, acceptance criteria, and a stable fingerprint.',
