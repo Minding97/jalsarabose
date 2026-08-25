@@ -5,13 +5,40 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import test from 'node:test';
 
-import { assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, commitAndPush, completeReviewFamily, finalizeNightlyPlanSummary, notifyNightlyCompletion, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, validateNightlyStatusConfig } from './nightly-runner.mjs';
+import { assertWithinNightlyDeadline, acquireNightlyLock, buildWorktreeAddArgs, captureNightlyPlanSummary, classifyNightlyStatus, commitAndPush, completeReviewFamily, finalizeNightlyPlanSummary, isClaudeInfrastructureFailure, notifyNightlyCompletion, prepareNightlyPlan, processIssue, reconcileMergedPullRequests, removeGeneratedWorktreeLinks, reportUnmergedReview, reportVerifiedCompletion, reviewAndGate, reviewWithInfrastructureFallback, validateNightlyStatusConfig } from './nightly-runner.mjs';
 import { isTestNotificationRun } from './notification.mjs';
 
 const config = {
   jiraDoneStatus: '완료',
   jiraNeedsHumanStatus: '사람 확인 필요',
 };
+
+test('falls back to Codex only when Claude produces no review because of infrastructure', async () => {
+  assert.equal(isClaudeInfrastructureFailure(new Error('claude failed (1). Output omitted.')), true);
+  assert.equal(isClaudeInfrastructureFailure(new Error('authentication required: not logged in')), true);
+  assert.equal(isClaudeInfrastructureFailure(new Error('review returned P1 authorization bypass')), false);
+  const result = await reviewWithInfrastructureFallback({
+    claudeReview: async () => { throw new Error('claude failed (1). Output omitted.'); },
+    codexReview: async (args) => ({ summary: args.outputPath, findings: [] }),
+    reviewArgs: { outputPath: '/tmp/claude-review-2.json' },
+  });
+  assert.equal(result.provider, 'Codex');
+  assert.match(result.review.summary, /codex-review-2\.json$/);
+  assert.match(result.fallbackReason, /failed \(1\)/);
+});
+
+test('never replaces a real Claude review containing blocking findings', async () => {
+  let codexCalls = 0;
+  const review = { summary: 'blocked', findings: [{ severity: 'P1' }] };
+  const result = await reviewWithInfrastructureFallback({
+    claudeReview: async () => review,
+    codexReview: async () => { codexCalls += 1; return { findings: [] }; },
+    reviewArgs: { outputPath: '/tmp/claude-review-1.json' },
+  });
+  assert.equal(result.review, review);
+  assert.equal(result.provider, 'Claude');
+  assert.equal(codexCalls, 0);
+});
 
 test('capped tickets remain visible when the nightly plan summary is captured', () => {
   const summary = { plannedTickets: [], remainingQueue: [], verification: '처리 티켓 없음' };
@@ -40,6 +67,14 @@ test('capped tickets survive finalization into the summary passed to the notifie
   assert.deepEqual(notification.summary.remainingQueue, ['JAL-116']);
   assert.equal(notification.summary.nextAction, '남은 큐의 선행 PR/리뷰 상태 확인');
   assert.match(notification.summary.completedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('blocked and cyclic tickets survive final summary construction', () => {
+  const summary = { ticketResults: [{ key: 'JAL-1', result: '성공' }] };
+  finalizeNightlyPlanSummary(summary, {
+    issues: [{ key: 'JAL-1' }], externallyBlockedKeys: ['JAL-2'], cyclicKeys: ['JAL-3'], cappedKeys: [],
+  });
+  assert.deepEqual(summary.remainingQueue, ['JAL-2', 'JAL-3']);
 });
 
 test('fails fast when review and needs-human statuses are identical', () => {

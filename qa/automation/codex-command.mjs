@@ -9,13 +9,13 @@ export function buildCodexEnvironment(source = process.env) {
   return environment;
 }
 
-export function buildCodexExecArgs({ worktree, schemaPath, resultPath, prompt }) {
+export function buildCodexExecArgs({ worktree, schemaPath, resultPath, prompt, sandbox = 'workspace-write' }) {
   return [
     'exec',
     '-C',
     worktree,
     '-s',
-    'workspace-write',
+    sandbox,
     '-c',
     'approval_policy="never"',
     '--output-schema',
@@ -32,10 +32,11 @@ export function runCodexCommand({
   schemaPath,
   resultPath,
   prompt,
+  sandbox,
 }) {
   return runCommand(
     codexPath,
-    buildCodexExecArgs({ worktree, schemaPath, resultPath, prompt }),
+    buildCodexExecArgs({ worktree, schemaPath, resultPath, prompt, sandbox }),
     {
       cwd: worktree,
       env: buildCodexEnvironment(),

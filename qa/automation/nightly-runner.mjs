@@ -23,6 +23,7 @@ import { issueMatchesReviewFindings, JiraClient } from '../server/jira-client.mj
 import { withExpoWebServer } from './app-server.mjs';
 import { reviewWithClaude } from './claude-review.mjs';
 import { runCodexCommand } from './codex-command.mjs';
+import { reviewWithCodex } from './codex-review.mjs';
 import { runCommand } from './command.mjs';
 import { GitHubClient } from './github.mjs';
 import { isTestNotificationRun, notifyAutomationSummary } from './notification.mjs';
@@ -128,7 +129,7 @@ export function captureNightlyPlanSummary(summary, plan) {
 export function finalizeNightlyPlanSummary(summary, plan) {
   summary.remainingQueue = [...plan.issues
     .filter((issue) => !summary.ticketResults.some((item) => item.key === issue.key && item.result === '성공'))
-    .map((issue) => issue.key), ...(plan.cappedKeys ?? [])];
+    .map((issue) => issue.key), ...(plan.externallyBlockedKeys ?? []), ...(plan.cyclicKeys ?? []), ...(plan.cappedKeys ?? [])];
   summary.status = classifyNightlyStatus(summary.ticketResults, plan.issues.length);
   summary.verification = `${summary.ticketResults.filter((item) => item.result === '성공').length}/${plan.issues.length} 티켓 완료 확인`;
   summary.nextAction = summary.remainingQueue.length ? '남은 큐의 선행 PR/리뷰 상태 확인' : '다음 야간 큐 대기';
@@ -360,7 +361,24 @@ export function removeGeneratedWorktreeLinks(worktree) {
   }
 }
 
-function formatReviewComment(review, cycle) {
+export function isClaudeInfrastructureFailure(error) {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return /session.{0,20}(limit|expired)|usage limit|rate limit|\bauth(?:entication)?\b|not logged in|login required|credential|timeout|timed out|failed \([^)]*\)|missing required review flags|current claude cli|required for isolated reviews|without (a )?(review )?result|no review result/.test(message);
+}
+
+export async function reviewWithInfrastructureFallback({ claudeReview, codexReview = reviewWithCodex, reviewArgs }) {
+  try {
+    return { review: await claudeReview(reviewArgs), provider: 'Claude', fallbackReason: '' };
+  } catch (error) {
+    if (!isClaudeInfrastructureFailure(error)) throw error;
+    const fallbackReason = (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+    const outputPath = reviewArgs.outputPath.replace(/claude-review-(\d+)\.json$/, 'codex-review-$1.json');
+    const review = await codexReview({ ...reviewArgs, outputPath });
+    return { review, provider: 'Codex', fallbackReason };
+  }
+}
+
+function formatReviewComment(review, cycle, provider, fallbackReason) {
   const findings = review.findings
     .map(
       (finding) =>
@@ -369,7 +387,8 @@ function formatReviewComment(review, cycle) {
     .join('\n');
   return [
     `<!-- qa-review-cycle:${cycle} -->`,
-    `## Claude QA Review ${cycle}/${maxReviewCycles}`,
+    `## ${provider} QA Review ${cycle}/${maxReviewCycles}`,
+    fallbackReason ? `Claude infrastructure fallback: ${fallbackReason}` : '',
     '',
     review.summary,
     '',
@@ -402,6 +421,7 @@ export async function reviewAndGate({
   deadline,
   repairReviewFindings,
   reviewOperation = reviewWithClaude,
+  fallbackReviewOperation = reviewWithCodex,
 }) {
   const previousCycle = await github.getReviewCycle(pullRequest.number);
   const cycle = previousCycle + 1;
@@ -411,14 +431,20 @@ export async function reviewAndGate({
     `Claude review ${cycle}/${maxReviewCycles} running`,
     `${config.jiraBaseUrl}/browse/${parentKey}`,
   );
-  const review = await reviewOperation({
+  const reviewArgs = {
     worktree,
     issueKey: parentKey,
     pullRequestNumber: pullRequest.number,
     outputPath: resolve(issueArtifacts, `claude-review-${cycle}.json`),
+  };
+  const { review, provider, fallbackReason } = await reviewWithInfrastructureFallback({
+    claudeReview: reviewOperation, codexReview: fallbackReviewOperation, reviewArgs,
   });
   assertWithinNightlyDeadline(deadline);
-  await github.comment(pullRequest.number, formatReviewComment(review, cycle));
+  await github.comment(pullRequest.number, formatReviewComment(review, cycle, provider, fallbackReason));
+  if (fallbackReason) {
+    await jira.addComment(parentKey, `Claude 리뷰 인프라 실패로 Codex 독립 리뷰로 전환했습니다: ${fallbackReason}`);
+  }
 
   const blockers = review.findings.filter((finding) =>
     ['P0', 'P1', 'P2'].includes(finding.severity),
@@ -428,7 +454,7 @@ export async function reviewAndGate({
     await github.setCommitStatus(
       sha,
       'failure',
-      `${blockers.length} blocking Claude finding(s)`,
+      `${blockers.length} blocking ${provider} finding(s)`,
       `${config.jiraBaseUrl}/browse/${parentKey}`,
     );
 
@@ -439,7 +465,7 @@ export async function reviewAndGate({
       }
       await jira.addComment(
         parentKey,
-        `Claude 리뷰 ${cycle}회 후에도 차단 항목 ${blockers.length}건이 남아 사람 확인이 필요합니다.`,
+        `${provider} 리뷰 ${cycle}회 후에도 차단 항목 ${blockers.length}건이 남아 사람 확인이 필요합니다.`,
       );
       return { needsHuman: true, merged: false };
     }
@@ -457,7 +483,7 @@ export async function reviewAndGate({
       } else {
         await jira.addComment(
           existing.key,
-          `Claude 재리뷰 ${cycle}: ${finding.evidence}\n완료 조건: ${finding.acceptanceCriteria}`,
+          `${provider} 재리뷰 ${cycle}: ${finding.evidence}\n완료 조건: ${finding.acceptanceCriteria}`,
         );
         await jira.transitionIssue(existing.key, config.jiraReadyStatus);
       }
@@ -472,7 +498,7 @@ export async function reviewAndGate({
     if (repairReviewFindings) {
       const repairedSha = await repairReviewFindings(blockers, cycle);
       return reviewAndGate({ jira, github, config, issue, parentKey, worktree, issueArtifacts, deadline,
-        pullRequest: { ...pullRequest, headRefOid: repairedSha }, sha: repairedSha, repairReviewFindings, reviewOperation });
+        pullRequest: { ...pullRequest, headRefOid: repairedSha }, sha: repairedSha, repairReviewFindings, reviewOperation, fallbackReviewOperation });
     }
     return { needsHuman: false, merged: false };
   }
@@ -480,7 +506,7 @@ export async function reviewAndGate({
   await github.setCommitStatus(
     sha,
     'success',
-    'Claude review passed',
+    `${provider} review passed${fallbackReason ? ' (Claude fallback)' : ''}`,
     `${config.jiraBaseUrl}/browse/${parentKey}`,
   );
   await github.enableAutoMerge(pullRequest.number);
@@ -769,7 +795,7 @@ export async function completeReviewFamily(jira, config, parent, pullRequestNumb
     if (!comments.some((comment) => JSON.stringify(comment.body).includes(marker))) {
       await jira.addComment(
         child.key,
-        `${marker}\n상위 ${parent.key}의 PR #${pullRequestNumber}가 main에 병합되고 verify 및 최신 head Claude P0/P1/P2=0 gate를 통과하여 검토 하위 티켓을 완료 처리합니다.`,
+        `${marker}\n상위 ${parent.key}의 PR #${pullRequestNumber}가 main에 병합되고 verify 및 최신 head 독립 리뷰 P0/P1/P2=0 gate를 통과하여 검토 하위 티켓을 완료 처리합니다.`,
       );
     }
   }
@@ -853,8 +879,8 @@ async function main() {
     console.log(plan.text);
     await reportNightlyPlan({ jira, plan, config, dryRun });
     if (plan.issues.length === 0) {
-        console.log(plan.cyclicKeys.length || plan.externallyBlockedKeys.length
-          ? 'QA queue has no actionable tickets; blocked/cyclic tickets were reported.'
+        console.log(plan.cyclicKeys.length || plan.externallyBlockedKeys.length || plan.cappedKeys.length
+          ? 'QA queue has no actionable tickets; blocked/cyclic/capped tickets were reported.'
           : 'QA queue is empty.');
         return;
     }
