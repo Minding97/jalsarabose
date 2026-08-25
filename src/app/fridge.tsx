@@ -11,6 +11,7 @@ import { SegmentedControl } from '@/components/app/segmented-control';
 import { fridgeCategoryLabels, fridgeStatusLabels, storageTypeLabels } from '@/domain/labels';
 import { FridgeCategory, FridgeItem, FridgeStatus, StorageType } from '@/domain/types';
 import { useTheme } from '@/hooks/use-theme';
+import { useReturnToTabMain } from '@/hooks/use-return-to-tab-main';
 import { useHouseholdStore } from '@/store/household-store';
 import { daysUntil, todayIso } from '@/utils/dates';
 import { getFridgeSummary } from '@/utils/dashboard';
@@ -38,6 +39,8 @@ export default function FridgeScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  useReturnToTabMain(setFormOpen);
+
   const stockedItems = snapshot.fridgeItems.filter((item) => item.status === 'stocked');
   const groups = useMemo(() => groupFridgeItems(stockedItems, today), [stockedItems, today]);
   const categoryCounts = useMemo(() => {
@@ -53,8 +56,7 @@ export default function FridgeScreen() {
   }, [stockedItems]);
   const maxCategoryCount = Math.max(...categoryCounts.map((item) => item.count), 1);
 
-  const resetForm = () => {
-    setFormOpen(false);
+  const clearForm = () => {
     setEditingId(null);
     setName('');
     setQuantity('');
@@ -65,8 +67,17 @@ export default function FridgeScreen() {
     setFormError(null);
   };
 
+  const resetForm = () => {
+    setFormOpen(false);
+    clearForm();
+  };
+
   const openNewForm = () => {
-    resetForm();
+    if (editingId) {
+      clearForm();
+    } else {
+      setFormError(null);
+    }
     setFormOpen(true);
   };
 

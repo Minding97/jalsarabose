@@ -7,6 +7,7 @@ import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
 import { Screen } from '@/components/app/screen';
+import { useReturnToTabMain } from '@/hooks/use-return-to-tab-main';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, fromIsoDate, toIsoDate, todayIso } from '@/utils/dates';
@@ -29,6 +30,8 @@ export default function CalendarScreen() {
   const [newTitle, setNewTitle] = useState('');
   const [newTime, setNewTime] = useState('');
   const [localEvents, setLocalEvents] = useState<LocalEvent[]>([]);
+
+  useReturnToTabMain(setAdding);
 
   const monthDays = useMemo(() => {
     const start = startOfWeek(visibleMonth, { weekStartsOn: 0 });
