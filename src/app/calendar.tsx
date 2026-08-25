@@ -1,5 +1,5 @@
 import { addDays, addMonths, eachDayOfInterval, isSameMonth, startOfMonth, startOfWeek } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react-native';
+import { Check, ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -7,10 +7,12 @@ import { ActionButton } from '@/components/app/action-button';
 import { Card } from '@/components/app/card';
 import { EmptyState } from '@/components/app/empty-state';
 import { Screen } from '@/components/app/screen';
+import { TimePickerField } from '@/components/app/time-picker-field';
 import { useTheme } from '@/hooks/use-theme';
 import { useHouseholdStore } from '@/store/household-store';
 import { formatKoreanDate, fromIsoDate, toIsoDate, todayIso } from '@/utils/dates';
 import { getCalendarEvents } from '@/utils/dashboard';
+import { isValidEventTimeRange } from '@/utils/event-time';
 
 type LocalEvent = {
   id: string;
@@ -27,7 +29,9 @@ export default function CalendarScreen() {
   const [selectedDate, setSelectedDate] = useState(today);
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newTime, setNewTime] = useState('');
+  const [newStartTime, setNewStartTime] = useState('09:00');
+  const [newEndTime, setNewEndTime] = useState('09:30');
+  const [newAllDay, setNewAllDay] = useState(false);
   const [localEvents, setLocalEvents] = useState<LocalEvent[]>([]);
 
   const monthDays = useMemo(() => {
@@ -49,12 +53,14 @@ export default function CalendarScreen() {
       {
         id: `local-${Date.now()}`,
         title: newTitle.trim(),
-        time: newTime.trim() || '종일',
+        time: newAllDay ? '종일 · 00:00–23:59' : `${newStartTime}–${newEndTime}`,
         date: selectedDate,
       },
     ]);
     setNewTitle('');
-    setNewTime('');
+    setNewStartTime('09:00');
+    setNewEndTime('09:30');
+    setNewAllDay(false);
     setAdding(false);
   };
 
@@ -162,18 +168,42 @@ export default function CalendarScreen() {
               { backgroundColor: theme.backgroundElement, borderColor: theme.border, color: theme.text },
             ]}
           />
-          <TextInput
-            testID="calendar-event-time-input"
-            accessibilityLabel="일정 시간"
-            value={newTime}
-            onChangeText={setNewTime}
-            placeholder="시간 (예: 19:00)"
-            placeholderTextColor={theme.textTertiary}
-            style={[
-              styles.input,
-              { backgroundColor: theme.backgroundElement, borderColor: theme.border, color: theme.text },
-            ]}
-          />
+          <Pressable
+            testID="calendar-event-all-day-toggle"
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: newAllDay }}
+            accessibilityLabel="종일 일정"
+            onPress={() => setNewAllDay((current) => !current)}
+            style={styles.allDayRow}>
+            <View
+              style={[
+                styles.checkbox,
+                { backgroundColor: newAllDay ? theme.primary : 'transparent', borderColor: newAllDay ? theme.primary : theme.border },
+              ]}>
+              {newAllDay ? <Check size={14} color="#FFFFFF" strokeWidth={3} /> : null}
+            </View>
+            <Text style={[styles.allDayLabel, { color: theme.text }]}>종일</Text>
+            <Text style={[styles.allDayHint, { color: theme.textSecondary }]}>00:00–23:59</Text>
+          </Pressable>
+          <View style={styles.timeFields}>
+            <TimePickerField
+              label="시작 시간"
+              value={newAllDay ? '00:00' : newStartTime}
+              onChange={setNewStartTime}
+              disabled={newAllDay}
+              testID="calendar-event-start-time-input"
+            />
+            <TimePickerField
+              label="종료 시간"
+              value={newAllDay ? '23:59' : newEndTime}
+              onChange={setNewEndTime}
+              disabled={newAllDay}
+              testID="calendar-event-end-time-input"
+            />
+          </View>
+          {!newAllDay && !isValidEventTimeRange(newStartTime, newEndTime) ? (
+            <Text style={[styles.timeError, { color: theme.danger }]}>종료 시간은 시작 시간보다 늦어야 해요.</Text>
+          ) : null}
           <View style={styles.formActions}>
             <ActionButton variant="secondary" onPress={() => setAdding(false)} style={styles.formButton}>
               취소
@@ -181,7 +211,7 @@ export default function CalendarScreen() {
             <ActionButton
               testID="calendar-event-save-button"
               onPress={saveLocalEvent}
-              disabled={!newTitle.trim()}
+              disabled={!newTitle.trim() || (!newAllDay && !isValidEventTimeRange(newStartTime, newEndTime))}
               style={styles.formButton}>
               추가
             </ActionButton>
@@ -316,6 +346,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  allDayRow: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 1.5,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  allDayLabel: { fontSize: 14, fontWeight: '700' },
+  allDayHint: { fontSize: 12, fontWeight: '500' },
+  timeFields: { gap: 10 },
+  timeError: { fontSize: 12, lineHeight: 17 },
   formActions: {
     flexDirection: 'row',
     gap: 8,
