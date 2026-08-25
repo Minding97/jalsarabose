@@ -10,6 +10,7 @@ type FormFieldProps = {
   keyboardType?: KeyboardTypeOptions;
   secureTextEntry?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  maxLength?: number;
   testID?: string;
   accessibilityLabel?: string;
 };
@@ -22,6 +23,7 @@ export function FormField({
   keyboardType,
   secureTextEntry,
   autoCapitalize = 'none',
+  maxLength,
   testID,
   accessibilityLabel,
 }: FormFieldProps) {
@@ -40,6 +42,7 @@ export function FormField({
         keyboardType={keyboardType}
         secureTextEntry={secureTextEntry}
         autoCapitalize={autoCapitalize}
+        maxLength={maxLength}
         style={[
           styles.input,
           {

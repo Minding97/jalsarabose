@@ -22,15 +22,7 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 
-import {
-  expenseFromDoc,
-  fridgeItemFromDoc,
-  householdFromDoc,
-  memberFromDoc,
-  monthlyBudgetFromDoc,
-  userProfileFromDoc,
-} from '@/services/firestore-mappers';
-import { requireAuth, requireDb } from '@/services/firebase';
+import { normalizeHouseholdName, validateHouseholdName } from '@/domain/household-settings';
 import {
   Expense,
   FridgeItem,
@@ -40,8 +32,17 @@ import {
   MonthlyBudget,
   UserProfile,
 } from '@/domain/types';
-import { todayIso } from '@/utils/dates';
+import {
+  expenseFromDoc,
+  fridgeItemFromDoc,
+  householdFromDoc,
+  memberFromDoc,
+  monthlyBudgetFromDoc,
+  userProfileFromDoc,
+} from '@/services/firestore-mappers';
+import { requireAuth, requireDb } from '@/services/firebase';
 import { saveMonthlyBudgetWithRevision } from '@/services/monthly-budget-write';
+import { todayIso } from '@/utils/dates';
 
 type ProfilePatch = Partial<Pick<UserProfile, 'activeHouseholdId' | 'displayName'>>;
 type CreateHouseholdInput = {
@@ -103,6 +104,9 @@ export function subscribeUserProfile(uid: string, callback: (profile: UserProfil
 }
 
 export async function createHousehold({ name, owner }: CreateHouseholdInput) {
+  const nameError = validateHouseholdName(name);
+  if (nameError) throw new Error(nameError);
+
   const db = requireDb();
   const householdRef = doc(collection(db, 'households'));
   const inviteCode = createInviteCode();
@@ -117,7 +121,7 @@ export async function createHousehold({ name, owner }: CreateHouseholdInput) {
     }
 
     transaction.set(householdRef, {
-      name: name.trim(),
+      name: normalizeHouseholdName(name),
       inviteCode,
       createdBy: owner.uid,
       createdAt: today,
@@ -148,6 +152,15 @@ export async function createHousehold({ name, owner }: CreateHouseholdInput) {
   });
 
   return householdRef.id;
+}
+
+export function updateHouseholdName(householdId: string, name: string) {
+  const nameError = validateHouseholdName(name);
+  if (nameError) throw new Error(nameError);
+
+  return updateDoc(doc(requireDb(), 'households', householdId), {
+    name: normalizeHouseholdName(name),
+  });
 }
 
 export async function joinHouseholdByInviteCode(code: string, user: UserProfile) {
